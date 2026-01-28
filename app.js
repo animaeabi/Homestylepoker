@@ -15,6 +15,7 @@ const elements = {
   gamePanel: $("#gamePanel"),
   gameTitle: $("#gameTitle"),
   gameCode: $("#gameCode"),
+  gameStatusChip: $("#gameStatusChip"),
   gameName: $("#gameName"),
   currency: $("#currency"),
   defaultBuyIn: $("#defaultBuyIn"),
@@ -23,6 +24,9 @@ const elements = {
   openLink: $("#openLink"),
   joinLink: $("#joinLink"),
   qrCanvas: $("#qrCanvas"),
+  toggleGameStatus: $("#toggleGameStatus"),
+  endNotice: $("#endNotice"),
+  endedAt: $("#endedAt"),
   hostModeToggle: $("#hostModeToggle"),
   hostPanel: $("#hostPanel"),
   summary: $("#summary"),
@@ -39,6 +43,8 @@ const elements = {
   playerCustomAmount: $("#playerCustomAmount"),
   playerAddCustom: $("#playerAddCustom"),
   playerBuyins: $("#playerBuyins"),
+  playerNotice: $("#playerNotice"),
+  playerJoinNotice: $("#playerJoinNotice"),
   logTable: $("#logTable"),
   connectionStatus: $("#connectionStatus"),
   saveStatus: $("#saveStatus")
@@ -52,6 +58,8 @@ const state = {
   playerId: null,
   channel: null
 };
+
+const cashoutCache = new Map();
 
 const configMissing =
   !SUPABASE_URL ||
@@ -95,6 +103,10 @@ function formatTime(iso) {
 
 function formatDateTime(iso) {
   return new Date(iso).toLocaleString();
+}
+
+function isGameEnded() {
+  return Boolean(state.game?.ended_at);
 }
 
 function generateCode() {
@@ -145,6 +157,37 @@ function applyHostMode() {
   elements.defaultBuyIn.disabled = !state.isHost;
   elements.hostPlayerName.disabled = !state.isHost;
   elements.hostAddPlayer.disabled = !state.isHost;
+}
+
+function applyGameStatus() {
+  if (!state.game) return;
+  const endedAt = state.game.ended_at;
+  const ended = Boolean(endedAt);
+
+  if (elements.gameStatusChip) {
+    elements.gameStatusChip.textContent = ended ? "Ended" : "Live";
+    elements.gameStatusChip.dataset.state = ended ? "ended" : "live";
+  }
+
+  elements.endNotice.classList.toggle("hidden", !ended);
+  if (ended && elements.endedAt) {
+    elements.endedAt.textContent = formatDateTime(endedAt);
+  }
+
+  elements.toggleGameStatus.classList.toggle("hidden", !state.isHost);
+  elements.toggleGameStatus.textContent = ended ? "Reopen game" : "End game";
+  elements.toggleGameStatus.classList.toggle("danger", !ended);
+
+  const disableBuyins = ended;
+  elements.playerAddDefault.disabled = disableBuyins;
+  elements.playerAddCustom.disabled = disableBuyins;
+  elements.playerCustomAmount.disabled = disableBuyins;
+  elements.playerName.disabled = disableBuyins;
+  elements.joinAsPlayer.disabled = disableBuyins;
+  elements.playerNotice.classList.toggle("hidden", !ended);
+  elements.playerJoinNotice.classList.toggle("hidden", !ended);
+  elements.hostPlayerName.disabled = !state.isHost || ended;
+  elements.hostAddPlayer.disabled = !state.isHost || ended;
 }
 
 function hydrateInputs() {
@@ -204,6 +247,7 @@ function renderSummary() {
 
 function renderPlayers() {
   const buyinMap = buildBuyinMap();
+  const buyinLocked = isGameEnded();
   elements.players.innerHTML = "";
 
   if (state.players.length === 0) {
@@ -215,6 +259,7 @@ function renderPlayers() {
   }
 
   state.players.forEach((player) => {
+    cashoutCache.set(player.id, Number(player.cashout) || 0);
     const buyins = buyinMap.get(player.id) || [];
     const total = buyins.reduce((sum, item) => sum + Number(item.amount || 0), 0);
     const net = (Number(player.cashout) || 0) - total;
@@ -246,12 +291,18 @@ function renderPlayers() {
           <span>Cash out</span>
           <input data-role="cashout" type="number" min="0" step="1" value="${
             Number(player.cashout) || 0
-          }" />
+          }" data-last="${Number(player.cashout) || 0}" />
         </label>
       </div>
     `;
 
     elements.players.appendChild(card);
+
+    if (buyinLocked) {
+      card.querySelector("[data-action='add-default']").disabled = true;
+      card.querySelector("[data-role='custom']").disabled = true;
+      card.querySelector("[data-action='add-custom']").disabled = true;
+    }
   });
 }
 
@@ -352,6 +403,7 @@ function renderAll() {
   elements.gamePanel.classList.remove("hidden");
   hydrateInputs();
   applyHostMode();
+  applyGameStatus();
   renderSummary();
   renderPlayers();
   renderPlayerSeat();
@@ -481,6 +533,10 @@ async function createGame() {
 
 async function joinAsPlayer() {
   if (!supabase || !state.game) return;
+  if (isGameEnded()) {
+    setStatus("Game ended. New players are closed.", "error");
+    return;
+  }
   const name = safeTrim(elements.playerName.value);
   if (!name) return;
 
@@ -503,6 +559,10 @@ async function joinAsPlayer() {
 
 async function addPlayerByName(name) {
   if (!supabase || !state.game) return;
+  if (isGameEnded()) {
+    setStatus("Game ended. New players are closed.", "error");
+    return;
+  }
   const trimmed = safeTrim(name);
   if (!trimmed) return;
 
@@ -520,6 +580,10 @@ async function addPlayerByName(name) {
 
 async function addBuyin(playerId, amount) {
   if (!supabase || !state.game) return;
+  if (isGameEnded()) {
+    setStatus("Game ended. Buy-ins are locked.", "error");
+    return;
+  }
   const numeric = Number(amount);
   if (!Number.isFinite(numeric) || numeric <= 0) return;
 
@@ -538,6 +602,7 @@ async function addBuyin(playerId, amount) {
 async function updateCashout(playerId, value) {
   if (!supabase) return;
   const numeric = Number(value);
+  setStatus("Saving cashout…");
   const { error } = await supabase
     .from("players")
     .update({ cashout: Number.isFinite(numeric) ? numeric : 0 })
@@ -545,7 +610,23 @@ async function updateCashout(playerId, value) {
 
   if (error) {
     setStatus("Cashout update failed", "error");
+    return;
   }
+
+  await refreshData();
+  setStatus("Cashout updated");
+}
+
+function handleCashoutCommit(event) {
+  if (!state.isHost) return;
+  if (event.target.dataset.role !== "cashout") return;
+  const tile = event.target.closest(".player-tile");
+  if (!tile) return;
+  const playerId = tile.dataset.playerId;
+  const numeric = Number(event.target.value);
+  const last = cashoutCache.get(playerId);
+  if (Number.isFinite(numeric) && numeric === last) return;
+  updateCashout(playerId, event.target.value);
 }
 
 async function removePlayer(playerId) {
@@ -587,6 +668,28 @@ async function updateGameSettings() {
   await refreshData();
 }
 
+async function toggleGameStatus() {
+  if (!supabase || !state.game || !state.isHost) return;
+  const ended = isGameEnded();
+
+  if (!ended && !window.confirm("End this game? Buy-ins will be locked.")) {
+    return;
+  }
+
+  const { error } = await supabase
+    .from("games")
+    .update({ ended_at: ended ? null : new Date().toISOString() })
+    .eq("id", state.game.id);
+
+  if (error) {
+    setStatus("Could not update game status", "error");
+    return;
+  }
+
+  await refreshData();
+  setStatus(ended ? "Game reopened" : "Game ended");
+}
+
 if (!configMissing) {
   const params = new URLSearchParams(window.location.search);
   const incomingCode = safeTrim(params.get("code"));
@@ -620,6 +723,10 @@ elements.copyLinkInline.addEventListener("click", () => {
 elements.openLink.addEventListener("click", () => {
   if (!state.game) return;
   window.open(getJoinLink(), "_blank");
+});
+
+elements.toggleGameStatus.addEventListener("click", () => {
+  toggleGameStatus();
 });
 
 elements.hostModeToggle.addEventListener("change", () => {
@@ -669,18 +776,17 @@ elements.players.addEventListener("click", (event) => {
   }
 });
 
-elements.players.addEventListener("change", (event) => {
-  if (!state.isHost) return;
-  if (event.target.dataset.role === "cashout") {
-    const tile = event.target.closest(".player-tile");
-    if (!tile) return;
-    updateCashout(tile.dataset.playerId, event.target.value);
-  }
-});
+elements.players.addEventListener("change", handleCashoutCommit);
+elements.players.addEventListener("blur", handleCashoutCommit, true);
 
 elements.players.addEventListener("keydown", (event) => {
   if (!state.isHost) return;
   if (event.key !== "Enter") return;
+  if (event.target.dataset.role === "cashout") {
+    event.preventDefault();
+    handleCashoutCommit(event);
+    return;
+  }
   if (event.target.dataset.role !== "custom") return;
   const tile = event.target.closest(".player-tile");
   if (!tile) return;

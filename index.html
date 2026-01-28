@@ -78,16 +78,28 @@
               Code
               <strong id="gameCode">—</strong>
             </div>
+            <div class="info-chip status-chip">
+              Status
+              <strong id="gameStatusChip">Live</strong>
+            </div>
           </div>
           <div class="game-actions">
             <button id="copyLink" class="ghost">Copy join link</button>
             <button id="openLink" class="ghost">Open join link</button>
+            <button id="toggleGameStatus" class="ghost">End game</button>
             <label class="toggle">
               <input type="checkbox" id="hostModeToggle" />
               <span>Host mode</span>
             </label>
           </div>
         </div>
+
+        <section id="endNotice" class="banner banner-danger hidden">
+          <div>
+            <strong>Game ended.</strong>
+            <p>Ended at <span id="endedAt">—</span>. Buy-ins are locked.</p>
+          </div>
+        </section>
 
         <div class="join-panel">
           <div class="join-card">
@@ -147,6 +159,7 @@
                 <input id="playerName" type="text" placeholder="Name" />
               </label>
               <button id="joinAsPlayer" class="primary">Join this game</button>
+              <p id="playerJoinNotice" class="muted hidden">Game ended — new players are closed.</p>
             </div>
             <div id="playerSeat" class="player-seat hidden">
               <div id="playerCard" class="player-card"></div>
@@ -157,6 +170,7 @@
                   <button id="playerAddCustom" class="ghost">Add buy-in</button>
                 </div>
               </div>
+              <p id="playerNotice" class="muted hidden">Game ended — buy-ins are locked.</p>
               <div id="playerBuyins" class="player-buyins"></div>
             </div>
           </section>

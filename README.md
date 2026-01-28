@@ -14,6 +14,7 @@ create table if not exists games (
   name text not null,
   currency text default '$',
   default_buyin numeric default 20,
+  ended_at timestamptz,
   created_at timestamptz default now()
 );
 
@@ -39,6 +40,11 @@ create index if not exists idx_buyins_game_id on buyins(game_id);
 
 - In Supabase, enable Realtime for `games`, `players`, and `buyins`.
 - Leave Row Level Security (RLS) **off** for the basic setup.
+- If you created the tables earlier, run:
+
+```sql
+alter table games add column if not exists ended_at timestamptz;
+```
 
 ## 2) Add your keys
 
