@@ -56,6 +56,7 @@ body.theme-light .danger-outline {
 body.theme-light .info-chip,
 body.theme-light .summary-card,
 body.theme-light .recent-item,
+body.theme-light .recent-group,
 body.theme-light .table-row,
 body.theme-light .settle-row,
 body.theme-light .settlement-row {
@@ -64,6 +65,11 @@ body.theme-light .settlement-row {
 
 body.theme-light .table-row.header {
   background: rgba(31, 111, 92, 0.16);
+}
+
+body.theme-light .recent-summary strong {
+  background: rgba(31, 111, 92, 0.16);
+  color: #1a2a25;
 }
 
 * {
@@ -197,6 +203,47 @@ body::before {
 .recent-games {
   display: grid;
   gap: 10px;
+}
+
+.recent-group {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.recent-group[open] {
+  box-shadow: 0 0 0 1px rgba(210, 166, 78, 0.2);
+}
+
+.recent-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  cursor: pointer;
+  padding: 6px 8px;
+  font-size: 0.85rem;
+  color: var(--ink);
+  list-style: none;
+}
+
+.recent-summary::-webkit-details-marker {
+  display: none;
+}
+
+.recent-summary strong {
+  background: rgba(210, 166, 78, 0.2);
+  color: var(--ink);
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+}
+
+.recent-group-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
 }
 
 .recent-item {

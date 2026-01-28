@@ -183,6 +183,12 @@ function recordRecentGame(game) {
   renderRecentGames(next);
 }
 
+function getGameDate(game) {
+  const value = game.ended_at || game.created_at;
+  const date = value ? new Date(value) : new Date(0);
+  return Number.isNaN(date.getTime()) ? new Date(0) : date;
+}
+
 function renderRecentGames(list = loadRecentGames()) {
   if (!elements.recentGames) return;
   elements.recentGames.innerHTML = "";
@@ -194,18 +200,55 @@ function renderRecentGames(list = loadRecentGames()) {
     return;
   }
 
-  list.forEach((game) => {
-    const row = document.createElement("div");
-    row.className = "recent-item";
-    const dateLabel = formatShortDate(game.ended_at || game.created_at);
-    row.innerHTML = `
-      <div>
-        <strong>${game.name || "Home Game"}</strong>
-        <span>${dateLabel} · ${game.code}</span>
-      </div>
-      <button class="ghost" data-action="open" data-code="${game.code}">Open</button>
+  const sorted = list
+    .slice()
+    .sort((a, b) => getGameDate(b).getTime() - getGameDate(a).getTime());
+
+  const groups = new Map();
+  sorted.forEach((game) => {
+    const date = getGameDate(game);
+    const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+    const label = date.toLocaleString(undefined, { month: "long", year: "numeric" });
+    if (!groups.has(key)) {
+      groups.set(key, { label, games: [] });
+    }
+    groups.get(key).games.push(game);
+  });
+
+  const groupEntries = Array.from(groups.entries()).sort((a, b) => (a[0] < b[0] ? 1 : -1));
+
+  groupEntries.forEach(([key, group], index) => {
+    const details = document.createElement("details");
+    details.className = "recent-group";
+    if (index === 0) details.open = true;
+
+    const summary = document.createElement("summary");
+    summary.className = "recent-summary";
+    summary.innerHTML = `
+      <span>${group.label}</span>
+      <strong>${group.games.length}</strong>
     `;
-    elements.recentGames.appendChild(row);
+    details.appendChild(summary);
+
+    const listWrap = document.createElement("div");
+    listWrap.className = "recent-group-list";
+
+    group.games.forEach((game) => {
+      const row = document.createElement("div");
+      row.className = "recent-item";
+      const dateLabel = formatShortDate(game.ended_at || game.created_at);
+      row.innerHTML = `
+        <div>
+          <strong>${game.name || "Home Game"}</strong>
+          <span>${dateLabel} · ${game.code}</span>
+        </div>
+        <button class="ghost" data-action="open" data-code="${game.code}">Open</button>
+      `;
+      listWrap.appendChild(row);
+    });
+
+    details.appendChild(listWrap);
+    elements.recentGames.appendChild(details);
   });
 }
 
