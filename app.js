@@ -745,7 +745,19 @@ function renderSettlementSummary() {
 
     const header = document.createElement("div");
     header.className = "panel-title";
-    header.innerHTML = `<h2>${title}</h2><p>Final chips on hand by player.</p>`;
+    if (node === elements.playerSettledSummary) {
+      header.innerHTML = `
+        <div class="summary-header">
+          <div>
+            <h2>${title}</h2>
+            <p>Final chips on hand by player.</p>
+          </div>
+          <button class="ghost" type="button" data-action="home">Home</button>
+        </div>
+      `;
+    } else {
+      header.innerHTML = `<h2>${title}</h2><p>Final chips on hand by player.</p>`;
+    }
     node.appendChild(header);
 
     if (!rows.length) {
@@ -1371,6 +1383,15 @@ if (elements.playerMatchList) {
     elements.playerMatchList.innerHTML = "";
     elements.playerName.value = "";
     await refreshData();
+  });
+}
+
+if (elements.playerSettledSummary) {
+  elements.playerSettledSummary.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-action='home']");
+    if (!button) return;
+    clearCurrentGame();
+    setStatus("Ready");
   });
 }
 

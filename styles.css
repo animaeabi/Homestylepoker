@@ -610,6 +610,17 @@ button:disabled {
   color: var(--muted);
 }
 
+.summary-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.summary-header button {
+  white-space: nowrap;
+}
+
 .summary {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
