@@ -20,6 +20,7 @@ const elements = {
   gameName: $("#gameName"),
   currency: $("#currency"),
   defaultBuyIn: $("#defaultBuyIn"),
+  leaveGame: $("#leaveGame"),
   copyLink: $("#copyLink"),
   copyLinkInline: $("#copyLinkInline"),
   openLink: $("#openLink"),
@@ -970,6 +971,15 @@ elements.openLink.addEventListener("click", () => {
   if (!state.game) return;
   window.open(getJoinLink(), "_blank");
 });
+
+if (elements.leaveGame) {
+  elements.leaveGame.addEventListener("click", () => {
+    if (!state.game) return;
+    if (!window.confirm("Leave this game and return home?")) return;
+    clearCurrentGame();
+    setStatus("Ready");
+  });
+}
 
 if (elements.openSettle) {
   elements.openSettle.addEventListener("click", openSettlePanel);
