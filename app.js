@@ -166,6 +166,26 @@ function saveRecentGames(list) {
   localStorage.setItem(recentGamesKey, JSON.stringify(list));
 }
 
+async function refreshRecentGames() {
+  if (!elements.recentGames) return;
+  if (!supabase) {
+    renderRecentGames();
+    return;
+  }
+
+  const { data, error } = await supabase
+    .from("games")
+    .select("code,name,created_at,ended_at")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    renderRecentGames();
+    return;
+  }
+
+  renderRecentGames(data || []);
+}
+
 function recordRecentGame(game) {
   if (!game) return;
   const list = loadRecentGames();
@@ -1218,7 +1238,7 @@ function clearCurrentGame() {
   if (elements.playerSettledSummary) elements.playerSettledSummary.classList.add("hidden");
   elements.landing.classList.remove("hidden");
   history.replaceState({}, "", window.location.pathname);
-  renderRecentGames();
+  refreshRecentGames();
   setConnection("Offline");
 }
 
@@ -1281,17 +1301,17 @@ async function submitSettlement(event) {
   clearCurrentGame();
 }
 
-if (!configMissing) {
-  const params = new URLSearchParams(window.location.search);
-  const incomingCode = safeTrim(params.get("code"));
-  if (incomingCode) {
-    loadGameByCode(incomingCode);
+  if (!configMissing) {
+    const params = new URLSearchParams(window.location.search);
+    const incomingCode = safeTrim(params.get("code"));
+    if (incomingCode) {
+      loadGameByCode(incomingCode);
+    } else {
+      refreshRecentGames();
+    }
   } else {
     renderRecentGames();
   }
-} else {
-  renderRecentGames();
-}
 
 initTheme();
 
