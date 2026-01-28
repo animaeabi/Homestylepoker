@@ -1232,6 +1232,7 @@ async function submitSettlement(event) {
 
   const rows = Array.from(elements.settleList.querySelectorAll(".settle-row"));
   const entries = [];
+  let settledTotal = 0;
   for (const row of rows) {
     const input = row.querySelector("input");
     const playerId = row.dataset.playerId;
@@ -1241,7 +1242,19 @@ async function submitSettlement(event) {
       input.focus();
       return;
     }
+    settledTotal += amount;
     entries.push({ game_id: state.game.id, player_id: playerId, amount });
+  }
+
+  const { totalBuyins } = computeSummary();
+  if (Math.abs(settledTotal - totalBuyins) > 0.01) {
+    setStatus(
+      `Count error: settlement ${formatCurrency(settledTotal)} does not match pot ${formatCurrency(
+        totalBuyins
+      )}.`,
+      "error"
+    );
+    return;
   }
 
   const { error: settlementError } = await supabase.from("settlements").insert(entries);
