@@ -178,7 +178,7 @@ function recordRecentGame(game) {
       ended_at: game.ended_at || null
     },
     ...list.filter((item) => item.code !== game.code)
-  ].slice(0, 8);
+  ];
   saveRecentGames(next);
   renderRecentGames(next);
 }
