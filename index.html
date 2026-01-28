@@ -16,9 +16,9 @@
     <div class="app">
       <header class="topbar">
         <div class="brand">
-          <span class="brand-chip">Home Game</span>
-          <h1>Buy-in Tracker</h1>
-          <p>Real-time buy-ins for any table. Share a link, everyone taps in.</p>
+          <span class="brand-chip">HOME GAME</span>
+          <h1>Poker Nights</h1>
+          <p>If Someone’s down bad. The pot knows.</p>
         </div>
         <div class="top-actions">
           <div class="brand-meta">
@@ -32,37 +32,32 @@
 
       <section id="landing" class="landing">
         <div class="landing-card">
-          <h2>Start new game</h2>
+          <h2>Let’s play</h2>
           <label class="field">
             <span>Game name</span>
             <input id="newGameName" type="text" placeholder="Friday Night Hold'em" />
           </label>
-          <div class="row">
-            <label class="field">
-              <span>Currency</span>
-              <input id="newCurrency" type="text" maxlength="3" placeholder="$" />
-            </label>
-            <label class="field">
-              <span>Default buy-in</span>
-              <input id="newBuyIn" type="number" min="1" step="1" placeholder="20" />
-            </label>
-          </div>
-          <button id="createGame" class="primary">Create game</button>
+          <label class="field">
+            <span>Default buy-in</span>
+            <small>Used for every buy-in</small>
+            <input id="newBuyIn" type="number" min="1" step="1" placeholder="10" value="10" />
+          </label>
+          <button id="createGame" class="primary">Host a game</button>
+          <p class="hint">You’ll be the host for this game (can’t be changed).</p>
         </div>
 
         <div class="landing-card">
-          <h2>Join a game</h2>
+          <h2>Join the table</h2>
           <label class="field">
             <span>Game code</span>
             <input id="joinCode" type="text" placeholder="AB12CD" />
           </label>
-          <button id="joinGame" class="ghost">Join with code</button>
-          <p class="hint">Already have a link? Open it to join automatically.</p>
+          <button id="joinGame" class="ghost">SIT</button>
         </div>
 
         <div class="landing-card">
-          <h2>Recent games</h2>
-          <p class="muted">Reopen past games by date or code from this device.</p>
+          <h2>Recent Sessions</h2>
+          <p class="muted">Reopen games from this device.</p>
           <div id="recentGames" class="recent-games"></div>
         </div>
       </section>
@@ -196,7 +191,7 @@
                 <span>Your name</span>
                 <input id="playerName" type="text" placeholder="Name" />
               </label>
-              <button id="joinAsPlayer" class="primary">Join this game</button>
+              <button id="joinAsPlayer" class="primary">Join game</button>
               <div id="playerMatchList" class="match-list hidden"></div>
               <p id="playerJoinNotice" class="muted hidden">Game settled — new players are closed.</p>
             </div>
@@ -215,7 +210,7 @@
 
       <footer class="footer">
         <span id="connectionStatus">Offline</span>
-        <span id="saveStatus">Ready</span>
+        <span id="saveStatus"></span>
       </footer>
     </div>
 

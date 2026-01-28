@@ -7,7 +7,6 @@ const $ = (selector) => document.querySelector(selector);
 const elements = {
   landing: $("#landing"),
   newGameName: $("#newGameName"),
-  newCurrency: $("#newCurrency"),
   newBuyIn: $("#newBuyIn"),
   createGame: $("#createGame"),
   joinCode: $("#joinCode"),
@@ -365,6 +364,9 @@ function applyHostMode() {
     if (isGameSettled() && !state.isHost) {
       elements.playerPanelHeading.textContent = "Summary";
       elements.playerPanelSubtitle.textContent = "Final results for this game.";
+    } else if (!state.isHost) {
+      elements.playerPanelHeading.textContent = "Player";
+      elements.playerPanelSubtitle.textContent = "";
     } else {
       elements.playerPanelHeading.textContent = "Player";
       elements.playerPanelSubtitle.textContent = "Join once, tap to add buy-ins.";
@@ -673,54 +675,45 @@ function renderPlayerSeat() {
       clearStoredPlayer(state.game.code);
       state.playerId = null;
     }
-  if (elements.playerMatchList) {
-    elements.playerMatchList.classList.add("hidden");
-    elements.playerMatchList.innerHTML = "";
+    if (elements.playerMatchList) {
+      elements.playerMatchList.classList.add("hidden");
+      elements.playerMatchList.innerHTML = "";
+    }
+    elements.playerJoin.classList.remove("hidden");
+    elements.playerSeat.classList.add("hidden");
+    elements.playerBuyins.classList.add("hidden");
+    if (elements.playerSettledSummary) {
+      elements.playerSettledSummary.classList.add("hidden");
+    }
+    return;
   }
-  elements.playerJoin.classList.remove("hidden");
-  elements.playerSeat.classList.add("hidden");
-  if (elements.playerSettledSummary) {
-    elements.playerSettledSummary.classList.add("hidden");
-  }
-  return;
-}
 
   const buyins = state.buyins.filter((item) => item.player_id === player.id);
   const total = buyins.reduce((sum, item) => sum + Number(item.amount || 0), 0);
 
   elements.playerJoin.classList.add("hidden");
   elements.playerSeat.classList.remove("hidden");
+  elements.playerBuyins.classList.add("hidden");
   if (elements.playerSettledSummary) {
     elements.playerSettledSummary.classList.add("hidden");
   }
   elements.playerCard.innerHTML = `
     <strong>${player.name}</strong>
-    <div>Buy-ins: ${buyins.length} · ${formatCurrency(total)}</div>
+    <div class="player-metrics">
+      <div>
+        <span>Buy-ins</span>
+        <strong>${buyins.length}</strong>
+      </div>
+      <div>
+        <span>Total</span>
+        <strong>${formatCurrency(total)}</strong>
+      </div>
+    </div>
   `;
 
   elements.playerAddDefault.textContent = `Add buy-in (${formatCurrency(
     state.game?.default_buyin || 0
   )})`;
-
-  elements.playerBuyins.innerHTML = "";
-  if (buyins.length === 0) {
-    const chip = document.createElement("span");
-    chip.className = "buyin-chip";
-    chip.textContent = "No buy-ins yet";
-    elements.playerBuyins.appendChild(chip);
-    return;
-  }
-
-  buyins
-    .slice()
-    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
-    .slice(0, 6)
-    .forEach((buyin) => {
-      const chip = document.createElement("span");
-      chip.className = "buyin-chip";
-      chip.textContent = `${formatCurrency(buyin.amount)} · ${formatTime(buyin.created_at)}`;
-      elements.playerBuyins.appendChild(chip);
-    });
 }
 
 function renderLog() {
@@ -942,13 +935,9 @@ async function loadGameByCode(code) {
   state.game = data;
   const storedPlayer = loadStoredPlayer(state.game.code);
   const storedHost = localStorage.getItem(hostKey(state.game.code)) === "true";
-  const hostParam = new URLSearchParams(window.location.search).get("host");
   state.playerId = storedPlayer?.id || null;
-  state.canHost = hostParam === "1" || storedHost;
+  state.canHost = storedHost;
   state.isHost = state.canHost;
-  if (hostParam === "1") {
-    localStorage.setItem(hostKey(state.game.code), "true");
-  }
   history.replaceState({}, "", state.isHost ? getHostLink() : getJoinLink());
   if (!state.isHost && storedPlayer?.name) {
     elements.playerName.value = storedPlayer.name;
@@ -966,8 +955,8 @@ async function loadGameByCode(code) {
 async function createGame() {
   if (!supabase) return;
   const name = safeTrim(elements.newGameName.value) || "Home Game";
-  const currency = safeTrim(elements.newCurrency.value) || "$";
-  const defaultBuyIn = Number(elements.newBuyIn.value) || 20;
+  const currency = "$";
+  const defaultBuyIn = Number(elements.newBuyIn.value) || 10;
   let code = generateCode();
 
   let result = await supabase
@@ -996,6 +985,17 @@ async function createGame() {
   localStorage.setItem(hostKey(state.game.code), "true");
   history.replaceState({}, "", getHostLink());
   recordRecentGame(state.game);
+
+  const { data: hostPlayer, error: hostError } = await supabase
+    .from("players")
+    .insert({ game_id: state.game.id, name: "You (Host)" })
+    .select()
+    .single();
+
+  if (!hostError && hostPlayer) {
+    state.playerId = hostPlayer.id;
+    saveStoredPlayer(state.game.code, { id: hostPlayer.id, name: hostPlayer.name });
+  }
 
   renderAll();
   await refreshData();
