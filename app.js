@@ -728,8 +728,8 @@ function renderLog() {
 function renderSettlementSummary() {
   const settled = isGameSettled();
   const containers = [
-    { node: elements.settlementSummary, visible: settled && state.isHost, title: "Settlement" },
-    { node: elements.playerSettledSummary, visible: settled && !state.isHost, title: "Game settled" }
+    { node: elements.settlementSummary, visible: settled && state.isHost, title: "Settlement", showHome: true },
+    { node: elements.playerSettledSummary, visible: settled && !state.isHost, title: "Game settled", showHome: true }
   ];
 
   const playerLookup = new Map(state.players.map((player) => [player.id, player.name]));
@@ -737,7 +737,7 @@ function renderSettlementSummary() {
     .slice()
     .sort((a, b) => (playerLookup.get(a.player_id) || "").localeCompare(playerLookup.get(b.player_id) || ""));
 
-  containers.forEach(({ node, visible, title }) => {
+  containers.forEach(({ node, visible, title, showHome }) => {
     if (!node) return;
     node.innerHTML = "";
     node.classList.toggle("hidden", !visible);
@@ -745,7 +745,7 @@ function renderSettlementSummary() {
 
     const header = document.createElement("div");
     header.className = "panel-title";
-    if (node === elements.playerSettledSummary) {
+    if (showHome) {
       header.innerHTML = `
         <div class="summary-header">
           <div>
@@ -1388,6 +1388,15 @@ if (elements.playerMatchList) {
 
 if (elements.playerSettledSummary) {
   elements.playerSettledSummary.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-action='home']");
+    if (!button) return;
+    clearCurrentGame();
+    setStatus("Ready");
+  });
+}
+
+if (elements.settlementSummary) {
+  elements.settlementSummary.addEventListener("click", (event) => {
     const button = event.target.closest("button[data-action='home']");
     if (!button) return;
     clearCurrentGame();
