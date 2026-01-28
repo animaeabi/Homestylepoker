@@ -47,6 +47,7 @@ const elements = {
   playerJoin: $("#playerJoin"),
   playerName: $("#playerName"),
   joinAsPlayer: $("#joinAsPlayer"),
+  playerMatchList: $("#playerMatchList"),
   playerSeat: $("#playerSeat"),
   playerCard: $("#playerCard"),
   playerAddDefault: $("#playerAddDefault"),
@@ -92,6 +93,10 @@ const hostKey = (code) => `poker_host_${code}`;
 const recentGamesKey = "poker_recent_games";
 
 const safeTrim = (value) => (value || "").trim();
+
+function normalizeName(name) {
+  return safeTrim(name).replace(/\s+/g, " ").toLowerCase();
+}
 
 function loadStoredPlayer(code) {
   if (!code) return null;
@@ -576,6 +581,10 @@ function renderPlayerSeat() {
       clearStoredPlayer(state.game.code);
       state.playerId = null;
     }
+    if (elements.playerMatchList) {
+      elements.playerMatchList.classList.add("hidden");
+      elements.playerMatchList.innerHTML = "";
+    }
     elements.playerJoin.classList.remove("hidden");
     elements.playerSeat.classList.add("hidden");
     return;
@@ -885,6 +894,37 @@ async function joinAsPlayer() {
   }
   const name = safeTrim(elements.playerName.value);
   if (!name) return;
+
+  const normalized = normalizeName(name);
+  const matches = state.players.filter((player) => normalizeName(player.name) === normalized);
+  if (matches.length === 1) {
+    state.playerId = matches[0].id;
+    saveStoredPlayer(state.game.code, { id: matches[0].id, name: matches[0].name });
+    elements.playerName.value = "";
+    if (elements.playerMatchList) {
+      elements.playerMatchList.classList.add("hidden");
+      elements.playerMatchList.innerHTML = "";
+    }
+    await refreshData();
+    return;
+  }
+
+  if (matches.length > 1) {
+    if (elements.playerMatchList) {
+      elements.playerMatchList.classList.remove("hidden");
+      elements.playerMatchList.innerHTML = "<p class=\"muted\">Select your seat:</p>";
+      matches.forEach((player) => {
+        const button = document.createElement("button");
+        button.className = "ghost match-button";
+        const joined = formatTime(player.created_at);
+        button.textContent = `${player.name} · joined ${joined}`;
+        button.dataset.playerId = player.id;
+        elements.playerMatchList.appendChild(button);
+      });
+    }
+    setStatus("Choose your existing seat.", "info");
+    return;
+  }
 
   const { data, error } = await supabase
     .from("players")
@@ -1237,9 +1277,32 @@ elements.joinAsPlayer.addEventListener("click", () => {
   joinAsPlayer();
 });
 
+if (elements.playerMatchList) {
+  elements.playerMatchList.addEventListener("click", async (event) => {
+    const button = event.target.closest("button[data-player-id]");
+    if (!button) return;
+    const playerId = button.dataset.playerId;
+    const player = state.players.find((item) => item.id === playerId);
+    if (!player || !state.game) return;
+    state.playerId = player.id;
+    saveStoredPlayer(state.game.code, { id: player.id, name: player.name });
+    elements.playerMatchList.classList.add("hidden");
+    elements.playerMatchList.innerHTML = "";
+    elements.playerName.value = "";
+    await refreshData();
+  });
+}
+
 elements.playerName.addEventListener("keydown", (event) => {
   if (event.key === "Enter") {
     joinAsPlayer();
+  }
+});
+
+elements.playerName.addEventListener("input", () => {
+  if (elements.playerMatchList) {
+    elements.playerMatchList.classList.add("hidden");
+    elements.playerMatchList.innerHTML = "";
   }
 });
 
