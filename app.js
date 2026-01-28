@@ -828,7 +828,10 @@ function renderSettleList() {
 }
 
 function openSettlePanel() {
-  if (!state.isHost || !state.game) return;
+  if (!state.isHost || !state.game) {
+    setStatus("Enable host mode to settle.", "error");
+    return;
+  }
   if (isGameSettled()) {
     setStatus("Game already settled.", "error");
     return;
@@ -843,6 +846,7 @@ function openSettlePanel() {
   }
   elements.settlePanel.classList.remove("hidden");
   renderSettleList();
+  elements.settlePanel.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function closeSettlePanel() {
@@ -982,6 +986,7 @@ elements.hostModeToggle.addEventListener("change", () => {
   state.isHost = elements.hostModeToggle.checked;
   localStorage.setItem(hostKey(state.game.code), String(state.isHost));
   applyHostMode();
+  applyGameStatus();
 });
 
 elements.hostAddPlayer.addEventListener("click", async () => {
