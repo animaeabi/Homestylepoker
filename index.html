@@ -14,51 +14,55 @@
   </head>
   <body>
     <div class="app">
-      <header class="hero">
-        <div class="hero-copy">
-          <p class="eyebrow">Home Game Suite</p>
-          <h1>Real-time Poker Buy-ins</h1>
-          <p class="subtitle">
-            Create a game, share a link or QR, and let every player add their own buy-ins. Runs on
-            any phone, updates instantly.
-          </p>
-          <div class="hero-meta">
-            <span>6–8 players friendly</span>
-            <span>No accounts required</span>
-            <span>Auto-saved</span>
-          </div>
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-chip">Home Game</span>
+          <h1>Buy-in Tracker</h1>
+          <p>Real-time buy-ins for any table. Share a link, everyone taps in.</p>
         </div>
-        <div class="hero-card">
-          <section class="card-section">
-            <h2>Start a game</h2>
-            <label class="field">
-              <span>Game name</span>
-              <input id="newGameName" type="text" placeholder="Friday Night Hold'em" />
-            </label>
-            <div class="row">
-              <label class="field">
-                <span>Currency</span>
-                <input id="newCurrency" type="text" maxlength="3" placeholder="$" />
-              </label>
-              <label class="field">
-                <span>Default buy-in</span>
-                <input id="newBuyIn" type="number" min="1" step="1" placeholder="20" />
-              </label>
-            </div>
-            <button id="createGame" class="primary">Create game</button>
-          </section>
-          <div class="divider"></div>
-          <section class="card-section">
-            <h2>Join a game</h2>
-            <label class="field">
-              <span>Game code</span>
-              <input id="joinCode" type="text" placeholder="AB12CD" />
-            </label>
-            <button id="joinGame" class="ghost">Join with code</button>
-            <p class="hint">Already have a link? Open it to join automatically.</p>
-          </section>
+        <div class="brand-meta">
+          <span>Realtime</span>
+          <span>Mobile-first</span>
+          <span>Autosave</span>
         </div>
       </header>
+
+      <section id="landing" class="landing">
+        <div class="landing-card">
+          <h2>Start new game</h2>
+          <label class="field">
+            <span>Game name</span>
+            <input id="newGameName" type="text" placeholder="Friday Night Hold'em" />
+          </label>
+          <div class="row">
+            <label class="field">
+              <span>Currency</span>
+              <input id="newCurrency" type="text" maxlength="3" placeholder="$" />
+            </label>
+            <label class="field">
+              <span>Default buy-in</span>
+              <input id="newBuyIn" type="number" min="1" step="1" placeholder="20" />
+            </label>
+          </div>
+          <button id="createGame" class="primary">Create game</button>
+        </div>
+
+        <div class="landing-card">
+          <h2>Join a game</h2>
+          <label class="field">
+            <span>Game code</span>
+            <input id="joinCode" type="text" placeholder="AB12CD" />
+          </label>
+          <button id="joinGame" class="ghost">Join with code</button>
+          <p class="hint">Already have a link? Open it to join automatically.</p>
+        </div>
+
+        <div class="landing-card">
+          <h2>Recent games</h2>
+          <p class="muted">Reopen past games by date or code from this device.</p>
+          <div id="recentGames" class="recent-games"></div>
+        </div>
+      </section>
 
       <section id="configNotice" class="banner hidden">
         <div>
@@ -86,7 +90,6 @@
           <div class="game-actions">
             <button id="copyLink" class="ghost">Copy join link</button>
             <button id="openLink" class="ghost">Open join link</button>
-            <button id="toggleGameStatus" class="ghost">End game</button>
             <label class="toggle">
               <input type="checkbox" id="hostModeToggle" />
               <span>Host mode</span>
@@ -94,17 +97,17 @@
           </div>
         </div>
 
-        <section id="endNotice" class="banner banner-danger hidden">
+        <section id="settledNotice" class="banner banner-danger hidden">
           <div>
-            <strong>Game ended.</strong>
-            <p>Ended at <span id="endedAt">—</span>. Buy-ins are locked.</p>
+            <strong>Game settled.</strong>
+            <p>Settled at <span id="settledAt">—</span>. Buy-ins are locked.</p>
           </div>
         </section>
 
         <div class="join-panel">
           <div class="join-card">
             <h3>Share this game</h3>
-            <p>Players can join with the link or QR code.</p>
+            <p>Players join with the link or QR.</p>
             <div class="link-row">
               <input id="joinLink" type="text" readonly />
               <button id="copyLinkInline" class="ghost">Copy</button>
@@ -134,8 +137,8 @@
         <div class="columns">
           <section id="hostPanel" class="panel">
             <div class="panel-title">
-              <h2>Host dashboard</h2>
-              <p>Totals update in real time as players buy in.</p>
+              <h2>Host</h2>
+              <p>Live totals as players buy in.</p>
             </div>
             <div id="summary" class="summary"></div>
             <div class="host-actions">
@@ -143,15 +146,32 @@
                 <span>Add player (optional)</span>
                 <input id="hostPlayerName" type="text" placeholder="Player name" />
               </label>
-              <button id="hostAddPlayer" class="primary">Add player</button>
+              <div class="action-row">
+                <button id="hostAddPlayer" class="primary">Add player</button>
+                <button id="openSettle" class="ghost">Settle game</button>
+              </div>
             </div>
             <div id="players" class="players"></div>
+            <section id="settlePanel" class="settle-panel hidden">
+              <div class="panel-title">
+                <h2>Settle</h2>
+                <p>Enter each player’s remaining chips. This ends the game and saves the results.</p>
+              </div>
+              <form id="settleForm" class="settle-form">
+                <div id="settleList" class="settle-list"></div>
+                <div class="settle-actions">
+                  <button id="settleCancel" type="button" class="ghost">Cancel</button>
+                  <button type="submit" class="primary">Save settlement</button>
+                </div>
+              </form>
+            </section>
+            <section id="settlementSummary" class="settlement-summary hidden"></section>
           </section>
 
           <section id="playerPanel" class="panel">
             <div class="panel-title">
-              <h2>Your seat</h2>
-              <p>Join once, then tap to add buy-ins from your phone.</p>
+              <h2>Player</h2>
+              <p>Join once, tap to add buy-ins.</p>
             </div>
             <div id="playerJoin" class="player-join">
               <label class="field">
@@ -159,7 +179,7 @@
                 <input id="playerName" type="text" placeholder="Name" />
               </label>
               <button id="joinAsPlayer" class="primary">Join this game</button>
-              <p id="playerJoinNotice" class="muted hidden">Game ended — new players are closed.</p>
+              <p id="playerJoinNotice" class="muted hidden">Game settled — new players are closed.</p>
             </div>
             <div id="playerSeat" class="player-seat hidden">
               <div id="playerCard" class="player-card"></div>
@@ -170,7 +190,7 @@
                   <button id="playerAddCustom" class="ghost">Add buy-in</button>
                 </div>
               </div>
-              <p id="playerNotice" class="muted hidden">Game ended — buy-ins are locked.</p>
+              <p id="playerNotice" class="muted hidden">Game settled — buy-ins are locked.</p>
               <div id="playerBuyins" class="player-buyins"></div>
             </div>
           </section>
@@ -178,8 +198,8 @@
 
         <section class="panel log">
           <div class="panel-title">
-            <h2>Buy-in log</h2>
-            <p>Every buy-in is timestamped for reconciliation.</p>
+            <h2>Log</h2>
+            <p>Timestamped buy-ins.</p>
           </div>
           <div id="logTable" class="table"></div>
         </section>

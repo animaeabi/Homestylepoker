@@ -1,6 +1,6 @@
 # Home Game Buy-in Tracker
 
-Real-time, multi-device poker buy-in tracking with Supabase. Host creates a game, players join by link or QR, and buy-ins update instantly.
+Real-time, multi-device poker buy-in tracking with Supabase. Host creates a game, players join by link or QR, buy-ins update instantly, and the host can settle the game with final chip counts.
 
 ## 1) Create the Supabase project
 
@@ -22,7 +22,6 @@ create table if not exists players (
   id uuid primary key default gen_random_uuid(),
   game_id uuid references games(id) on delete cascade,
   name text not null,
-  cashout numeric default 0,
   created_at timestamptz default now()
 );
 
@@ -36,14 +35,32 @@ create table if not exists buyins (
 
 create index if not exists idx_players_game_id on players(game_id);
 create index if not exists idx_buyins_game_id on buyins(game_id);
+
+create table if not exists settlements (
+  id uuid primary key default gen_random_uuid(),
+  game_id uuid references games(id) on delete cascade,
+  player_id uuid references players(id) on delete cascade,
+  amount numeric not null,
+  created_at timestamptz default now()
+);
+
+create index if not exists idx_settlements_game_id on settlements(game_id);
 ```
 
-- In Supabase, enable Realtime for `games`, `players`, and `buyins`.
+- In Supabase, enable Realtime for `games`, `players`, `buyins`, and `settlements`.
 - Leave Row Level Security (RLS) **off** for the basic setup.
 - If you created the tables earlier, run:
 
 ```sql
 alter table games add column if not exists ended_at timestamptz;
+create table if not exists settlements (
+  id uuid primary key default gen_random_uuid(),
+  game_id uuid references games(id) on delete cascade,
+  player_id uuid references players(id) on delete cascade,
+  amount numeric not null,
+  created_at timestamptz default now()
+);
+create index if not exists idx_settlements_game_id on settlements(game_id);
 ```
 
 ## 2) Add your keys
@@ -69,3 +86,5 @@ Then open `http://localhost:8000`.
 
 - This basic version is open to anyone with the join link.
 - If you plan to host it publicly, add Supabase Auth or a lightweight server to enforce access.
+- Cash-outs are handled via the settlement flow (final chip totals).
+- If you already created a `cashout` column, you can leave it; the app ignores it.

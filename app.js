@@ -5,6 +5,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js";
 const $ = (selector) => document.querySelector(selector);
 
 const elements = {
+  landing: $("#landing"),
   newGameName: $("#newGameName"),
   newCurrency: $("#newCurrency"),
   newBuyIn: $("#newBuyIn"),
@@ -24,15 +25,21 @@ const elements = {
   openLink: $("#openLink"),
   joinLink: $("#joinLink"),
   qrCanvas: $("#qrCanvas"),
-  toggleGameStatus: $("#toggleGameStatus"),
-  endNotice: $("#endNotice"),
-  endedAt: $("#endedAt"),
+  settledNotice: $("#settledNotice"),
+  settledAt: $("#settledAt"),
+  openSettle: $("#openSettle"),
+  settlePanel: $("#settlePanel"),
+  settleForm: $("#settleForm"),
+  settleList: $("#settleList"),
+  settleCancel: $("#settleCancel"),
+  settlementSummary: $("#settlementSummary"),
   hostModeToggle: $("#hostModeToggle"),
   hostPanel: $("#hostPanel"),
   summary: $("#summary"),
   hostPlayerName: $("#hostPlayerName"),
   hostAddPlayer: $("#hostAddPlayer"),
   players: $("#players"),
+  recentGames: $("#recentGames"),
   playerPanel: $("#playerPanel"),
   playerJoin: $("#playerJoin"),
   playerName: $("#playerName"),
@@ -54,12 +61,12 @@ const state = {
   game: null,
   players: [],
   buyins: [],
+  settlements: [],
+  settlementsAvailable: true,
   isHost: false,
   playerId: null,
   channel: null
 };
-
-const cashoutCache = new Map();
 
 const configMissing =
   !SUPABASE_URL ||
@@ -73,14 +80,72 @@ if (configMissing) {
   elements.joinGame.disabled = true;
   elements.joinAsPlayer.disabled = true;
   elements.hostAddPlayer.disabled = true;
+  if (elements.openSettle) elements.openSettle.disabled = true;
 }
 
 const supabase = configMissing ? null : createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 const playerKey = (code) => `poker_player_${code}`;
 const hostKey = (code) => `poker_host_${code}`;
+const recentGamesKey = "poker_recent_games";
 
 const safeTrim = (value) => (value || "").trim();
+
+function loadRecentGames() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(recentGamesKey) || "[]");
+    if (!Array.isArray(stored)) return [];
+    return stored;
+  } catch (err) {
+    return [];
+  }
+}
+
+function saveRecentGames(list) {
+  localStorage.setItem(recentGamesKey, JSON.stringify(list));
+}
+
+function recordRecentGame(game) {
+  if (!game) return;
+  const list = loadRecentGames();
+  const next = [
+    {
+      code: game.code,
+      name: game.name,
+      created_at: game.created_at,
+      ended_at: game.ended_at || null
+    },
+    ...list.filter((item) => item.code !== game.code)
+  ].slice(0, 8);
+  saveRecentGames(next);
+  renderRecentGames(next);
+}
+
+function renderRecentGames(list = loadRecentGames()) {
+  if (!elements.recentGames) return;
+  elements.recentGames.innerHTML = "";
+  if (!list.length) {
+    const empty = document.createElement("p");
+    empty.className = "muted";
+    empty.textContent = "No recent games yet.";
+    elements.recentGames.appendChild(empty);
+    return;
+  }
+
+  list.forEach((game) => {
+    const row = document.createElement("div");
+    row.className = "recent-item";
+    const dateLabel = formatShortDate(game.ended_at || game.created_at);
+    row.innerHTML = `
+      <div>
+        <strong>${game.name || "Home Game"}</strong>
+        <span>${dateLabel} · ${game.code}</span>
+      </div>
+      <button class="ghost" data-action="open" data-code="${game.code}">Open</button>
+    `;
+    elements.recentGames.appendChild(row);
+  });
+}
 
 function setStatus(text, tone = "info") {
   elements.saveStatus.textContent = text;
@@ -105,7 +170,16 @@ function formatDateTime(iso) {
   return new Date(iso).toLocaleString();
 }
 
-function isGameEnded() {
+function formatShortDate(iso) {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric"
+  });
+}
+
+function isGameSettled() {
   return Boolean(state.game?.ended_at);
 }
 
@@ -161,33 +235,36 @@ function applyHostMode() {
 
 function applyGameStatus() {
   if (!state.game) return;
-  const endedAt = state.game.ended_at;
-  const ended = Boolean(endedAt);
+  const settledAt = state.game.ended_at;
+  const settled = Boolean(settledAt);
 
   if (elements.gameStatusChip) {
-    elements.gameStatusChip.textContent = ended ? "Ended" : "Live";
-    elements.gameStatusChip.dataset.state = ended ? "ended" : "live";
+    elements.gameStatusChip.textContent = settled ? "Settled" : "Live";
+    elements.gameStatusChip.dataset.state = settled ? "settled" : "live";
   }
 
-  elements.endNotice.classList.toggle("hidden", !ended);
-  if (ended && elements.endedAt) {
-    elements.endedAt.textContent = formatDateTime(endedAt);
+  elements.settledNotice.classList.toggle("hidden", !settled);
+  if (settled && elements.settledAt) {
+    elements.settledAt.textContent = formatDateTime(settledAt);
   }
 
-  elements.toggleGameStatus.classList.toggle("hidden", !state.isHost);
-  elements.toggleGameStatus.textContent = ended ? "Reopen game" : "End game";
-  elements.toggleGameStatus.classList.toggle("danger", !ended);
+  if (elements.openSettle) {
+    elements.openSettle.classList.toggle("hidden", !state.isHost || settled);
+  }
 
-  const disableBuyins = ended;
+  const disableBuyins = settled;
   elements.playerAddDefault.disabled = disableBuyins;
   elements.playerAddCustom.disabled = disableBuyins;
   elements.playerCustomAmount.disabled = disableBuyins;
   elements.playerName.disabled = disableBuyins;
   elements.joinAsPlayer.disabled = disableBuyins;
-  elements.playerNotice.classList.toggle("hidden", !ended);
-  elements.playerJoinNotice.classList.toggle("hidden", !ended);
-  elements.hostPlayerName.disabled = !state.isHost || ended;
-  elements.hostAddPlayer.disabled = !state.isHost || ended;
+  elements.playerNotice.classList.toggle("hidden", !settled);
+  elements.playerJoinNotice.classList.toggle("hidden", !settled);
+  elements.hostPlayerName.disabled = !state.isHost || settled;
+  elements.hostAddPlayer.disabled = !state.isHost || settled;
+  if (elements.settlePanel && settled) {
+    elements.settlePanel.classList.add("hidden");
+  }
 }
 
 function hydrateInputs() {
@@ -213,8 +290,9 @@ function computeSummary() {
   const buyinCount = state.buyins.length;
   const playersCount = state.players.length;
   const average = playersCount ? totalBuyins / playersCount : 0;
+  const settledTotal = state.settlements.reduce((sum, item) => sum + Number(item.amount || 0), 0);
 
-  return { totalBuyins, buyinCount, playersCount, average };
+  return { totalBuyins, buyinCount, playersCount, average, settledTotal };
 }
 
 function buildBuyinMap() {
@@ -227,14 +305,27 @@ function buildBuyinMap() {
   return map;
 }
 
+function buildBuyinTotals() {
+  const totals = new Map();
+  state.buyins.forEach((buyin) => {
+    const next = (totals.get(buyin.player_id) || 0) + Number(buyin.amount || 0);
+    totals.set(buyin.player_id, next);
+  });
+  return totals;
+}
+
 function renderSummary() {
-  const { totalBuyins, buyinCount, playersCount, average } = computeSummary();
+  const { totalBuyins, buyinCount, playersCount, average, settledTotal } = computeSummary();
   const cards = [
     { label: "Total pot", value: formatCurrency(totalBuyins) },
     { label: "Total buy-ins", value: buyinCount },
     { label: "Players", value: playersCount },
     { label: "Avg per player", value: formatCurrency(average) }
   ];
+
+  if (isGameSettled() && state.settlements.length) {
+    cards.splice(1, 0, { label: "Settled total", value: formatCurrency(settledTotal) });
+  }
 
   elements.summary.innerHTML = "";
   cards.forEach((card) => {
@@ -247,7 +338,7 @@ function renderSummary() {
 
 function renderPlayers() {
   const buyinMap = buildBuyinMap();
-  const buyinLocked = isGameEnded();
+  const buyinLocked = isGameSettled();
   elements.players.innerHTML = "";
 
   if (state.players.length === 0) {
@@ -259,10 +350,8 @@ function renderPlayers() {
   }
 
   state.players.forEach((player) => {
-    cashoutCache.set(player.id, Number(player.cashout) || 0);
     const buyins = buyinMap.get(player.id) || [];
     const total = buyins.reduce((sum, item) => sum + Number(item.amount || 0), 0);
-    const net = (Number(player.cashout) || 0) - total;
 
     const card = document.createElement("div");
     card.className = "player-tile";
@@ -276,8 +365,6 @@ function renderPlayers() {
       <div class="player-stats">
         <div><strong>${buyins.length}</strong>Buy-ins</div>
         <div><strong>${formatCurrency(total)}</strong>Total</div>
-        <div><strong>${formatCurrency(player.cashout || 0)}</strong>Cash out</div>
-        <div><strong>${formatCurrency(net)}</strong>Net</div>
       </div>
       <div class="player-actions">
         <button class="primary" data-action="add-default">Add buy-in · ${formatCurrency(
@@ -287,12 +374,6 @@ function renderPlayers() {
           <input data-role="custom" type="number" min="1" step="1" placeholder="Custom amount" />
           <button class="ghost" data-action="add-custom">Add</button>
         </div>
-        <label class="field">
-          <span>Cash out</span>
-          <input data-role="cashout" type="number" min="0" step="1" value="${
-            Number(player.cashout) || 0
-          }" data-last="${Number(player.cashout) || 0}" />
-        </label>
       </div>
     `;
 
@@ -302,6 +383,8 @@ function renderPlayers() {
       card.querySelector("[data-action='add-default']").disabled = true;
       card.querySelector("[data-role='custom']").disabled = true;
       card.querySelector("[data-action='add-custom']").disabled = true;
+      const removeButton = card.querySelector("[data-action='remove']");
+      if (removeButton) removeButton.disabled = true;
     }
   });
 }
@@ -398,8 +481,56 @@ function renderLog() {
   });
 }
 
+function renderSettlementSummary() {
+  if (!elements.settlementSummary) return;
+  const settled = isGameSettled();
+  elements.settlementSummary.innerHTML = "";
+  elements.settlementSummary.classList.toggle("hidden", !settled);
+  if (!settled) return;
+
+  const playerLookup = new Map(state.players.map((player) => [player.id, player.name]));
+  const rows = state.settlements
+    .slice()
+    .sort((a, b) => (playerLookup.get(a.player_id) || "").localeCompare(playerLookup.get(b.player_id) || ""));
+
+  const header = document.createElement("div");
+  header.className = "panel-title";
+  header.innerHTML = "<h2>Settlement</h2><p>Final chips on hand by player.</p>";
+  elements.settlementSummary.appendChild(header);
+
+  if (!rows.length) {
+    const empty = document.createElement("p");
+    empty.className = "muted";
+    empty.textContent = "No settlement data saved.";
+    elements.settlementSummary.appendChild(empty);
+    return;
+  }
+
+  const list = document.createElement("div");
+  list.className = "settlement-list";
+  let total = 0;
+  rows.forEach((entry) => {
+    const row = document.createElement("div");
+    row.className = "settlement-row";
+    total += Number(entry.amount || 0);
+    row.innerHTML = `
+      <span>${playerLookup.get(entry.player_id) || "Unknown"}</span>
+      <strong>${formatCurrency(entry.amount)}</strong>
+    `;
+    list.appendChild(row);
+  });
+
+  const totalRow = document.createElement("div");
+  totalRow.className = "settlement-total";
+  totalRow.innerHTML = `<span>Total chips</span><strong>${formatCurrency(total)}</strong>`;
+
+  elements.settlementSummary.appendChild(list);
+  elements.settlementSummary.appendChild(totalRow);
+}
+
 function renderAll() {
   if (!state.game) return;
+  elements.landing.classList.add("hidden");
   elements.gamePanel.classList.remove("hidden");
   hydrateInputs();
   applyHostMode();
@@ -408,24 +539,41 @@ function renderAll() {
   renderPlayers();
   renderPlayerSeat();
   renderLog();
+  renderSettlementSummary();
 }
 
 async function refreshData() {
   if (!supabase || !state.game) return;
   try {
-    const [gameRes, playersRes, buyinsRes] = await Promise.all([
+    const [gameRes, playersRes, buyinsRes, settlementsRes] = await Promise.all([
       supabase.from("games").select("*").eq("id", state.game.id).single(),
       supabase.from("players").select("*").eq("game_id", state.game.id).order("created_at"),
-      supabase.from("buyins").select("*").eq("game_id", state.game.id).order("created_at", { ascending: false })
+      supabase.from("buyins").select("*").eq("game_id", state.game.id).order("created_at", { ascending: false }),
+      supabase
+        .from("settlements")
+        .select("*")
+        .eq("game_id", state.game.id)
+        .order("created_at", { ascending: false })
     ]);
 
     if (gameRes.error) throw gameRes.error;
     if (playersRes.error) throw playersRes.error;
     if (buyinsRes.error) throw buyinsRes.error;
+    if (settlementsRes.error && settlementsRes.error.code !== "42P01") {
+      throw settlementsRes.error;
+    }
 
     state.game = gameRes.data;
     state.players = playersRes.data || [];
     state.buyins = buyinsRes.data || [];
+    state.settlementsAvailable = !settlementsRes.error || settlementsRes.error.code !== "42P01";
+    state.settlements = settlementsRes.error ? [] : settlementsRes.data || [];
+    if (settlementsRes.error && settlementsRes.error.code === "42P01") {
+      setStatus("Settlement table missing. Run the README SQL.", "error");
+    }
+    if (state.isHost) {
+      recordRecentGame(state.game);
+    }
     renderAll();
     setStatus("Synced");
   } catch (err) {
@@ -439,7 +587,7 @@ async function startRealtime() {
     await supabase.removeChannel(state.channel);
   }
 
-  state.channel = supabase
+  const channel = supabase
     .channel(`game-${state.game.id}`)
     .on(
       "postgres_changes",
@@ -455,14 +603,23 @@ async function startRealtime() {
       "postgres_changes",
       { event: "*", schema: "public", table: "buyins", filter: `game_id=eq.${state.game.id}` },
       refreshData
-    )
-    .subscribe((status) => {
-      if (status === "SUBSCRIBED") {
-        setConnection("Live");
-      } else if (status === "CHANNEL_ERROR") {
-        setConnection("Disconnected");
-      }
-    });
+    );
+
+  if (state.settlementsAvailable) {
+    channel.on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "settlements", filter: `game_id=eq.${state.game.id}` },
+      refreshData
+    );
+  }
+
+  state.channel = channel.subscribe((status) => {
+    if (status === "SUBSCRIBED") {
+      setConnection("Live");
+    } else if (status === "CHANNEL_ERROR") {
+      setConnection("Disconnected");
+    }
+  });
 }
 
 async function loadGameByCode(code) {
@@ -486,6 +643,9 @@ async function loadGameByCode(code) {
     localStorage.setItem(hostKey(state.game.code), "true");
   }
   history.replaceState({}, "", state.isHost ? getHostLink() : getJoinLink());
+  if (state.isHost) {
+    recordRecentGame(state.game);
+  }
 
   renderAll();
   await refreshData();
@@ -524,6 +684,7 @@ async function createGame() {
   state.isHost = true;
   localStorage.setItem(hostKey(state.game.code), "true");
   history.replaceState({}, "", getHostLink());
+  recordRecentGame(state.game);
 
   renderAll();
   await refreshData();
@@ -533,8 +694,8 @@ async function createGame() {
 
 async function joinAsPlayer() {
   if (!supabase || !state.game) return;
-  if (isGameEnded()) {
-    setStatus("Game ended. New players are closed.", "error");
+  if (isGameSettled()) {
+    setStatus("Game settled. New players are closed.", "error");
     return;
   }
   const name = safeTrim(elements.playerName.value);
@@ -542,7 +703,7 @@ async function joinAsPlayer() {
 
   const { data, error } = await supabase
     .from("players")
-    .insert({ game_id: state.game.id, name, cashout: 0 })
+    .insert({ game_id: state.game.id, name })
     .select()
     .single();
 
@@ -559,16 +720,14 @@ async function joinAsPlayer() {
 
 async function addPlayerByName(name) {
   if (!supabase || !state.game) return;
-  if (isGameEnded()) {
-    setStatus("Game ended. New players are closed.", "error");
+  if (isGameSettled()) {
+    setStatus("Game settled. New players are closed.", "error");
     return;
   }
   const trimmed = safeTrim(name);
   if (!trimmed) return;
 
-  const { error } = await supabase
-    .from("players")
-    .insert({ game_id: state.game.id, name: trimmed, cashout: 0 });
+  const { error } = await supabase.from("players").insert({ game_id: state.game.id, name: trimmed });
 
   if (error) {
     setStatus("Could not add player", "error");
@@ -580,8 +739,8 @@ async function addPlayerByName(name) {
 
 async function addBuyin(playerId, amount) {
   if (!supabase || !state.game) return;
-  if (isGameEnded()) {
-    setStatus("Game ended. Buy-ins are locked.", "error");
+  if (isGameSettled()) {
+    setStatus("Game settled. Buy-ins are locked.", "error");
     return;
   }
   const numeric = Number(amount);
@@ -599,35 +758,6 @@ async function addBuyin(playerId, amount) {
   await refreshData();
 }
 
-async function updateCashout(playerId, value) {
-  if (!supabase) return;
-  const numeric = Number(value);
-  setStatus("Saving cashout…");
-  const { error } = await supabase
-    .from("players")
-    .update({ cashout: Number.isFinite(numeric) ? numeric : 0 })
-    .eq("id", playerId);
-
-  if (error) {
-    setStatus("Cashout update failed", "error");
-    return;
-  }
-
-  await refreshData();
-  setStatus("Cashout updated");
-}
-
-function handleCashoutCommit(event) {
-  if (!state.isHost) return;
-  if (event.target.dataset.role !== "cashout") return;
-  const tile = event.target.closest(".player-tile");
-  if (!tile) return;
-  const playerId = tile.dataset.playerId;
-  const numeric = Number(event.target.value);
-  const last = cashoutCache.get(playerId);
-  if (Number.isFinite(numeric) && numeric === last) return;
-  updateCashout(playerId, event.target.value);
-}
 
 async function removePlayer(playerId) {
   if (!supabase) return;
@@ -668,26 +798,126 @@ async function updateGameSettings() {
   await refreshData();
 }
 
-async function toggleGameStatus() {
-  if (!supabase || !state.game || !state.isHost) return;
-  const ended = isGameEnded();
+function renderSettleList() {
+  if (!elements.settleList) return;
+  elements.settleList.innerHTML = "";
 
-  if (!ended && !window.confirm("End this game? Buy-ins will be locked.")) {
+  if (state.players.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "muted";
+    empty.textContent = "Add players before settling.";
+    elements.settleList.appendChild(empty);
     return;
   }
 
-  const { error } = await supabase
+  const totals = buildBuyinTotals();
+  state.players.forEach((player) => {
+    const row = document.createElement("div");
+    row.className = "settle-row";
+    row.dataset.playerId = player.id;
+    const buyinTotal = totals.get(player.id) || 0;
+    row.innerHTML = `
+      <div>
+        <strong>${player.name}</strong>
+        <span>Buy-ins: ${formatCurrency(buyinTotal)}</span>
+      </div>
+      <input type="number" min="0" step="1" placeholder="Chips remaining" />
+    `;
+    elements.settleList.appendChild(row);
+  });
+}
+
+function openSettlePanel() {
+  if (!state.isHost || !state.game) return;
+  if (isGameSettled()) {
+    setStatus("Game already settled.", "error");
+    return;
+  }
+  if (!state.settlementsAvailable) {
+    setStatus("Settlement table missing. Run the README SQL.", "error");
+    return;
+  }
+  if (state.players.length === 0) {
+    setStatus("Add players before settling.", "error");
+    return;
+  }
+  elements.settlePanel.classList.remove("hidden");
+  renderSettleList();
+}
+
+function closeSettlePanel() {
+  elements.settlePanel.classList.add("hidden");
+}
+
+function clearCurrentGame() {
+  if (supabase && state.channel) {
+    supabase.removeChannel(state.channel);
+    state.channel = null;
+  }
+  if (state.game?.code) {
+    localStorage.removeItem(playerKey(state.game.code));
+    localStorage.removeItem(hostKey(state.game.code));
+  }
+  state.game = null;
+  state.players = [];
+  state.buyins = [];
+  state.settlements = [];
+  state.isHost = false;
+  state.playerId = null;
+  elements.gamePanel.classList.add("hidden");
+  if (elements.settledNotice) elements.settledNotice.classList.add("hidden");
+  if (elements.settlePanel) elements.settlePanel.classList.add("hidden");
+  if (elements.settlementSummary) elements.settlementSummary.classList.add("hidden");
+  elements.landing.classList.remove("hidden");
+  history.replaceState({}, "", window.location.pathname);
+  renderRecentGames();
+  setConnection("Offline");
+}
+
+async function submitSettlement(event) {
+  event.preventDefault();
+  if (!supabase || !state.game || !state.isHost) return;
+  if (isGameSettled()) {
+    setStatus("Game already settled.", "error");
+    return;
+  }
+
+  const rows = Array.from(elements.settleList.querySelectorAll(".settle-row"));
+  const entries = [];
+  for (const row of rows) {
+    const input = row.querySelector("input");
+    const playerId = row.dataset.playerId;
+    const amount = Number(input.value);
+    if (!Number.isFinite(amount) || amount < 0) {
+      setStatus("Enter valid chip totals for every player.", "error");
+      input.focus();
+      return;
+    }
+    entries.push({ game_id: state.game.id, player_id: playerId, amount });
+  }
+
+  const { error: settlementError } = await supabase.from("settlements").insert(entries);
+  if (settlementError) {
+    setStatus("Settlement failed", "error");
+    return;
+  }
+
+  const settledAt = new Date().toISOString();
+  const { error: gameError } = await supabase
     .from("games")
-    .update({ ended_at: ended ? null : new Date().toISOString() })
+    .update({ ended_at: settledAt })
     .eq("id", state.game.id);
 
-  if (error) {
-    setStatus("Could not update game status", "error");
+  if (gameError) {
+    setStatus("Could not close game", "error");
     return;
   }
 
-  await refreshData();
-  setStatus(ended ? "Game reopened" : "Game ended");
+  state.game.ended_at = settledAt;
+  recordRecentGame(state.game);
+  setStatus("Settlement saved");
+  closeSettlePanel();
+  clearCurrentGame();
 }
 
 if (!configMissing) {
@@ -695,7 +925,11 @@ if (!configMissing) {
   const incomingCode = safeTrim(params.get("code"));
   if (incomingCode) {
     loadGameByCode(incomingCode);
+  } else {
+    renderRecentGames();
   }
+} else {
+  renderRecentGames();
 }
 
 // Event listeners
@@ -709,6 +943,14 @@ elements.joinGame.addEventListener("click", () => {
   if (configMissing) return;
   loadGameByCode(elements.joinCode.value);
 });
+
+if (elements.recentGames) {
+  elements.recentGames.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-action='open']");
+    if (!button) return;
+    loadGameByCode(button.dataset.code);
+  });
+}
 
 elements.copyLink.addEventListener("click", () => {
   if (!state.game) return;
@@ -725,9 +967,15 @@ elements.openLink.addEventListener("click", () => {
   window.open(getJoinLink(), "_blank");
 });
 
-elements.toggleGameStatus.addEventListener("click", () => {
-  toggleGameStatus();
-});
+if (elements.openSettle) {
+  elements.openSettle.addEventListener("click", openSettlePanel);
+}
+if (elements.settleCancel) {
+  elements.settleCancel.addEventListener("click", closeSettlePanel);
+}
+if (elements.settleForm) {
+  elements.settleForm.addEventListener("submit", submitSettlement);
+}
 
 elements.hostModeToggle.addEventListener("change", () => {
   if (!state.game) return;
@@ -752,6 +1000,7 @@ elements.hostPlayerName.addEventListener("keydown", (event) => {
 
 elements.players.addEventListener("click", (event) => {
   if (!state.isHost) return;
+  if (isGameSettled()) return;
   const action = event.target.dataset.action;
   if (!action) return;
   const tile = event.target.closest(".player-tile");
@@ -776,17 +1025,10 @@ elements.players.addEventListener("click", (event) => {
   }
 });
 
-elements.players.addEventListener("change", handleCashoutCommit);
-elements.players.addEventListener("blur", handleCashoutCommit, true);
-
 elements.players.addEventListener("keydown", (event) => {
   if (!state.isHost) return;
+  if (isGameSettled()) return;
   if (event.key !== "Enter") return;
-  if (event.target.dataset.role === "cashout") {
-    event.preventDefault();
-    handleCashoutCommit(event);
-    return;
-  }
   if (event.target.dataset.role !== "custom") return;
   const tile = event.target.closest(".player-tile");
   if (!tile) return;
