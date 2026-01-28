@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Home Game Buy-in Tracker</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Manrope:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Home Game Suite</p>
+          <h1>Real-time Poker Buy-ins</h1>
+          <p class="subtitle">
+            Create a game, share a link or QR, and let every player add their own buy-ins. Runs on
+            any phone, updates instantly.
+          </p>
+          <div class="hero-meta">
+            <span>6–8 players friendly</span>
+            <span>No accounts required</span>
+            <span>Auto-saved</span>
+          </div>
+        </div>
+        <div class="hero-card">
+          <section class="card-section">
+            <h2>Start a game</h2>
+            <label class="field">
+              <span>Game name</span>
+              <input id="newGameName" type="text" placeholder="Friday Night Hold'em" />
+            </label>
+            <div class="row">
+              <label class="field">
+                <span>Currency</span>
+                <input id="newCurrency" type="text" maxlength="3" placeholder="$" />
+              </label>
+              <label class="field">
+                <span>Default buy-in</span>
+                <input id="newBuyIn" type="number" min="1" step="1" placeholder="20" />
+              </label>
+            </div>
+            <button id="createGame" class="primary">Create game</button>
+          </section>
+          <div class="divider"></div>
+          <section class="card-section">
+            <h2>Join a game</h2>
+            <label class="field">
+              <span>Game code</span>
+              <input id="joinCode" type="text" placeholder="AB12CD" />
+            </label>
+            <button id="joinGame" class="ghost">Join with code</button>
+            <p class="hint">Already have a link? Open it to join automatically.</p>
+          </section>
+        </div>
+      </header>
+
+      <section id="configNotice" class="banner hidden">
+        <div>
+          <strong>Connect Supabase to continue.</strong>
+          <p>Update <code>config.js</code> with your Supabase URL and anon key.</p>
+        </div>
+      </section>
+
+      <section id="gamePanel" class="game hidden">
+        <div class="game-bar">
+          <div class="game-info">
+            <div>
+              <p class="eyebrow">Game</p>
+              <h2 id="gameTitle">Loading…</h2>
+            </div>
+            <div class="info-chip">
+              Code
+              <strong id="gameCode">—</strong>
+            </div>
+          </div>
+          <div class="game-actions">
+            <button id="copyLink" class="ghost">Copy join link</button>
+            <button id="openLink" class="ghost">Open join link</button>
+            <label class="toggle">
+              <input type="checkbox" id="hostModeToggle" />
+              <span>Host mode</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="join-panel">
+          <div class="join-card">
+            <h3>Share this game</h3>
+            <p>Players can join with the link or QR code.</p>
+            <div class="link-row">
+              <input id="joinLink" type="text" readonly />
+              <button id="copyLinkInline" class="ghost">Copy</button>
+            </div>
+            <canvas id="qrCanvas" width="180" height="180"></canvas>
+            <p class="muted">Anyone with the link can add buy-ins.</p>
+          </div>
+          <div class="join-card">
+            <h3>Game settings</h3>
+            <label class="field">
+              <span>Game name</span>
+              <input id="gameName" type="text" />
+            </label>
+            <div class="row">
+              <label class="field">
+                <span>Currency</span>
+                <input id="currency" type="text" maxlength="3" />
+              </label>
+              <label class="field">
+                <span>Default buy-in</span>
+                <input id="defaultBuyIn" type="number" min="1" step="1" />
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div class="columns">
+          <section id="hostPanel" class="panel">
+            <div class="panel-title">
+              <h2>Host dashboard</h2>
+              <p>Totals update in real time as players buy in.</p>
+            </div>
+            <div id="summary" class="summary"></div>
+            <div class="host-actions">
+              <label class="field">
+                <span>Add player (optional)</span>
+                <input id="hostPlayerName" type="text" placeholder="Player name" />
+              </label>
+              <button id="hostAddPlayer" class="primary">Add player</button>
+            </div>
+            <div id="players" class="players"></div>
+          </section>
+
+          <section id="playerPanel" class="panel">
+            <div class="panel-title">
+              <h2>Your seat</h2>
+              <p>Join once, then tap to add buy-ins from your phone.</p>
+            </div>
+            <div id="playerJoin" class="player-join">
+              <label class="field">
+                <span>Your name</span>
+                <input id="playerName" type="text" placeholder="Name" />
+              </label>
+              <button id="joinAsPlayer" class="primary">Join this game</button>
+            </div>
+            <div id="playerSeat" class="player-seat hidden">
+              <div id="playerCard" class="player-card"></div>
+              <div class="player-actions">
+                <button id="playerAddDefault" class="primary">Add default buy-in</button>
+                <div class="row">
+                  <input id="playerCustomAmount" type="number" min="1" step="1" placeholder="Custom amount" />
+                  <button id="playerAddCustom" class="ghost">Add buy-in</button>
+                </div>
+              </div>
+              <div id="playerBuyins" class="player-buyins"></div>
+            </div>
+          </section>
+        </div>
+
+        <section class="panel log">
+          <div class="panel-title">
+            <h2>Buy-in log</h2>
+            <p>Every buy-in is timestamped for reconciliation.</p>
+          </div>
+          <div id="logTable" class="table"></div>
+        </section>
+      </section>
+
+      <footer class="footer">
+        <span id="connectionStatus">Offline</span>
+        <span id="saveStatus">Ready</span>
+      </footer>
+    </div>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
