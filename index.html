@@ -105,7 +105,7 @@
           </div>
         </section>
 
-        <div class="join-panel">
+        <div id="joinPanel" class="join-panel">
           <div class="join-card">
             <h3>Share this game</h3>
             <p>Players join with the link or QR.</p>
@@ -186,10 +186,6 @@
               <div id="playerCard" class="player-card"></div>
               <div class="player-actions">
                 <button id="playerAddDefault" class="primary">Add default buy-in</button>
-                <div class="row">
-                  <input id="playerCustomAmount" type="number" min="1" step="1" placeholder="Custom amount" />
-                  <button id="playerAddCustom" class="ghost">Add buy-in</button>
-                </div>
               </div>
               <p id="playerNotice" class="muted hidden">Game settled — buy-ins are locked.</p>
               <div id="playerBuyins" class="player-buyins"></div>
@@ -197,7 +193,7 @@
           </section>
         </div>
 
-        <section class="panel log">
+        <section id="logPanel" class="panel log">
           <div class="panel-title">
             <h2>Log</h2>
             <p>Timestamped buy-ins.</p>

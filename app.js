@@ -24,6 +24,8 @@ const elements = {
   copyLink: $("#copyLink"),
   copyLinkInline: $("#copyLinkInline"),
   openLink: $("#openLink"),
+  joinPanel: $("#joinPanel"),
+  logPanel: $("#logPanel"),
   joinLink: $("#joinLink"),
   qrCanvas: $("#qrCanvas"),
   settledNotice: $("#settledNotice"),
@@ -48,8 +50,6 @@ const elements = {
   playerSeat: $("#playerSeat"),
   playerCard: $("#playerCard"),
   playerAddDefault: $("#playerAddDefault"),
-  playerCustomAmount: $("#playerCustomAmount"),
-  playerAddCustom: $("#playerAddCustom"),
   playerBuyins: $("#playerBuyins"),
   playerNotice: $("#playerNotice"),
   playerJoinNotice: $("#playerJoinNotice"),
@@ -65,6 +65,7 @@ const state = {
   settlements: [],
   settlementsAvailable: true,
   isHost: false,
+  canHost: false,
   playerId: null,
   channel: null
 };
@@ -91,6 +92,34 @@ const hostKey = (code) => `poker_host_${code}`;
 const recentGamesKey = "poker_recent_games";
 
 const safeTrim = (value) => (value || "").trim();
+
+function loadStoredPlayer(code) {
+  if (!code) return null;
+  const raw = localStorage.getItem(playerKey(code));
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object") {
+      return { id: parsed.id || null, name: parsed.name || "" };
+    }
+    return { id: raw, name: "" };
+  } catch (err) {
+    return { id: raw, name: "" };
+  }
+}
+
+function saveStoredPlayer(code, player) {
+  if (!code || !player?.id) return;
+  localStorage.setItem(
+    playerKey(code),
+    JSON.stringify({ id: player.id, name: player.name || "" })
+  );
+}
+
+function clearStoredPlayer(code) {
+  if (!code) return;
+  localStorage.removeItem(playerKey(code));
+}
 
 function loadRecentGames() {
   try {
@@ -226,12 +255,37 @@ async function copyText(value) {
 
 function applyHostMode() {
   elements.hostModeToggle.checked = state.isHost;
+  const toggleWrap = elements.hostModeToggle.closest(".toggle");
+  if (toggleWrap) {
+    toggleWrap.classList.toggle("hidden", !state.canHost);
+  }
   elements.hostPanel.classList.toggle("hidden", !state.isHost);
+  if (elements.joinPanel) {
+    elements.joinPanel.classList.toggle("hidden", !state.isHost);
+  }
+  if (elements.logPanel) {
+    elements.logPanel.classList.toggle("hidden", !state.isHost);
+  }
+  if (elements.playerPanel) {
+    elements.playerPanel.classList.toggle("hidden", state.isHost);
+  }
+  if (elements.copyLink) {
+    elements.copyLink.classList.toggle("hidden", !state.isHost);
+  }
+  if (elements.openLink) {
+    elements.openLink.classList.toggle("hidden", !state.isHost);
+  }
+  if (elements.leaveGame) {
+    elements.leaveGame.classList.toggle("hidden", !state.isHost);
+  }
   elements.gameName.disabled = !state.isHost;
   elements.currency.disabled = !state.isHost;
   elements.defaultBuyIn.disabled = !state.isHost;
   elements.hostPlayerName.disabled = !state.isHost;
   elements.hostAddPlayer.disabled = !state.isHost;
+  if (elements.settlementSummary) {
+    elements.settlementSummary.classList.toggle("hidden", !state.isHost || !isGameSettled());
+  }
 }
 
 function applyGameStatus() {
@@ -255,8 +309,6 @@ function applyGameStatus() {
 
   const disableBuyins = settled;
   elements.playerAddDefault.disabled = disableBuyins;
-  elements.playerAddCustom.disabled = disableBuyins;
-  elements.playerCustomAmount.disabled = disableBuyins;
   elements.playerName.disabled = disableBuyins;
   elements.joinAsPlayer.disabled = disableBuyins;
   elements.playerNotice.classList.toggle("hidden", !settled);
@@ -315,6 +367,130 @@ function buildBuyinTotals() {
   return totals;
 }
 
+function getDefaultBuyinValue() {
+  return Number(state.game?.default_buyin) || 0;
+}
+
+function normalizeCount(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return null;
+  return Math.max(0, Math.round(parsed));
+}
+
+function formatNumberValue(value) {
+  return Number(value || 0).toFixed(2);
+}
+
+function showAdjustHint(tile, message) {
+  if (!tile) return;
+  const hint = tile.querySelector(".adjust-hint");
+  if (!hint) return;
+  hint.textContent = message;
+  hint.classList.remove("hidden");
+  clearTimeout(hint._timer);
+  hint._timer = setTimeout(() => {
+    hint.classList.add("hidden");
+  }, 2000);
+}
+
+async function setPlayerBuyinCount(playerId, targetCount) {
+  if (!supabase || !state.game) return;
+  const defaultBuyin = getDefaultBuyinValue();
+  if (defaultBuyin <= 0) {
+    setStatus("Default buy-in must be greater than 0.", "error");
+    return;
+  }
+
+  const desired = normalizeCount(targetCount);
+  if (desired === null) return;
+
+  const playerBuyins = state.buyins.filter((buyin) => buyin.player_id === playerId);
+  const currentCount = playerBuyins.length;
+  const diff = desired - currentCount;
+  if (diff === 0) return;
+
+  setStatus("Updating buy-ins…");
+  let error = null;
+
+  if (diff > 0) {
+    const rows = Array.from({ length: diff }, () => ({
+      game_id: state.game.id,
+      player_id: playerId,
+      amount: defaultBuyin
+    }));
+    ({ error } = await supabase.from("buyins").insert(rows));
+  } else {
+    const idsToRemove = playerBuyins
+      .slice()
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+      .slice(0, Math.abs(diff))
+      .map((buyin) => buyin.id);
+    if (idsToRemove.length) {
+      ({ error } = await supabase.from("buyins").delete().in("id", idsToRemove));
+    }
+  }
+
+  if (error) {
+    setStatus("Update failed", "error");
+    return;
+  }
+
+  await refreshData();
+  setStatus("Buy-ins updated");
+}
+
+function handleEditCommit(event) {
+  if (!state.isHost || isGameSettled()) return;
+  const role = event.target.dataset.role;
+  if (!["edit-count", "edit-total"].includes(role)) return;
+  const tile = event.target.closest(".player-tile");
+  if (!tile) return;
+  const playerId = tile.dataset.playerId;
+  const defaultBuyin = getDefaultBuyinValue();
+  if (defaultBuyin <= 0) {
+    setStatus("Default buy-in must be greater than 0.", "error");
+    return;
+  }
+
+  const currentCount = state.buyins.filter((buyin) => buyin.player_id === playerId).length;
+  const currentTotal = currentCount * defaultBuyin;
+
+  if (role === "edit-count") {
+    const count = normalizeCount(event.target.value);
+    if (count === null) {
+      event.target.value = currentCount;
+      return;
+    }
+    if (count === currentCount) return;
+    const totalInput = tile.querySelector("[data-role='edit-total']");
+    if (totalInput) totalInput.value = formatNumberValue(count * defaultBuyin);
+    setPlayerBuyinCount(playerId, count);
+    return;
+  }
+
+  const totalValue = Number(event.target.value);
+  if (!Number.isFinite(totalValue) || totalValue < 0) {
+    event.target.value = formatNumberValue(currentTotal);
+    return;
+  }
+
+  const count = Math.max(0, Math.round(totalValue / defaultBuyin));
+  const adjustedTotal = count * defaultBuyin;
+
+  if (count === currentCount) {
+    event.target.value = formatNumberValue(adjustedTotal);
+    return;
+  }
+
+  const countInput = tile.querySelector("[data-role='edit-count']");
+  if (countInput) countInput.value = count;
+  event.target.value = formatNumberValue(adjustedTotal);
+  if (Math.abs(adjustedTotal - totalValue) > 0.001) {
+    showAdjustHint(tile, "Adjusted to nearest buy-in.");
+  }
+  setPlayerBuyinCount(playerId, count);
+}
+
 function renderSummary() {
   const { totalBuyins, buyinCount, playersCount, average, settledTotal } = computeSummary();
   const cards = [
@@ -364,17 +540,20 @@ function renderPlayers() {
         <button data-action="remove">Remove</button>
       </div>
       <div class="player-stats">
-        <div><strong>${buyins.length}</strong>Buy-ins</div>
-        <div><strong>${formatCurrency(total)}</strong>Total</div>
+        <label class="stat-field">
+          <span>Buy-ins</span>
+          <input data-role="edit-count" type="number" min="0" step="1" value="${buyins.length}" />
+        </label>
+        <label class="stat-field">
+          <span>Total</span>
+          <input data-role="edit-total" type="number" min="0" step="1" value="${Number(total).toFixed(2)}" />
+        </label>
       </div>
+      <span class="adjust-hint hidden">Adjusted to nearest buy-in.</span>
       <div class="player-actions">
-        <button class="primary" data-action="add-default">Add buy-in · ${formatCurrency(
+        <button class="primary" data-action="add-default">Add buy-in (${formatCurrency(
           state.game?.default_buyin || 0
-        )}</button>
-        <div class="row">
-          <input data-role="custom" type="number" min="1" step="1" placeholder="Custom amount" />
-          <button class="ghost" data-action="add-custom">Add</button>
-        </div>
+        )})</button>
       </div>
     `;
 
@@ -382,8 +561,8 @@ function renderPlayers() {
 
     if (buyinLocked) {
       card.querySelector("[data-action='add-default']").disabled = true;
-      card.querySelector("[data-role='custom']").disabled = true;
-      card.querySelector("[data-action='add-custom']").disabled = true;
+      card.querySelector("[data-role='edit-count']").disabled = true;
+      card.querySelector("[data-role='edit-total']").disabled = true;
       const removeButton = card.querySelector("[data-action='remove']");
       if (removeButton) removeButton.disabled = true;
     }
@@ -394,7 +573,7 @@ function renderPlayerSeat() {
   const player = state.players.find((item) => item.id === state.playerId);
   if (!player) {
     if (state.playerId && state.game) {
-      localStorage.removeItem(playerKey(state.game.code));
+      clearStoredPlayer(state.game.code);
       state.playerId = null;
     }
     elements.playerJoin.classList.remove("hidden");
@@ -412,9 +591,9 @@ function renderPlayerSeat() {
     <div>Buy-ins: ${buyins.length} · ${formatCurrency(total)}</div>
   `;
 
-  elements.playerAddDefault.textContent = `Add default buy-in · ${formatCurrency(
+  elements.playerAddDefault.textContent = `Add buy-in (${formatCurrency(
     state.game?.default_buyin || 0
-  )}`;
+  )})`;
 
   elements.playerBuyins.innerHTML = "";
   if (buyins.length === 0) {
@@ -635,15 +814,19 @@ async function loadGameByCode(code) {
   }
 
   state.game = data;
-  const storedPlayerId = localStorage.getItem(playerKey(state.game.code));
+  const storedPlayer = loadStoredPlayer(state.game.code);
   const storedHost = localStorage.getItem(hostKey(state.game.code)) === "true";
   const hostParam = new URLSearchParams(window.location.search).get("host");
-  state.playerId = storedPlayerId || null;
-  state.isHost = hostParam === "1" || storedHost;
+  state.playerId = storedPlayer?.id || null;
+  state.canHost = hostParam === "1" || storedHost;
+  state.isHost = state.canHost;
   if (hostParam === "1") {
     localStorage.setItem(hostKey(state.game.code), "true");
   }
   history.replaceState({}, "", state.isHost ? getHostLink() : getJoinLink());
+  if (!state.isHost && storedPlayer?.name) {
+    elements.playerName.value = storedPlayer.name;
+  }
   if (state.isHost) {
     recordRecentGame(state.game);
   }
@@ -683,6 +866,7 @@ async function createGame() {
 
   state.game = result.data;
   state.isHost = true;
+  state.canHost = true;
   localStorage.setItem(hostKey(state.game.code), "true");
   history.replaceState({}, "", getHostLink());
   recordRecentGame(state.game);
@@ -714,7 +898,7 @@ async function joinAsPlayer() {
   }
 
   state.playerId = data.id;
-  localStorage.setItem(playerKey(state.game.code), data.id);
+  saveStoredPlayer(state.game.code, { id: data.id, name });
   elements.playerName.value = "";
   await refreshData();
 }
@@ -774,7 +958,7 @@ async function removePlayer(playerId) {
 
   if (state.playerId === playerId) {
     state.playerId = null;
-    localStorage.removeItem(playerKey(state.game.code));
+    clearStoredPlayer(state.game.code);
   }
 
   await refreshData();
@@ -860,7 +1044,7 @@ function clearCurrentGame() {
     state.channel = null;
   }
   if (state.game?.code) {
-    localStorage.removeItem(playerKey(state.game.code));
+    clearStoredPlayer(state.game.code);
     localStorage.removeItem(hostKey(state.game.code));
   }
   state.game = null;
@@ -868,6 +1052,7 @@ function clearCurrentGame() {
   state.buyins = [];
   state.settlements = [];
   state.isHost = false;
+  state.canHost = false;
   state.playerId = null;
   elements.gamePanel.classList.add("hidden");
   if (elements.settledNotice) elements.settledNotice.classList.add("hidden");
@@ -994,7 +1179,10 @@ if (elements.settleForm) {
 elements.hostModeToggle.addEventListener("change", () => {
   if (!state.game) return;
   state.isHost = elements.hostModeToggle.checked;
-  localStorage.setItem(hostKey(state.game.code), String(state.isHost));
+  if (state.isHost) {
+    state.canHost = true;
+    localStorage.setItem(hostKey(state.game.code), "true");
+  }
   applyHostMode();
   applyGameStatus();
 });
@@ -1031,24 +1219,18 @@ elements.players.addEventListener("click", (event) => {
     addBuyin(playerId, state.game?.default_buyin || 0);
     return;
   }
-
-  if (action === "add-custom") {
-    const input = tile.querySelector("[data-role='custom']");
-    if (!input) return;
-    addBuyin(playerId, input.value);
-    input.value = "";
-  }
 });
+
+elements.players.addEventListener("change", handleEditCommit);
+elements.players.addEventListener("blur", handleEditCommit, true);
 
 elements.players.addEventListener("keydown", (event) => {
   if (!state.isHost) return;
   if (isGameSettled()) return;
   if (event.key !== "Enter") return;
-  if (event.target.dataset.role !== "custom") return;
-  const tile = event.target.closest(".player-tile");
-  if (!tile) return;
-  addBuyin(tile.dataset.playerId, event.target.value);
-  event.target.value = "";
+  if (!["edit-count", "edit-total"].includes(event.target.dataset.role)) return;
+  event.preventDefault();
+  handleEditCommit(event);
 });
 
 elements.joinAsPlayer.addEventListener("click", () => {
@@ -1064,19 +1246,6 @@ elements.playerName.addEventListener("keydown", (event) => {
 elements.playerAddDefault.addEventListener("click", () => {
   if (!state.playerId) return;
   addBuyin(state.playerId, state.game?.default_buyin || 0);
-});
-
-elements.playerAddCustom.addEventListener("click", () => {
-  if (!state.playerId) return;
-  addBuyin(state.playerId, elements.playerCustomAmount.value);
-  elements.playerCustomAmount.value = "";
-});
-
-elements.playerCustomAmount.addEventListener("keydown", (event) => {
-  if (event.key !== "Enter") return;
-  if (!state.playerId) return;
-  addBuyin(state.playerId, event.target.value);
-  event.target.value = "";
 });
 
 elements.gameName.addEventListener("change", updateGameSettings);

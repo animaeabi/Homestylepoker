@@ -525,20 +525,29 @@ button:disabled {
 
 .player-stats {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 8px;
 }
 
-.player-stats div {
-  background: var(--panel-dark);
-  padding: 8px 10px;
-  border-radius: 12px;
-  font-size: 0.85rem;
+.stat-field {
+  display: grid;
+  gap: 6px;
+  font-size: 0.75rem;
+  color: var(--muted);
 }
 
-.player-stats strong {
-  display: block;
-  font-size: 1rem;
+.stat-field input {
+  border: 1px solid rgba(27, 26, 23, 0.18);
+  border-radius: 12px;
+  padding: 8px 10px;
+  font-size: 0.95rem;
+  background: #fff;
+  color: var(--ink);
+}
+
+.adjust-hint {
+  font-size: 0.75rem;
+  color: var(--accent-strong);
 }
 
 .player-actions {
