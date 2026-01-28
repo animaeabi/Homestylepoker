@@ -46,6 +46,9 @@ const elements = {
   players: $("#players"),
   recentGames: $("#recentGames"),
   playerPanel: $("#playerPanel"),
+  playerPanelTitle: $("#playerPanelTitle"),
+  playerPanelHeading: $("#playerPanelHeading"),
+  playerPanelSubtitle: $("#playerPanelSubtitle"),
   playerJoin: $("#playerJoin"),
   playerName: $("#playerName"),
   joinAsPlayer: $("#joinAsPlayer"),
@@ -314,6 +317,15 @@ function applyHostMode() {
   }
   if (elements.playerSettledSummary) {
     elements.playerSettledSummary.classList.toggle("hidden", state.isHost || !isGameSettled());
+  }
+  if (elements.playerPanelHeading && elements.playerPanelSubtitle) {
+    if (isGameSettled() && !state.isHost) {
+      elements.playerPanelHeading.textContent = "Summary";
+      elements.playerPanelSubtitle.textContent = "Final results for this game.";
+    } else {
+      elements.playerPanelHeading.textContent = "Player";
+      elements.playerPanelSubtitle.textContent = "Join once, tap to add buy-ins.";
+    }
   }
 }
 
