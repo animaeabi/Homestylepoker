@@ -47,6 +47,12 @@ body.theme-light .ghost {
   border: 1px solid rgba(31, 111, 92, 0.2);
 }
 
+body.theme-light .danger-outline {
+  background: rgba(178, 74, 59, 0.08);
+  color: #6a2217;
+  border: 1px solid rgba(178, 74, 59, 0.4);
+}
+
 body.theme-light .info-chip,
 body.theme-light .summary-card,
 body.theme-light .recent-item,
@@ -374,6 +380,16 @@ button:disabled {
   background: rgba(178, 74, 59, 0.18);
   color: #ffd7cd;
   border: 1px solid rgba(178, 74, 59, 0.5);
+}
+
+.danger-outline {
+  background: rgba(178, 74, 59, 0.1);
+  color: #ffd7cd;
+  border: 1px solid rgba(178, 74, 59, 0.5);
+}
+
+.danger-outline:hover {
+  box-shadow: 0 0 0 2px rgba(178, 74, 59, 0.2);
 }
 
 .hint {
