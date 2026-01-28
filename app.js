@@ -13,6 +13,7 @@ const elements = {
   joinCode: $("#joinCode"),
   joinGame: $("#joinGame"),
   configNotice: $("#configNotice"),
+  themeToggle: $("#themeToggle"),
   gamePanel: $("#gamePanel"),
   gameTitle: $("#gameTitle"),
   gameCode: $("#gameCode"),
@@ -24,6 +25,7 @@ const elements = {
   copyLink: $("#copyLink"),
   copyLinkInline: $("#copyLinkInline"),
   openLink: $("#openLink"),
+  hostLayout: $("#hostLayout"),
   joinPanel: $("#joinPanel"),
   logPanel: $("#logPanel"),
   joinLink: $("#joinLink"),
@@ -91,11 +93,32 @@ const supabase = configMissing ? null : createClient(SUPABASE_URL, SUPABASE_ANON
 const playerKey = (code) => `poker_player_${code}`;
 const hostKey = (code) => `poker_host_${code}`;
 const recentGamesKey = "poker_recent_games";
+const themeKey = "poker_theme";
 
 const safeTrim = (value) => (value || "").trim();
 
 function normalizeName(name) {
   return safeTrim(name).replace(/\s+/g, " ").toLowerCase();
+}
+
+function applyTheme(theme) {
+  const mode = theme === "light" ? "light" : "dark";
+  document.body.classList.toggle("theme-light", mode === "light");
+  document.body.classList.toggle("theme-dark", mode === "dark");
+  if (elements.themeToggle) {
+    elements.themeToggle.textContent = mode === "dark" ? "Light mode" : "Dark mode";
+    elements.themeToggle.setAttribute("aria-pressed", mode === "dark");
+  }
+}
+
+function initTheme() {
+  const stored = localStorage.getItem(themeKey);
+  if (stored) {
+    applyTheme(stored);
+    return;
+  }
+  const prefersDark = window.matchMedia?.("(prefers-color-scheme: dark)")?.matches;
+  applyTheme(prefersDark ? "dark" : "light");
 }
 
 function loadStoredPlayer(code) {
@@ -264,13 +287,10 @@ function applyHostMode() {
   if (toggleWrap) {
     toggleWrap.classList.toggle("hidden", !state.canHost);
   }
+  if (elements.hostLayout) {
+    elements.hostLayout.classList.toggle("hidden", !state.isHost);
+  }
   elements.hostPanel.classList.toggle("hidden", !state.isHost);
-  if (elements.joinPanel) {
-    elements.joinPanel.classList.toggle("hidden", !state.isHost);
-  }
-  if (elements.logPanel) {
-    elements.logPanel.classList.toggle("hidden", !state.isHost);
-  }
   if (elements.playerPanel) {
     elements.playerPanel.classList.toggle("hidden", state.isHost);
   }
@@ -542,7 +562,10 @@ function renderPlayers() {
     card.innerHTML = `
       <div class="player-header">
         <h4>${player.name}</h4>
-        <button data-action="remove">Remove</button>
+        <div class="player-header-actions">
+          <button data-action="edit" class="ghost">Edit</button>
+          <button data-action="remove" class="ghost">Remove</button>
+        </div>
       </div>
       <div class="player-stats">
         <label class="stat-field">
@@ -568,7 +591,9 @@ function renderPlayers() {
       card.querySelector("[data-action='add-default']").disabled = true;
       card.querySelector("[data-role='edit-count']").disabled = true;
       card.querySelector("[data-role='edit-total']").disabled = true;
+      const editButton = card.querySelector("[data-action='edit']");
       const removeButton = card.querySelector("[data-action='remove']");
+      if (editButton) editButton.disabled = true;
       if (removeButton) removeButton.disabled = true;
     }
   });
@@ -1162,7 +1187,18 @@ if (!configMissing) {
   renderRecentGames();
 }
 
+initTheme();
+
 // Event listeners
+
+if (elements.themeToggle) {
+  elements.themeToggle.addEventListener("click", () => {
+    const isDark = document.body.classList.contains("theme-dark");
+    const next = isDark ? "light" : "dark";
+    localStorage.setItem(themeKey, next);
+    applyTheme(next);
+  });
+}
 
 elements.createGame.addEventListener("click", () => {
   if (configMissing) return;
@@ -1252,6 +1288,13 @@ elements.players.addEventListener("click", (event) => {
 
   if (action === "remove") {
     removePlayer(playerId);
+    return;
+  }
+
+  if (action === "edit") {
+    tile.classList.toggle("editing");
+    const countInput = tile.querySelector("[data-role='edit-count']");
+    if (countInput) countInput.focus();
     return;
   }
 

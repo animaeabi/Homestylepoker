@@ -20,10 +20,13 @@
           <h1>Buy-in Tracker</h1>
           <p>Real-time buy-ins for any table. Share a link, everyone taps in.</p>
         </div>
-        <div class="brand-meta">
-          <span>Realtime</span>
-          <span>Mobile-first</span>
-          <span>Autosave</span>
+        <div class="top-actions">
+          <div class="brand-meta">
+            <span>Realtime</span>
+            <span>Mobile-first</span>
+            <span>Autosave</span>
+          </div>
+          <button id="themeToggle" class="ghost theme-toggle" type="button">Dark mode</button>
         </div>
       </header>
 
@@ -105,71 +108,85 @@
           </div>
         </section>
 
-        <div id="joinPanel" class="join-panel">
-          <div class="join-card">
-            <h3>Share this game</h3>
-            <p>Players join with the link or QR.</p>
-            <div class="link-row">
-              <input id="joinLink" type="text" readonly />
-              <button id="copyLinkInline" class="ghost">Copy</button>
-            </div>
-            <canvas id="qrCanvas" width="180" height="180"></canvas>
-            <p class="muted">Anyone with the link can add buy-ins.</p>
-          </div>
-          <div class="join-card">
-            <h3>Game settings</h3>
-            <label class="field">
-              <span>Game name</span>
-              <input id="gameName" type="text" />
-            </label>
-            <div class="row">
-              <label class="field">
-                <span>Currency</span>
-                <input id="currency" type="text" maxlength="3" />
-              </label>
-              <label class="field">
-                <span>Default buy-in</span>
-                <input id="defaultBuyIn" type="number" min="1" step="1" />
-              </label>
-            </div>
-          </div>
-        </div>
-
-        <div class="columns">
-          <section id="hostPanel" class="panel">
-            <div class="panel-title">
-              <h2>Host</h2>
-              <p>Live totals as players buy in.</p>
-            </div>
-            <div id="summary" class="summary"></div>
-            <div class="host-actions">
-              <label class="field">
-                <span>Add player (optional)</span>
-                <input id="hostPlayerName" type="text" placeholder="Player name" />
-              </label>
-              <div class="action-row">
-                <button id="hostAddPlayer" class="primary">Add player</button>
-                <button id="openSettle" class="ghost">Settle game</button>
-              </div>
-            </div>
-            <div id="players" class="players"></div>
-            <section id="settlePanel" class="settle-panel hidden">
-              <div class="panel-title">
-                <h2>Settle</h2>
-                <p>Enter each player’s remaining chips. This ends the game and saves the results.</p>
-              </div>
-              <form id="settleForm" class="settle-form">
-                <div id="settleList" class="settle-list"></div>
-                <div class="settle-actions">
-                  <button id="settleCancel" type="button" class="ghost">Cancel</button>
-                  <button type="submit" class="primary">Save settlement</button>
+        <div class="game-layout">
+          <div id="hostLayout" class="host-layout">
+            <div class="host-left">
+              <div id="joinPanel" class="join-panel">
+                <div class="join-card">
+                  <h3>Share this game</h3>
+                  <p>Players join with the link or QR.</p>
+                  <div class="link-row">
+                    <input id="joinLink" type="text" readonly />
+                    <button id="copyLinkInline" class="ghost">Copy</button>
+                  </div>
+                  <canvas id="qrCanvas" width="180" height="180"></canvas>
+                  <p class="muted">Anyone with the link can add buy-ins.</p>
                 </div>
-              </form>
-            </section>
-            <section id="settlementSummary" class="settlement-summary hidden"></section>
-          </section>
+                <div class="join-card">
+                  <h3>Game settings</h3>
+                  <label class="field">
+                    <span>Game name</span>
+                    <input id="gameName" type="text" />
+                  </label>
+                  <div class="row">
+                    <label class="field">
+                      <span>Currency</span>
+                      <input id="currency" type="text" maxlength="3" />
+                    </label>
+                    <label class="field">
+                      <span>Default buy-in</span>
+                      <input id="defaultBuyIn" type="number" min="1" step="1" />
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
 
-          <section id="playerPanel" class="panel">
+            <div class="host-right">
+              <section id="hostPanel" class="panel">
+                <div class="panel-title">
+                  <h2>Host</h2>
+                  <p>Live totals as players buy in.</p>
+                </div>
+                <div id="summary" class="summary"></div>
+                <div class="host-actions">
+                  <label class="field">
+                    <span>Add player (optional)</span>
+                    <input id="hostPlayerName" type="text" placeholder="Player name" />
+                  </label>
+                  <div class="action-row">
+                    <button id="hostAddPlayer" class="primary">Add player</button>
+                    <button id="openSettle" class="ghost">Settle game</button>
+                  </div>
+                </div>
+                <div id="players" class="players"></div>
+                <section id="settlePanel" class="settle-panel hidden">
+                  <div class="panel-title">
+                    <h2>Settle</h2>
+                    <p>Enter each player’s remaining chips. This ends the game and saves the results.</p>
+                  </div>
+                  <form id="settleForm" class="settle-form">
+                    <div id="settleList" class="settle-list"></div>
+                    <div class="settle-actions">
+                      <button id="settleCancel" type="button" class="ghost">Cancel</button>
+                      <button type="submit" class="primary">Save settlement</button>
+                    </div>
+                  </form>
+                </section>
+                <section id="settlementSummary" class="settlement-summary hidden"></section>
+              </section>
+
+              <section id="logPanel" class="panel log">
+                <div class="panel-title">
+                  <h2>Log</h2>
+                  <p>Timestamped buy-ins.</p>
+                </div>
+                <div id="logTable" class="table"></div>
+              </section>
+            </div>
+          </div>
+
+          <section id="playerPanel" class="panel player-panel">
             <div class="panel-title">
               <h2>Player</h2>
               <p>Join once, tap to add buy-ins.</p>
@@ -186,21 +203,13 @@
             <div id="playerSeat" class="player-seat hidden">
               <div id="playerCard" class="player-card"></div>
               <div class="player-actions">
-                <button id="playerAddDefault" class="primary">Add default buy-in</button>
+                <button id="playerAddDefault" class="primary">Add buy-in</button>
               </div>
               <p id="playerNotice" class="muted hidden">Game settled — buy-ins are locked.</p>
               <div id="playerBuyins" class="player-buyins"></div>
             </div>
           </section>
         </div>
-
-        <section id="logPanel" class="panel log">
-          <div class="panel-title">
-            <h2>Log</h2>
-            <p>Timestamped buy-ins.</p>
-          </div>
-          <div id="logTable" class="table"></div>
-        </section>
       </section>
 
       <footer class="footer">
