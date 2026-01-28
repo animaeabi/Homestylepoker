@@ -54,6 +54,7 @@ const elements = {
   playerCard: $("#playerCard"),
   playerAddDefault: $("#playerAddDefault"),
   playerBuyins: $("#playerBuyins"),
+  playerSettledSummary: $("#playerSettledSummary"),
   playerNotice: $("#playerNotice"),
   playerJoinNotice: $("#playerJoinNotice"),
   logTable: $("#logTable"),
@@ -310,6 +311,9 @@ function applyHostMode() {
   elements.hostAddPlayer.disabled = !state.isHost;
   if (elements.settlementSummary) {
     elements.settlementSummary.classList.toggle("hidden", !state.isHost || !isGameSettled());
+  }
+  if (elements.playerSettledSummary) {
+    elements.playerSettledSummary.classList.toggle("hidden", state.isHost || !isGameSettled());
   }
 }
 
@@ -600,26 +604,40 @@ function renderPlayers() {
 }
 
 function renderPlayerSeat() {
+  if (isGameSettled()) {
+    elements.playerJoin.classList.add("hidden");
+    elements.playerSeat.classList.add("hidden");
+    if (elements.playerSettledSummary) {
+      elements.playerSettledSummary.classList.remove("hidden");
+    }
+    return;
+  }
   const player = state.players.find((item) => item.id === state.playerId);
   if (!player) {
     if (state.playerId && state.game) {
       clearStoredPlayer(state.game.code);
       state.playerId = null;
     }
-    if (elements.playerMatchList) {
-      elements.playerMatchList.classList.add("hidden");
-      elements.playerMatchList.innerHTML = "";
-    }
-    elements.playerJoin.classList.remove("hidden");
-    elements.playerSeat.classList.add("hidden");
-    return;
+  if (elements.playerMatchList) {
+    elements.playerMatchList.classList.add("hidden");
+    elements.playerMatchList.innerHTML = "";
   }
+  elements.playerJoin.classList.remove("hidden");
+  elements.playerSeat.classList.add("hidden");
+  if (elements.playerSettledSummary) {
+    elements.playerSettledSummary.classList.add("hidden");
+  }
+  return;
+}
 
   const buyins = state.buyins.filter((item) => item.player_id === player.id);
   const total = buyins.reduce((sum, item) => sum + Number(item.amount || 0), 0);
 
   elements.playerJoin.classList.add("hidden");
   elements.playerSeat.classList.remove("hidden");
+  if (elements.playerSettledSummary) {
+    elements.playerSettledSummary.classList.add("hidden");
+  }
   elements.playerCard.innerHTML = `
     <strong>${player.name}</strong>
     <div>Buy-ins: ${buyins.length} · ${formatCurrency(total)}</div>
@@ -696,50 +714,57 @@ function renderLog() {
 }
 
 function renderSettlementSummary() {
-  if (!elements.settlementSummary) return;
   const settled = isGameSettled();
-  elements.settlementSummary.innerHTML = "";
-  elements.settlementSummary.classList.toggle("hidden", !settled);
-  if (!settled) return;
+  const containers = [
+    { node: elements.settlementSummary, visible: settled && state.isHost, title: "Settlement" },
+    { node: elements.playerSettledSummary, visible: settled && !state.isHost, title: "Game settled" }
+  ];
 
   const playerLookup = new Map(state.players.map((player) => [player.id, player.name]));
   const rows = state.settlements
     .slice()
     .sort((a, b) => (playerLookup.get(a.player_id) || "").localeCompare(playerLookup.get(b.player_id) || ""));
 
-  const header = document.createElement("div");
-  header.className = "panel-title";
-  header.innerHTML = "<h2>Settlement</h2><p>Final chips on hand by player.</p>";
-  elements.settlementSummary.appendChild(header);
+  containers.forEach(({ node, visible, title }) => {
+    if (!node) return;
+    node.innerHTML = "";
+    node.classList.toggle("hidden", !visible);
+    if (!visible) return;
 
-  if (!rows.length) {
-    const empty = document.createElement("p");
-    empty.className = "muted";
-    empty.textContent = "No settlement data saved.";
-    elements.settlementSummary.appendChild(empty);
-    return;
-  }
+    const header = document.createElement("div");
+    header.className = "panel-title";
+    header.innerHTML = `<h2>${title}</h2><p>Final chips on hand by player.</p>`;
+    node.appendChild(header);
 
-  const list = document.createElement("div");
-  list.className = "settlement-list";
-  let total = 0;
-  rows.forEach((entry) => {
-    const row = document.createElement("div");
-    row.className = "settlement-row";
-    total += Number(entry.amount || 0);
-    row.innerHTML = `
-      <span>${playerLookup.get(entry.player_id) || "Unknown"}</span>
-      <strong>${formatCurrency(entry.amount)}</strong>
-    `;
-    list.appendChild(row);
+    if (!rows.length) {
+      const empty = document.createElement("p");
+      empty.className = "muted";
+      empty.textContent = "No settlement data saved.";
+      node.appendChild(empty);
+      return;
+    }
+
+    const list = document.createElement("div");
+    list.className = "settlement-list";
+    let total = 0;
+    rows.forEach((entry) => {
+      const row = document.createElement("div");
+      row.className = "settlement-row";
+      total += Number(entry.amount || 0);
+      row.innerHTML = `
+        <span>${playerLookup.get(entry.player_id) || "Unknown"}</span>
+        <strong>${formatCurrency(entry.amount)}</strong>
+      `;
+      list.appendChild(row);
+    });
+
+    const totalRow = document.createElement("div");
+    totalRow.className = "settlement-total";
+    totalRow.innerHTML = `<span>Total chips</span><strong>${formatCurrency(total)}</strong>`;
+
+    node.appendChild(list);
+    node.appendChild(totalRow);
   });
-
-  const totalRow = document.createElement("div");
-  totalRow.className = "settlement-total";
-  totalRow.innerHTML = `<span>Total chips</span><strong>${formatCurrency(total)}</strong>`;
-
-  elements.settlementSummary.appendChild(list);
-  elements.settlementSummary.appendChild(totalRow);
 }
 
 function renderAll() {
@@ -1123,6 +1148,7 @@ function clearCurrentGame() {
   if (elements.settledNotice) elements.settledNotice.classList.add("hidden");
   if (elements.settlePanel) elements.settlePanel.classList.add("hidden");
   if (elements.settlementSummary) elements.settlementSummary.classList.add("hidden");
+  if (elements.playerSettledSummary) elements.playerSettledSummary.classList.add("hidden");
   elements.landing.classList.remove("hidden");
   history.replaceState({}, "", window.location.pathname);
   renderRecentGames();
