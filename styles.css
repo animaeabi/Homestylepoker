@@ -1,16 +1,16 @@
 :root {
-  --bg: #0b120e;
-  --bg-soft: #141f17;
-  --panel: #f6f0e7;
-  --panel-dark: #e8dcc6;
-  --ink: #181511;
-  --muted: #6b6358;
-  --accent: #d6a645;
-  --accent-strong: #b57e1d;
-  --accent-cool: #3d6e62;
+  --bg: #f6f2ea;
+  --bg-soft: #efe7db;
+  --panel: #ffffff;
+  --panel-dark: #f3ede2;
+  --ink: #1b1a17;
+  --muted: #6f6557;
+  --accent: #d4a444;
+  --accent-strong: #b07a24;
+  --accent-cool: #1f6f5c;
   --danger: #c9624b;
-  --border: rgba(255, 255, 255, 0.12);
-  --shadow: 0 24px 50px rgba(10, 15, 12, 0.35);
+  --border: rgba(27, 26, 23, 0.12);
+  --shadow: 0 24px 60px rgba(15, 14, 12, 0.15);
   --radius: 22px;
 }
 
@@ -22,8 +22,8 @@
 
 body {
   font-family: "Manrope", sans-serif;
-  background: radial-gradient(circle at top, #1f2f22 0%, #0b120e 55%);
-  color: #fdf7ee;
+  background: radial-gradient(circle at top, #fff8ee 0%, #f6f2ea 55%);
+  color: var(--ink);
   min-height: 100vh;
   position: relative;
   overflow-x: hidden;
@@ -33,24 +33,16 @@ body::before {
   content: "";
   position: fixed;
   inset: 0;
-  background: radial-gradient(circle at 20% 20%, rgba(214, 166, 69, 0.14), transparent 55%),
-    radial-gradient(circle at 80% 10%, rgba(61, 110, 98, 0.2), transparent 60%);
-  pointer-events: none;
-}
-
-body::after {
-  content: "";
-  position: fixed;
-  inset: 0;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cg fill='none' stroke='%2325312b' stroke-width='1'%3E%3Cpath d='M0 30h120M0 60h120M0 90h120'/%3E%3Cpath d='M30 0v120M60 0v120M90 0v120'/%3E%3C/g%3E%3C/svg%3E");
-  opacity: 0.15;
+  background: radial-gradient(circle at 15% 10%, rgba(31, 111, 92, 0.14), transparent 50%),
+    radial-gradient(circle at 85% 0%, rgba(212, 164, 68, 0.16), transparent 55%),
+    radial-gradient(circle at 70% 80%, rgba(31, 111, 92, 0.12), transparent 50%);
   pointer-events: none;
 }
 
 .app {
-  max-width: 1200px;
+  max-width: 1160px;
   margin: 0 auto;
-  padding: 48px 24px 64px;
+  padding: 48px 24px 80px;
   display: flex;
   flex-direction: column;
   gap: 28px;
@@ -76,7 +68,7 @@ body::after {
   text-transform: uppercase;
   letter-spacing: 0.25em;
   font-size: 0.7rem;
-  color: rgba(253, 247, 238, 0.6);
+  color: rgba(27, 26, 23, 0.55);
 }
 
 h1 {
@@ -86,7 +78,7 @@ h1 {
 }
 
 .subtitle {
-  color: rgba(253, 247, 238, 0.7);
+  color: rgba(27, 26, 23, 0.7);
   max-width: 460px;
   line-height: 1.6;
 }
@@ -96,19 +88,19 @@ h1 {
   flex-wrap: wrap;
   gap: 12px;
   font-size: 0.85rem;
-  color: rgba(253, 247, 238, 0.7);
+  color: rgba(27, 26, 23, 0.65);
 }
 
 .hero-meta span {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(31, 111, 92, 0.12);
   padding: 6px 12px;
   border-radius: 999px;
 }
 
 .hero-card {
-  background: linear-gradient(150deg, rgba(255, 255, 255, 0.95), rgba(234, 224, 210, 0.92));
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.96), rgba(243, 237, 226, 0.92));
   color: var(--ink);
-  padding: 26px;
+  padding: 28px;
   border-radius: var(--radius);
   box-shadow: var(--shadow);
   display: grid;
@@ -140,18 +132,26 @@ h1 {
 
 .field input,
 .link-row input {
-  border: 1px solid #dccbb2;
-  border-radius: 14px;
+  border: 1px solid rgba(27, 26, 23, 0.18);
+  border-radius: 16px;
   padding: 12px 14px;
   font-size: 1rem;
   font-family: inherit;
   background: #fff;
   color: var(--ink);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .field input:disabled {
   opacity: 0.65;
   cursor: not-allowed;
+}
+
+.field input:focus,
+.link-row input:focus {
+  outline: none;
+  border-color: rgba(31, 111, 92, 0.5);
+  box-shadow: 0 0 0 3px rgba(31, 111, 92, 0.15);
 }
 
 .row {
@@ -167,7 +167,7 @@ button {
   font-weight: 600;
   font-family: inherit;
   cursor: pointer;
-  transition: transform 0.15s ease, box-shadow 0.2s ease;
+  transition: transform 0.15s ease, box-shadow 0.2s ease, background 0.2s ease;
 }
 
 button:hover {
@@ -188,14 +188,14 @@ button:disabled {
 }
 
 .ghost {
-  background: rgba(255, 255, 255, 0.08);
-  color: #fdf7ee;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(31, 111, 92, 0.08);
+  color: #1a2a25;
+  border: 1px solid rgba(31, 111, 92, 0.2);
 }
 
 .danger {
   background: rgba(201, 98, 75, 0.18);
-  color: #ffe1da;
+  color: #4a1a10;
   border: 1px solid rgba(201, 98, 75, 0.5);
 }
 
@@ -205,9 +205,9 @@ button:disabled {
 }
 
 .banner {
-  background: rgba(214, 166, 69, 0.12);
-  border: 1px solid rgba(214, 166, 69, 0.35);
-  color: #ffecc4;
+  background: rgba(212, 164, 68, 0.12);
+  border: 1px solid rgba(212, 164, 68, 0.35);
+  color: #6b4b10;
   padding: 16px 20px;
   border-radius: 16px;
   display: flex;
@@ -218,7 +218,7 @@ button:disabled {
 .banner-danger {
   background: rgba(201, 98, 75, 0.18);
   border-color: rgba(201, 98, 75, 0.5);
-  color: #ffe1da;
+  color: #5b1f14;
 }
 
 .banner code {
@@ -256,7 +256,7 @@ button:disabled {
 }
 
 .info-chip {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(31, 111, 92, 0.08);
   padding: 10px 14px;
   border-radius: 14px;
   font-size: 0.8rem;
@@ -268,15 +268,15 @@ button:disabled {
 
 .info-chip strong {
   font-size: 1.1rem;
-  color: #fff;
+  color: var(--ink);
 }
 
 .status-chip strong[data-state="ended"] {
-  color: #ffb7a6;
+  color: #a3422f;
 }
 
 .status-chip strong[data-state="live"] {
-  color: #d4f3d8;
+  color: #1f6f5c;
 }
 
 .game-actions {
@@ -291,7 +291,7 @@ button:disabled {
   gap: 8px;
   align-items: center;
   font-size: 0.85rem;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(31, 111, 92, 0.08);
   padding: 8px 12px;
   border-radius: 999px;
 }
@@ -346,8 +346,8 @@ button:disabled {
 }
 
 .panel {
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.75);
+  border: 1px solid rgba(31, 111, 92, 0.12);
   border-radius: var(--radius);
   padding: 22px;
   box-shadow: var(--shadow);
@@ -361,7 +361,7 @@ button:disabled {
 }
 
 .panel-title p {
-  color: rgba(253, 247, 238, 0.7);
+  color: rgba(27, 26, 23, 0.7);
 }
 
 .summary {
@@ -371,7 +371,7 @@ button:disabled {
 }
 
 .summary-card {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(31, 111, 92, 0.08);
   border-radius: 16px;
   padding: 14px;
 }
@@ -379,7 +379,7 @@ button:disabled {
 .summary-card span {
   display: block;
   font-size: 0.8rem;
-  color: rgba(253, 247, 238, 0.65);
+  color: rgba(27, 26, 23, 0.65);
 }
 
 .summary-card strong {
@@ -419,7 +419,7 @@ button:disabled {
 
 .player-header button {
   background: transparent;
-  border: 1px solid #d6c7b2;
+  border: 1px solid rgba(27, 26, 23, 0.2);
   padding: 4px 10px;
   border-radius: 999px;
   font-size: 0.8rem;
@@ -454,7 +454,7 @@ button:disabled {
 }
 
 .player-actions input {
-  border: 1px solid #dfcdb6;
+  border: 1px solid rgba(27, 26, 23, 0.18);
   border-radius: 12px;
   padding: 10px 12px;
 }
@@ -466,7 +466,7 @@ button:disabled {
 }
 
 .player-card {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(31, 111, 92, 0.08);
   padding: 14px;
   border-radius: 16px;
 }
@@ -478,7 +478,7 @@ button:disabled {
 }
 
 .buyin-chip {
-  background: rgba(255, 255, 255, 0.18);
+  background: rgba(31, 111, 92, 0.12);
   padding: 6px 10px;
   border-radius: 999px;
   font-size: 0.8rem;
@@ -495,7 +495,7 @@ button:disabled {
   gap: 12px;
   padding: 10px 12px;
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(31, 111, 92, 0.06);
   font-size: 0.85rem;
 }
 
@@ -504,11 +504,11 @@ button:disabled {
   letter-spacing: 0.12em;
   font-size: 0.7rem;
   font-weight: 700;
-  background: rgba(255, 255, 255, 0.18);
+  background: rgba(31, 111, 92, 0.16);
 }
 
 .log {
-  background: rgba(11, 18, 14, 0.6);
+  background: rgba(255, 255, 255, 0.55);
 }
 
 .footer {
@@ -517,11 +517,29 @@ button:disabled {
   gap: 12px;
   flex-wrap: wrap;
   font-size: 0.85rem;
-  color: rgba(253, 247, 238, 0.6);
+  color: rgba(27, 26, 23, 0.6);
 }
 
 #saveStatus[data-tone="error"] {
-  color: #ffb7a6;
+  color: #a3422f;
+}
+
+@keyframes floatIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.hero,
+.game,
+.panel,
+.hero-card {
+  animation: floatIn 0.6s ease both;
 }
 
 @media (max-width: 720px) {
@@ -540,5 +558,9 @@ button:disabled {
 
   .link-row {
     grid-template-columns: 1fr;
+  }
+
+  .hero-card {
+    padding: 22px;
   }
 }
