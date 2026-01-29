@@ -402,6 +402,7 @@ body.theme-light .brand-icon {
 .lets-play {
   justify-self: start;
   width: min(360px, 100%);
+  text-align: left;
 }
 
 .landing-card.compact {
@@ -432,6 +433,8 @@ body.theme-light .brand-icon {
 .history-btn {
   padding: 6px 12px;
   font-size: 0.78rem;
+  margin-left: auto;
+  white-space: nowrap;
 }
 
 .landing-card.compact h2 {
@@ -467,12 +470,14 @@ body.theme-light .brand-icon {
   align-items: center;
   justify-content: space-between;
   flex-wrap: nowrap;
+  width: 100%;
 }
 
 .lets-play .card-header h2 {
   margin: 0;
   flex: 1 1 auto;
   min-width: 0;
+  text-align: left;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
