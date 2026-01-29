@@ -559,6 +559,15 @@ function updateGroupLockUI(group) {
   }
 }
 
+function handleGroupLockError(error) {
+  if (!error) return false;
+  if (error.code === "42703") {
+    setStatus("Lock phrase unavailable. Run the README SQL to add lock_phrase_hash.", "error");
+    return true;
+  }
+  return false;
+}
+
 async function ensureGroupUnlocked(groupId) {
   const group = state.groups.find((item) => item.id === groupId);
   if (!group || !group.lock_phrase_hash) return true;
@@ -593,6 +602,7 @@ async function setGroupLockPhrase() {
     .update({ lock_phrase_hash: digest })
     .eq("id", group.id);
   if (error) {
+    if (handleGroupLockError(error)) return;
     setStatus("Could not set lock phrase", "error");
     return;
   }
@@ -614,6 +624,7 @@ async function removeGroupLockPhrase() {
     .update({ lock_phrase_hash: null })
     .eq("id", group.id);
   if (error) {
+    if (handleGroupLockError(error)) return;
     setStatus("Could not remove lock phrase", "error");
     return;
   }
@@ -629,6 +640,8 @@ async function renameActiveGroup() {
   if (!supabase || !state.activeGroupId) return;
   const group = state.groups.find((item) => item.id === state.activeGroupId);
   if (!group) return;
+  const unlocked = await ensureGroupUnlocked(group.id);
+  if (!unlocked) return;
   const nextName = safeTrim(window.prompt("New group name", group.name));
   if (!nextName || nextName === group.name) return;
   const { error } = await supabase.from("groups").update({ name: nextName }).eq("id", group.id);
@@ -649,6 +662,8 @@ async function deleteActiveGroup() {
   if (!supabase || !state.activeGroupId) return;
   const group = state.groups.find((item) => item.id === state.activeGroupId);
   if (!group) return;
+  const unlocked = await ensureGroupUnlocked(group.id);
+  if (!unlocked) return;
   if (!window.confirm(`Delete group "${group.name}"? This will remove all its players.`)) return;
   const { error } = await supabase.from("groups").delete().eq("id", group.id);
   if (error) {
@@ -2504,6 +2519,8 @@ if (elements.groupPlayerForm) {
   elements.groupPlayerForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     if (!state.activeGroupId) return;
+    const unlocked = await ensureGroupUnlocked(state.activeGroupId);
+    if (!unlocked) return;
     const name = safeTrim(elements.groupPlayerName?.value);
     if (!name) return;
     await getOrCreateGroupPlayer(state.activeGroupId, name);
@@ -2600,6 +2617,8 @@ if (elements.groupPlayerList) {
     if (!button) return;
     const playerId = button.dataset.id;
     if (!playerId || !state.activeGroupId) return;
+    const unlocked = await ensureGroupUnlocked(state.activeGroupId);
+    if (!unlocked) return;
     if (!window.confirm("Remove this player from the group?")) return;
     const { error } = await supabase.from("group_players").delete().eq("id", playerId);
     if (error) {
