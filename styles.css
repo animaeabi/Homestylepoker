@@ -1373,12 +1373,50 @@ button:disabled {
   gap: 8px;
   font-size: 0.8rem;
   color: var(--muted);
+  padding: 4px 8px;
+  background: transparent;
 }
 
-.footer-toggle span {
-  font-size: 0.75rem;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+.footer-toggle input {
+  width: 44px;
+  height: 24px;
+}
+
+.footer-toggle input::after {
+  width: 16px;
+  height: 16px;
+  top: 4px;
+  left: 4px;
+}
+
+.footer-toggle input:checked::after {
+  transform: translateX(20px);
+}
+
+.toggle-icon {
+  width: 18px;
+  height: 18px;
+  display: inline-grid;
+  place-items: center;
+  color: var(--muted);
+}
+
+.toggle-icon svg {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+}
+
+.toggle-icon .icon-sun {
+  display: none;
+}
+
+.footer-toggle input:checked + .toggle-icon .icon-sun {
+  display: block;
+}
+
+.footer-toggle input:checked + .toggle-icon .icon-moon {
+  display: none;
 }
 
 #saveStatus[data-tone="error"] {
