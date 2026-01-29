@@ -364,7 +364,7 @@ async function initGameName() {
     const suggestion = await ensureUniqueGameName("");
     elements.newGameName.placeholder = suggestion;
     elements.newGameName.dataset.suggested = suggestion;
-  }, 7000);
+  }, 4000);
 }
 
 function isDeletePinAuthorized() {
