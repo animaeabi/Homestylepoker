@@ -12,7 +12,7 @@
     />
     <link rel="stylesheet" href="styles.css" />
   </head>
-  <body>
+  <body class="theme-dark">
     <div class="app">
       <header class="topbar">
         <div class="brand">
@@ -21,11 +21,6 @@
           <p>If Someone’s down bad. The pot knows.</p>
         </div>
         <div class="top-actions">
-          <div class="brand-meta">
-            <span>Realtime</span>
-            <span>Mobile-first</span>
-            <span>Autosave</span>
-          </div>
           <button id="themeToggle" class="ghost theme-toggle" type="button">Dark mode</button>
         </div>
       </header>
@@ -122,7 +117,7 @@
                   <canvas id="qrCanvas" width="180" height="180"></canvas>
                   <p class="muted">Anyone with the link can add buy-ins.</p>
                 </div>
-                <div class="join-card">
+                <div class="join-card hidden">
                   <h3>Game settings</h3>
                   <label class="field">
                     <span>Game name</span>
