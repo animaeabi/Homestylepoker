@@ -204,8 +204,7 @@ function applyTheme(theme) {
   document.body.classList.toggle("theme-light", mode === "light");
   document.body.classList.toggle("theme-dark", mode === "dark");
   if (elements.themeToggle) {
-    elements.themeToggle.textContent = mode === "dark" ? "Light mode" : "Dark mode";
-    elements.themeToggle.setAttribute("aria-pressed", mode === "dark");
+    elements.themeToggle.checked = mode === "light";
   }
 }
 
@@ -2447,9 +2446,8 @@ initGameName();
 // Event listeners
 
 if (elements.themeToggle) {
-  elements.themeToggle.addEventListener("click", () => {
-    const isDark = document.body.classList.contains("theme-dark");
-    const next = isDark ? "light" : "dark";
+  elements.themeToggle.addEventListener("change", () => {
+    const next = elements.themeToggle.checked ? "light" : "dark";
     localStorage.setItem(themeKey, next);
     applyTheme(next);
   });

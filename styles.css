@@ -176,12 +176,6 @@ body::before {
   border-radius: 999px;
 }
 
-.theme-toggle {
-  padding: 8px 14px;
-  border-radius: 999px;
-  font-size: 0.8rem;
-}
-
 .landing {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -1367,6 +1361,24 @@ button:disabled {
   flex-wrap: wrap;
   font-size: 0.85rem;
   color: var(--muted);
+}
+
+.footer-actions {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+}
+
+.footer-toggle {
+  gap: 8px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.footer-toggle span {
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
 #saveStatus[data-tone="error"] {
