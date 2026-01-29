@@ -22,12 +22,12 @@ const elements = {
   defaultBuyIn: $("#defaultBuyIn"),
   leaveGame: $("#leaveGame"),
   copyLink: $("#copyLink"),
-  qrToggle: $("#qrToggle"),
-  qrModal: $("#qrModal"),
-  qrClose: $("#qrClose"),
+  copyLinkInline: $("#copyLinkInline"),
+  openLink: $("#openLink"),
   hostLayout: $("#hostLayout"),
   joinPanel: $("#joinPanel"),
   logPanel: $("#logPanel"),
+  joinLink: $("#joinLink"),
   qrCanvas: $("#qrCanvas"),
   settledNotice: $("#settledNotice"),
   settledAt: $("#settledAt"),
@@ -89,8 +89,6 @@ if (configMissing) {
   elements.joinAsPlayer.disabled = true;
   elements.hostAddPlayer.disabled = true;
   if (elements.openSettle) elements.openSettle.disabled = true;
-  if (elements.copyLink) elements.copyLink.disabled = true;
-  if (elements.qrToggle) elements.qrToggle.disabled = true;
 }
 
 const supabase = configMissing ? null : createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -166,6 +164,10 @@ function loadRecentGames() {
 
 function saveRecentGames(list) {
   localStorage.setItem(recentGamesKey, JSON.stringify(list));
+}
+
+function isLocalHostForGame(code) {
+  return localStorage.getItem(hostKey(code)) === "true";
 }
 
 async function refreshRecentGames() {
@@ -258,12 +260,16 @@ function renderRecentGames(list = loadRecentGames()) {
       const row = document.createElement("div");
       row.className = "recent-item";
       const dateLabel = formatShortDate(game.ended_at || game.created_at);
+      const canDelete = isLocalHostForGame(game.code);
       row.innerHTML = `
         <div>
           <strong>${game.name || "Home Game"}</strong>
           <span>${dateLabel} · ${game.code}</span>
         </div>
-        <button class="ghost" data-action="open" data-code="${game.code}">Open</button>
+        <div class="recent-actions">
+          <button class="ghost" data-action="open" data-code="${game.code}">Open</button>
+          ${canDelete ? `<button class="danger-outline" data-action="delete" data-code="${game.code}">Delete</button>` : ""}
+        </div>
       `;
       listWrap.appendChild(row);
     });
@@ -365,6 +371,9 @@ function applyHostMode() {
   if (elements.copyLink) {
     elements.copyLink.classList.toggle("hidden", !state.isHost);
   }
+  if (elements.openLink) {
+    elements.openLink.classList.toggle("hidden", !state.isHost);
+  }
   if (elements.leaveGame) {
     elements.leaveGame.classList.toggle("hidden", !state.isHost);
   }
@@ -433,15 +442,14 @@ function hydrateInputs() {
   elements.currency.value = state.game.currency || "$";
   elements.defaultBuyIn.value = state.game.default_buyin || 0;
   const joinLink = getJoinLink();
+  elements.joinLink.value = joinLink;
 
-  if (elements.qrCanvas) {
-    QRCode.toCanvas(
-      elements.qrCanvas,
-      joinLink,
-      { width: 240, margin: 1, color: { dark: "#1b140c", light: "#ffffff" } },
-      () => {}
-    );
-  }
+  QRCode.toCanvas(
+    elements.qrCanvas,
+    joinLink,
+    { width: 180, margin: 1, color: { dark: "#1b140c", light: "#ffffff" } },
+    () => {}
+  );
 }
 
 function computeSummary() {
@@ -847,6 +855,41 @@ function renderSettlementSummary() {
   });
 }
 
+async function deleteGameByCode(code) {
+  if (!code) return;
+  if (!isLocalHostForGame(code)) {
+    setStatus("Only the host can delete this game.", "error");
+    return;
+  }
+
+  const localList = loadRecentGames();
+  const item = localList.find((game) => game.code === code);
+  const label = item?.name ? `${item.name} (${code})` : code;
+  const currentGame = state.game?.code === code;
+  const message = currentGame
+    ? "This will close the current game and delete it for everyone. Continue?"
+    : `Delete ${label}? This cannot be undone.`;
+
+  if (!window.confirm(message)) return;
+
+  if (currentGame) {
+    clearCurrentGame();
+  }
+
+  if (supabase) {
+    const { error } = await supabase.from("games").delete().eq("code", code);
+    if (error) {
+      setStatus("Delete failed", "error");
+      return;
+    }
+  }
+
+  const next = loadRecentGames().filter((game) => game.code !== code);
+  saveRecentGames(next);
+  await refreshRecentGames();
+  setStatus("Game deleted");
+}
+
 function renderAll() {
   if (!state.game) return;
   elements.landing.classList.add("hidden");
@@ -1236,7 +1279,6 @@ function clearCurrentGame() {
   if (elements.settlePanel) elements.settlePanel.classList.add("hidden");
   if (elements.settlementSummary) elements.settlementSummary.classList.add("hidden");
   if (elements.playerSettledSummary) elements.playerSettledSummary.classList.add("hidden");
-  if (elements.qrModal) elements.qrModal.classList.add("hidden");
   elements.landing.classList.remove("hidden");
   history.replaceState({}, "", window.location.pathname);
   refreshRecentGames();
@@ -1339,9 +1381,16 @@ elements.joinGame.addEventListener("click", () => {
 
 if (elements.recentGames) {
   elements.recentGames.addEventListener("click", (event) => {
-    const button = event.target.closest("button[data-action='open']");
+    const button = event.target.closest("button[data-action]");
     if (!button) return;
-    loadGameByCode(button.dataset.code);
+    const { action, code } = button.dataset;
+    if (action === "open") {
+      loadGameByCode(code);
+      return;
+    }
+    if (action === "delete") {
+      deleteGameByCode(code);
+    }
   });
 }
 
@@ -1350,41 +1399,15 @@ elements.copyLink.addEventListener("click", () => {
   copyText(getJoinLink());
 });
 
-function openQrModal() {
-  if (!elements.qrModal) return;
-  elements.qrModal.classList.remove("hidden");
-}
-
-function closeQrModal() {
-  if (!elements.qrModal) return;
-  elements.qrModal.classList.add("hidden");
-}
-
-if (elements.qrToggle) {
-  elements.qrToggle.addEventListener("click", () => {
-    if (!state.game) return;
-    openQrModal();
-  });
-}
-
-if (elements.qrClose) {
-  elements.qrClose.addEventListener("click", closeQrModal);
-}
-
-if (elements.qrModal) {
-  elements.qrModal.addEventListener("click", (event) => {
-    if (event.target.dataset.action === "close") {
-      closeQrModal();
-    }
-  });
-}
-
-window.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") {
-    closeQrModal();
-  }
+elements.copyLinkInline.addEventListener("click", () => {
+  if (!state.game) return;
+  copyText(getJoinLink());
 });
 
+elements.openLink.addEventListener("click", () => {
+  if (!state.game) return;
+  window.open(getJoinLink(), "_blank");
+});
 
 if (elements.leaveGame) {
   elements.leaveGame.addEventListener("click", () => {
