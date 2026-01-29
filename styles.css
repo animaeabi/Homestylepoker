@@ -463,6 +463,16 @@ body.theme-light .brand-icon {
   gap: 12px;
 }
 
+.lets-play .card-header {
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: nowrap;
+}
+
+.lets-play .card-header h2 {
+  margin: 0;
+}
+
 .card-header .muted {
   margin-top: 4px;
 }
@@ -1735,6 +1745,11 @@ body:not(.theme-light) .footer-toggle input {
   .history-btn,
   .group-card {
     justify-self: center;
+  }
+
+  .lets-play .history-btn {
+    padding: 6px 10px;
+    font-size: 0.72rem;
   }
 
   .topbar {
