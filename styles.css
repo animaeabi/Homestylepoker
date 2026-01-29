@@ -179,6 +179,12 @@ body::before {
   font-size: 0.8rem;
 }
 
+.qr-button {
+  padding: 8px 12px;
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+}
+
 .landing {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -632,6 +638,53 @@ button:disabled {
   background: #fff;
   padding: 10px;
   border: 1px solid rgba(0, 0, 0, 0.2);
+}
+
+.qr-modal {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  z-index: 50;
+}
+
+.qr-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.qr-sheet {
+  position: relative;
+  z-index: 2;
+  width: min(92vw, 360px);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 18px;
+  box-shadow: var(--shadow);
+  display: grid;
+  gap: 16px;
+}
+
+.qr-sheet-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.qr-sheet-header h3 {
+  font-family: "Fraunces", serif;
+  font-size: 1.2rem;
+}
+
+.qr-canvas-wrap {
+  background: #fff;
+  border-radius: 16px;
+  padding: 12px;
+  display: grid;
+  place-items: center;
 }
 
 .muted {

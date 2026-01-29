@@ -21,11 +21,6 @@
           <p>If Someone’s down bad. The pot knows.</p>
         </div>
         <div class="top-actions">
-          <div class="brand-meta">
-            <span>Realtime</span>
-            <span>Mobile-first</span>
-            <span>Autosave</span>
-          </div>
           <button id="themeToggle" class="ghost theme-toggle" type="button">Dark mode</button>
         </div>
       </header>
@@ -77,22 +72,22 @@
               <h2 id="gameTitle">Loading…</h2>
             </div>
             <div class="info-chip">
-              Code
-              <strong id="gameCode">—</strong>
-            </div>
-            <div class="info-chip status-chip">
               Status
               <strong id="gameStatusChip">Live</strong>
+            </div>
+            <div class="info-chip">
+              Code
+              <strong id="gameCode">—</strong>
             </div>
           </div>
           <div class="game-actions">
             <button id="leaveGame" class="ghost">New game</button>
             <button id="copyLink" class="ghost">Copy join link</button>
-            <button id="openLink" class="ghost">Open join link</button>
             <label class="toggle">
               <input type="checkbox" id="hostModeToggle" />
               <span>Host mode</span>
             </label>
+            <button id="qrToggle" class="ghost qr-button" title="Show QR">QR</button>
           </div>
         </div>
 
@@ -107,16 +102,6 @@
           <div id="hostLayout" class="host-layout">
             <div class="host-left">
               <div id="joinPanel" class="join-panel">
-                <div class="join-card">
-                  <h3>Share this game</h3>
-                  <p>Players join with the link or QR.</p>
-                  <div class="link-row">
-                    <input id="joinLink" type="text" readonly />
-                    <button id="copyLinkInline" class="ghost">Copy</button>
-                  </div>
-                  <canvas id="qrCanvas" width="180" height="180"></canvas>
-                  <p class="muted">Anyone with the link can add buy-ins.</p>
-                </div>
                 <div class="join-card">
                   <h3>Game settings</h3>
                   <label class="field">
@@ -205,6 +190,22 @@
             </div>
             <section id="playerSettledSummary" class="settlement-summary hidden"></section>
           </section>
+        </div>
+
+        <div id="qrModal" class="qr-modal hidden" role="dialog" aria-modal="true">
+          <div class="qr-backdrop" data-action="close"></div>
+          <div class="qr-sheet">
+            <div class="qr-sheet-header">
+              <div>
+                <h3>Scan to join</h3>
+                <p class="muted">Point your camera at the code.</p>
+              </div>
+              <button id="qrClose" class="ghost" type="button">Close</button>
+            </div>
+            <div class="qr-canvas-wrap">
+              <canvas id="qrCanvas" width="240" height="240"></canvas>
+            </div>
+          </div>
         </div>
       </section>
 

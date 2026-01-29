@@ -22,12 +22,12 @@ const elements = {
   defaultBuyIn: $("#defaultBuyIn"),
   leaveGame: $("#leaveGame"),
   copyLink: $("#copyLink"),
-  copyLinkInline: $("#copyLinkInline"),
-  openLink: $("#openLink"),
+  qrToggle: $("#qrToggle"),
+  qrModal: $("#qrModal"),
+  qrClose: $("#qrClose"),
   hostLayout: $("#hostLayout"),
   joinPanel: $("#joinPanel"),
   logPanel: $("#logPanel"),
-  joinLink: $("#joinLink"),
   qrCanvas: $("#qrCanvas"),
   settledNotice: $("#settledNotice"),
   settledAt: $("#settledAt"),
@@ -89,6 +89,8 @@ if (configMissing) {
   elements.joinAsPlayer.disabled = true;
   elements.hostAddPlayer.disabled = true;
   if (elements.openSettle) elements.openSettle.disabled = true;
+  if (elements.copyLink) elements.copyLink.disabled = true;
+  if (elements.qrToggle) elements.qrToggle.disabled = true;
 }
 
 const supabase = configMissing ? null : createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -363,9 +365,6 @@ function applyHostMode() {
   if (elements.copyLink) {
     elements.copyLink.classList.toggle("hidden", !state.isHost);
   }
-  if (elements.openLink) {
-    elements.openLink.classList.toggle("hidden", !state.isHost);
-  }
   if (elements.leaveGame) {
     elements.leaveGame.classList.toggle("hidden", !state.isHost);
   }
@@ -434,14 +433,15 @@ function hydrateInputs() {
   elements.currency.value = state.game.currency || "$";
   elements.defaultBuyIn.value = state.game.default_buyin || 0;
   const joinLink = getJoinLink();
-  elements.joinLink.value = joinLink;
 
-  QRCode.toCanvas(
-    elements.qrCanvas,
-    joinLink,
-    { width: 180, margin: 1, color: { dark: "#1b140c", light: "#ffffff" } },
-    () => {}
-  );
+  if (elements.qrCanvas) {
+    QRCode.toCanvas(
+      elements.qrCanvas,
+      joinLink,
+      { width: 240, margin: 1, color: { dark: "#1b140c", light: "#ffffff" } },
+      () => {}
+    );
+  }
 }
 
 function computeSummary() {
@@ -1236,6 +1236,7 @@ function clearCurrentGame() {
   if (elements.settlePanel) elements.settlePanel.classList.add("hidden");
   if (elements.settlementSummary) elements.settlementSummary.classList.add("hidden");
   if (elements.playerSettledSummary) elements.playerSettledSummary.classList.add("hidden");
+  if (elements.qrModal) elements.qrModal.classList.add("hidden");
   elements.landing.classList.remove("hidden");
   history.replaceState({}, "", window.location.pathname);
   refreshRecentGames();
@@ -1349,15 +1350,41 @@ elements.copyLink.addEventListener("click", () => {
   copyText(getJoinLink());
 });
 
-elements.copyLinkInline.addEventListener("click", () => {
-  if (!state.game) return;
-  copyText(getJoinLink());
+function openQrModal() {
+  if (!elements.qrModal) return;
+  elements.qrModal.classList.remove("hidden");
+}
+
+function closeQrModal() {
+  if (!elements.qrModal) return;
+  elements.qrModal.classList.add("hidden");
+}
+
+if (elements.qrToggle) {
+  elements.qrToggle.addEventListener("click", () => {
+    if (!state.game) return;
+    openQrModal();
+  });
+}
+
+if (elements.qrClose) {
+  elements.qrClose.addEventListener("click", closeQrModal);
+}
+
+if (elements.qrModal) {
+  elements.qrModal.addEventListener("click", (event) => {
+    if (event.target.dataset.action === "close") {
+      closeQrModal();
+    }
+  });
+}
+
+window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    closeQrModal();
+  }
 });
 
-elements.openLink.addEventListener("click", () => {
-  if (!state.game) return;
-  window.open(getJoinLink(), "_blank");
-});
 
 if (elements.leaveGame) {
   elements.leaveGame.addEventListener("click", () => {
