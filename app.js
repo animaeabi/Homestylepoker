@@ -1287,7 +1287,9 @@ async function loadGroupStats() {
     return;
   }
 
-  const groupNameById = new Map((groupPlayersRes.data || []).map((row) => [row.id, row.name]));
+  const groupPlayers = groupPlayersRes.data || [];
+  const groupNameById = new Map(groupPlayers.map((row) => [row.id, row.name]));
+  const groupIdByNormalized = new Map(groupPlayers.map((row) => [row.normalized_name, row.id]));
   const playerKeyById = new Map();
   const ledger = new Map();
   const gamesSet = new Set();
@@ -1295,11 +1297,16 @@ async function loadGroupStats() {
   (playersRes.data || []).forEach((player) => {
     gamesSet.add(player.game_id);
     const normalized = normalizeName(player.name.replace(/\s*\(Host\)$/i, ""));
-    const key = player.group_player_id || normalized;
+    const mappedGroupId = groupIdByNormalized.get(normalized) || null;
+    const key = player.group_player_id || mappedGroupId || normalized;
     playerKeyById.set(player.id, key);
     if (!ledger.has(key)) {
+      const displayName =
+        groupNameById.get(player.group_player_id) ||
+        groupNameById.get(mappedGroupId) ||
+        player.name.replace(/\s*\(Host\)$/i, "");
       ledger.set(key, {
-        name: groupNameById.get(player.group_player_id) || player.name.replace(/\s*\(Host\)$/i, ""),
+        name: displayName,
         buyinCount: 0,
         buyinTotal: 0,
         cashout: 0
