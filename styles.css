@@ -435,6 +435,7 @@ body.theme-light .brand-icon {
   font-size: 0.78rem;
   margin-left: auto;
   white-space: nowrap;
+  justify-self: end;
 }
 
 .landing-card.compact h2 {
@@ -467,9 +468,10 @@ body.theme-light .brand-icon {
 }
 
 .lets-play .card-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
-  flex-wrap: nowrap;
+  gap: 12px;
   width: 100%;
 }
 
