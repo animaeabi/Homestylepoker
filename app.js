@@ -150,7 +150,6 @@ const themeKey = "poker_theme";
 const deletePinKey = "poker_delete_pin_ok";
 const deletePin = "2/7";
 const lastGroupKey = "poker_last_group";
-const hostNameKey = "poker_host_name";
 const gameNameAdjectives = [
   "Lucky",
   "Tilted",
@@ -212,13 +211,6 @@ function initTheme() {
   applyTheme("dark");
 }
 
-function initHostName() {
-  if (!elements.newHostName) return;
-  const stored = loadHostName();
-  if (stored) {
-    elements.newHostName.value = stored;
-  }
-}
 
 function loadStoredPlayer(code) {
   if (!code) return null;
@@ -276,19 +268,6 @@ function saveLastGroup(value) {
     return;
   }
   localStorage.setItem(lastGroupKey, value);
-}
-
-function loadHostName() {
-  return safeTrim(localStorage.getItem(hostNameKey));
-}
-
-function saveHostName(value) {
-  const trimmed = safeTrim(value);
-  if (!trimmed) {
-    localStorage.removeItem(hostNameKey);
-    return;
-  }
-  localStorage.setItem(hostNameKey, trimmed);
 }
 
 function requireHostName() {
@@ -1829,7 +1808,6 @@ async function createGame(options = {}) {
   history.replaceState({}, "", getHostLink());
   recordRecentGame(state.game);
   saveLastGroup(state.game.group_id || "");
-  saveHostName(hostName);
 
   if (roster && roster.length) {
     const hostEntry = roster.find((player) => player.isHost) || null;
@@ -2299,7 +2277,6 @@ async function submitSettlement(event) {
 
 buildQuarterOptions();
 initTheme();
-initHostName();
 initGameName();
 
 // Event listeners
@@ -2322,13 +2299,6 @@ elements.createGame.addEventListener("click", () => {
   }
   createGame();
 });
-
-if (elements.newHostName) {
-  elements.newHostName.addEventListener("change", () => {
-    const value = safeTrim(elements.newHostName.value);
-    if (value) saveHostName(value);
-  });
-}
 
 if (elements.joinGame) {
   elements.joinGame.addEventListener("click", () => {
