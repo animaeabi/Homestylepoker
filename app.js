@@ -173,7 +173,23 @@ const gameNameAdjectives = [
   "Turn",
   "All-In",
   "Split",
-  "High-Stakes"
+  "High-Stakes",
+  "Neon",
+  "Midnight",
+  "Diamond",
+  "Golden",
+  "Velvet",
+  "Whisper",
+  "Big Blind",
+  "Cold Deck",
+  "Deep Stack",
+  "Short Stack",
+  "Buttoned",
+  "Slick",
+  "Smooth",
+  "Stacked",
+  "Final",
+  "Backdoor"
 ];
 const gameNameNouns = [
   "Flush",
