@@ -271,6 +271,19 @@ body.theme-light .topbar::after {
   line-height: 1.1;
   letter-spacing: 0.18em;
   text-transform: uppercase;
+  background: linear-gradient(120deg, #f3d388 10%, #fff2cc 45%, #d7b15a 80%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  text-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+
+body.theme-light .brand h1 {
+  background: linear-gradient(120deg, #1f6f5c 10%, #2f8a72 45%, #d4a444 90%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  text-shadow: 0 6px 14px rgba(27, 26, 23, 0.15);
 }
 
 .brand-icon {
