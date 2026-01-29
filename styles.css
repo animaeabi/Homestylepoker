@@ -1748,6 +1748,7 @@ body:not(.theme-light) .footer-toggle input {
 
   .lets-play {
     justify-self: center;
+    width: 100%;
   }
 
   .landing-side {
@@ -1758,6 +1759,10 @@ body:not(.theme-light) .footer-toggle input {
   .history-btn,
   .group-card {
     justify-self: center;
+  }
+
+  .landing-card {
+    width: 100%;
   }
 
   .lets-play .history-btn {
