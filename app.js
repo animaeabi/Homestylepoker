@@ -1505,9 +1505,24 @@ function renderSettlementSummary() {
   ];
 
   const playerLookup = new Map(state.players.map((player) => [player.id, player.name]));
-  const rows = state.settlements
+  const buyinTotals = new Map();
+  state.buyins.forEach((buyin) => {
+    const current = buyinTotals.get(buyin.player_id) || 0;
+    buyinTotals.set(buyin.player_id, current + Number(buyin.amount || 0));
+  });
+  const settlementTotals = new Map();
+  state.settlements.forEach((settlement) => {
+    const current = settlementTotals.get(settlement.player_id) || 0;
+    settlementTotals.set(settlement.player_id, current + Number(settlement.amount || 0));
+  });
+  const rows = state.players
     .slice()
-    .sort((a, b) => (playerLookup.get(a.player_id) || "").localeCompare(playerLookup.get(b.player_id) || ""));
+    .sort((a, b) => (a.name || "").localeCompare(b.name || ""))
+    .map((player) => {
+      const moneyIn = buyinTotals.get(player.id) || 0;
+      const moneyOut = settlementTotals.get(player.id) || 0;
+      return { id: player.id, name: player.name, moneyIn, moneyOut, net: moneyOut - moneyIn };
+    });
 
   containers.forEach(({ node, visible, title, showHome }) => {
     if (!node) return;
@@ -1522,13 +1537,13 @@ function renderSettlementSummary() {
         <div class="summary-header">
           <div>
             <h2>${title}</h2>
-            <p>Final chips on hand by player.</p>
+            <p>Money in, money out, and net per player.</p>
           </div>
           <button class="ghost" type="button" data-action="home">Home</button>
         </div>
       `;
     } else {
-      header.innerHTML = `<h2>${title}</h2><p>Final chips on hand by player.</p>`;
+      header.innerHTML = `<h2>${title}</h2><p>Money in, money out, and net per player.</p>`;
     }
     node.appendChild(header);
 
@@ -1542,21 +1557,44 @@ function renderSettlementSummary() {
 
     const list = document.createElement("div");
     list.className = "settlement-list";
-    let total = 0;
+    let totalIn = 0;
+    let totalOut = 0;
+
+    const headerRow = document.createElement("div");
+    headerRow.className = "settlement-row header";
+    headerRow.innerHTML = `
+      <span>Player</span>
+      <span>In</span>
+      <span>Out</span>
+      <span>Net</span>
+    `;
+    list.appendChild(headerRow);
+
     rows.forEach((entry) => {
       const row = document.createElement("div");
       row.className = "settlement-row";
-      total += Number(entry.amount || 0);
+      totalIn += entry.moneyIn;
+      totalOut += entry.moneyOut;
+      const netClass = entry.net >= 0 ? "money-pos" : "money-neg";
       row.innerHTML = `
-        <span>${playerLookup.get(entry.player_id) || "Unknown"}</span>
-        <strong>${formatCurrency(entry.amount)}</strong>
+        <span>${entry.name || "Unknown"}</span>
+        <strong>${formatCurrency(entry.moneyIn)}</strong>
+        <strong>${formatCurrency(entry.moneyOut)}</strong>
+        <strong class="${netClass}">${formatCurrency(entry.net)}</strong>
       `;
       list.appendChild(row);
     });
 
     const totalRow = document.createElement("div");
     totalRow.className = "settlement-total";
-    totalRow.innerHTML = `<span>Total chips</span><strong>${formatCurrency(total)}</strong>`;
+    const totalNet = totalOut - totalIn;
+    const totalClass = totalNet >= 0 ? "money-pos" : "money-neg";
+    totalRow.innerHTML = `
+      <span>Total</span>
+      <strong>${formatCurrency(totalIn)}</strong>
+      <strong>${formatCurrency(totalOut)}</strong>
+      <strong class="${totalClass}">${formatCurrency(totalNet)}</strong>
+    `;
 
     node.appendChild(list);
     node.appendChild(totalRow);

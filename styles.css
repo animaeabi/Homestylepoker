@@ -1479,8 +1479,9 @@ button:disabled {
 }
 
 .settlement-row {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: 1.6fr 1fr 1fr 1fr;
+  align-items: center;
   gap: 12px;
   padding: 8px 10px;
   border-radius: 10px;
@@ -1489,12 +1490,30 @@ button:disabled {
   font-size: 0.9rem;
 }
 
+.settlement-row.header {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--muted);
+  background: rgba(210, 166, 78, 0.18);
+}
+
 .settlement-total {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: 1.6fr 1fr 1fr 1fr;
+  align-items: center;
   gap: 12px;
   font-weight: 700;
   font-size: 0.95rem;
+}
+
+.money-pos {
+  color: #76e3c7;
+}
+
+.money-neg {
+  color: var(--accent-red);
 }
 
 .table {
