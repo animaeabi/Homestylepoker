@@ -44,6 +44,7 @@ const elements = {
   hostAddPlayer: $("#hostAddPlayer"),
   players: $("#players"),
   recentGames: $("#recentGames"),
+  deleteAllGames: $("#deleteAllGames"),
   playerPanel: $("#playerPanel"),
   playerPanelTitle: $("#playerPanelTitle"),
   playerPanelHeading: $("#playerPanelHeading"),
@@ -89,6 +90,7 @@ if (configMissing) {
   elements.joinAsPlayer.disabled = true;
   elements.hostAddPlayer.disabled = true;
   if (elements.openSettle) elements.openSettle.disabled = true;
+  if (elements.deleteAllGames) elements.deleteAllGames.disabled = true;
 }
 
 const supabase = configMissing ? null : createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -97,6 +99,8 @@ const playerKey = (code) => `poker_player_${code}`;
 const hostKey = (code) => `poker_host_${code}`;
 const recentGamesKey = "poker_recent_games";
 const themeKey = "poker_theme";
+const deletePinKey = "poker_delete_pin_ok";
+const deletePin = "2/7";
 
 const safeTrim = (value) => (value || "").trim();
 
@@ -168,6 +172,22 @@ function saveRecentGames(list) {
 
 function isLocalHostForGame(code) {
   return localStorage.getItem(hostKey(code)) === "true";
+}
+
+function isDeletePinAuthorized() {
+  return localStorage.getItem(deletePinKey) === "true";
+}
+
+async function ensureDeletePin() {
+  if (isDeletePinAuthorized()) return true;
+  const input = window.prompt("Enter delete PIN");
+  if (input === null) return false;
+  if (safeTrim(input) === deletePin) {
+    localStorage.setItem(deletePinKey, "true");
+    return true;
+  }
+  setStatus("Incorrect PIN.", "error");
+  return false;
 }
 
 async function refreshRecentGames() {
@@ -890,6 +910,42 @@ async function deleteGameByCode(code) {
   setStatus("Game deleted");
 }
 
+async function deleteAllGames() {
+  if (!supabase) return;
+  const authorized = await ensureDeletePin();
+  if (!authorized) return;
+
+  if (!window.confirm("Delete ALL games? This cannot be undone.")) return;
+
+  setStatus("Deleting all games…");
+
+  if (state.game) {
+    clearCurrentGame();
+  }
+
+  const localList = loadRecentGames();
+  localList.forEach((game) => {
+    if (game?.code) {
+      localStorage.removeItem(hostKey(game.code));
+      clearStoredPlayer(game.code);
+    }
+  });
+  saveRecentGames([]);
+
+  const { error } = await supabase
+    .from("games")
+    .delete()
+    .neq("id", "00000000-0000-0000-0000-000000000000");
+
+  if (error) {
+    setStatus("Delete failed", "error");
+    return;
+  }
+
+  await refreshRecentGames();
+  setStatus("All games deleted");
+}
+
 function renderAll() {
   if (!state.game) return;
   elements.landing.classList.add("hidden");
@@ -1391,6 +1447,13 @@ if (elements.recentGames) {
     if (action === "delete") {
       deleteGameByCode(code);
     }
+  });
+}
+
+if (elements.deleteAllGames) {
+  elements.deleteAllGames.addEventListener("click", () => {
+    if (configMissing) return;
+    deleteAllGames();
   });
 }
 
