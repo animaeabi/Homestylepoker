@@ -12,6 +12,7 @@ const elements = {
   createGame: $("#createGame"),
   joinCode: $("#joinCode"),
   joinGame: $("#joinGame"),
+  openSessions: $("#openSessions"),
   groupList: $("#groupList"),
   groupName: $("#groupName"),
   createGroup: $("#createGroup"),
@@ -20,6 +21,8 @@ const elements = {
   openSummary: $("#openSummary"),
   configNotice: $("#configNotice"),
   themeToggle: $("#themeToggle"),
+  sessionsPanel: $("#sessionsPanel"),
+  sessionsBack: $("#sessionsBack"),
   gamePanel: $("#gamePanel"),
   gameTitle: $("#gameTitle"),
   gameCode: $("#gameCode"),
@@ -109,6 +112,7 @@ if (configMissing) {
   if (elements.deleteAllGames) elements.deleteAllGames.disabled = true;
   if (elements.createGroup) elements.createGroup.disabled = true;
   if (elements.openSummary) elements.openSummary.disabled = true;
+  if (elements.openSessions) elements.openSessions.disabled = true;
 }
 
 const supabase = configMissing ? null : createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -229,7 +233,7 @@ async function refreshRecentGames() {
 
   const { data, error } = await supabase
     .from("games")
-    .select("code,name,created_at,ended_at")
+    .select("code,name,created_at,ended_at,group_id,groups(name)")
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -237,7 +241,12 @@ async function refreshRecentGames() {
     return;
   }
 
-  renderRecentGames(data || []);
+  const normalized = (data || []).map((game) => ({
+    ...game,
+    group_name: game.group_name || game.groups?.name || null
+  }));
+
+  renderRecentGames(normalized);
 }
 
 function renderGroupList() {
@@ -349,13 +358,20 @@ async function createGroup() {
 
 function recordRecentGame(game) {
   if (!game) return;
+  const groupName =
+    game.group_name ||
+    game.groups?.name ||
+    state.groups.find((group) => group.id === game.group_id)?.name ||
+    null;
   const list = loadRecentGames();
   const next = [
     {
       code: game.code,
       name: game.name,
       created_at: game.created_at,
-      ended_at: game.ended_at || null
+      ended_at: game.ended_at || null,
+      group_id: game.group_id || null,
+      group_name: groupName
     },
     ...list.filter((item) => item.code !== game.code)
   ];
@@ -386,16 +402,20 @@ function renderRecentGames(list = loadRecentGames()) {
 
   const groups = new Map();
   sorted.forEach((game) => {
-    const date = getGameDate(game);
-    const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-    const label = date.toLocaleString(undefined, { month: "long", year: "numeric" });
+    const hasGroup = Boolean(game.group_id);
+    const key = hasGroup ? game.group_id : "ungrouped";
+    const label = hasGroup ? game.group_name || "Unknown group" : "One-off games";
     if (!groups.has(key)) {
       groups.set(key, { label, games: [] });
     }
     groups.get(key).games.push(game);
   });
 
-  const groupEntries = Array.from(groups.entries()).sort((a, b) => (a[0] < b[0] ? 1 : -1));
+  const groupEntries = Array.from(groups.entries()).sort((a, b) => {
+    if (a[0] === "ungrouped") return 1;
+    if (b[0] === "ungrouped") return -1;
+    return a[1].label.localeCompare(b[1].label);
+  });
 
   groupEntries.forEach(([key, group], index) => {
     const details = document.createElement("details");
@@ -1331,6 +1351,7 @@ async function deleteAllGames() {
 function renderAll() {
   if (!state.game) return;
   elements.landing.classList.add("hidden");
+  if (elements.sessionsPanel) elements.sessionsPanel.classList.add("hidden");
   elements.gamePanel.classList.remove("hidden");
   hydrateInputs();
   applyHostMode();
@@ -1793,6 +1814,22 @@ function closeSummaryModal() {
   elements.summaryModal.classList.add("hidden");
 }
 
+function openSessionsPage() {
+  if (!elements.sessionsPanel) return;
+  elements.landing.classList.add("hidden");
+  elements.gamePanel.classList.add("hidden");
+  elements.sessionsPanel.classList.remove("hidden");
+  refreshRecentGames();
+  refreshGroups();
+  setStatus("Ready");
+}
+
+function closeSessionsPage() {
+  if (!elements.sessionsPanel) return;
+  elements.sessionsPanel.classList.add("hidden");
+  elements.landing.classList.remove("hidden");
+}
+
 function clearCurrentGame() {
   if (supabase && state.channel) {
     supabase.removeChannel(state.channel);
@@ -1810,6 +1847,7 @@ function clearCurrentGame() {
   state.canHost = false;
   state.playerId = null;
   elements.gamePanel.classList.add("hidden");
+  if (elements.sessionsPanel) elements.sessionsPanel.classList.add("hidden");
   if (elements.settledNotice) elements.settledNotice.classList.add("hidden");
   if (elements.settleModal) elements.settleModal.classList.add("hidden");
   if (elements.settlementSummary) elements.settlementSummary.classList.add("hidden");
@@ -1917,6 +1955,19 @@ elements.joinGame.addEventListener("click", () => {
   if (configMissing) return;
   loadGameByCode(elements.joinCode.value);
 });
+
+if (elements.openSessions) {
+  elements.openSessions.addEventListener("click", () => {
+    if (configMissing) return;
+    openSessionsPage();
+  });
+}
+
+if (elements.sessionsBack) {
+  elements.sessionsBack.addEventListener("click", () => {
+    closeSessionsPage();
+  });
+}
 
 if (elements.groupList) {
   elements.groupList.addEventListener("click", (event) => {

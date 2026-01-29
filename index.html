@@ -57,14 +57,9 @@
         </div>
 
         <div class="landing-card">
-          <div class="card-header">
-            <div>
-              <h2>Recent Sessions</h2>
-              <p class="muted">Reopen games from this device.</p>
-            </div>
-            <button id="deleteAllGames" class="danger-outline small" type="button">Delete all</button>
-          </div>
-          <div id="recentGames" class="recent-games"></div>
+          <h2>Recent Sessions</h2>
+          <p class="muted">Browse past games by group.</p>
+          <button id="openSessions" class="ghost">Open sessions</button>
         </div>
 
         <div class="landing-card">
@@ -76,20 +71,6 @@
             <input id="groupName" type="text" placeholder="Friday Crew" />
           </label>
           <button id="createGroup" class="ghost">Create group</button>
-        </div>
-
-        <div class="landing-card">
-          <h2>Quarterly Summary</h2>
-          <p class="muted">Settled games only.</p>
-          <label class="field">
-            <span>Group</span>
-            <select id="summaryGroup"></select>
-          </label>
-          <label class="field">
-            <span>Quarter</span>
-            <select id="summaryQuarter"></select>
-          </label>
-          <button id="openSummary" class="ghost">View summary</button>
         </div>
       </section>
 
@@ -215,6 +196,40 @@
             </div>
             <section id="playerSettledSummary" class="settlement-summary hidden"></section>
           </section>
+        </div>
+      </section>
+
+      <section id="sessionsPanel" class="sessions hidden">
+        <div class="sessions-bar">
+          <div>
+            <h2>Sessions</h2>
+            <p class="muted">Grouped by table.</p>
+          </div>
+          <div class="sessions-actions">
+            <button id="sessionsBack" class="ghost">Back</button>
+            <button id="deleteAllGames" class="danger-outline small" type="button">Delete all</button>
+          </div>
+        </div>
+
+        <div class="sessions-grid">
+          <div class="landing-card">
+            <h2>Sessions by group</h2>
+            <div id="recentGames" class="recent-games"></div>
+          </div>
+
+          <div class="landing-card">
+            <h2>Quarterly Summary</h2>
+            <p class="muted">Settled games only.</p>
+            <label class="field">
+              <span>Group</span>
+              <select id="summaryGroup"></select>
+            </label>
+            <label class="field">
+              <span>Quarter</span>
+              <select id="summaryQuarter"></select>
+            </label>
+            <button id="openSummary" class="ghost">View summary</button>
+          </div>
         </div>
       </section>
 
