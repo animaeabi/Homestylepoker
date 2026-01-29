@@ -44,6 +44,7 @@ const elements = {
   summaryQuarter: $("#summaryQuarter"),
   openSummary: $("#openSummary"),
   configNotice: $("#configNotice"),
+  themeToggle: $("#themeToggle"),
   sessionsPanel: $("#sessionsPanel"),
   sessionsBack: $("#sessionsBack"),
   gamePanel: $("#gamePanel"),
@@ -198,10 +199,22 @@ function normalizeName(name) {
   return safeTrim(name).replace(/\s+/g, " ").toLowerCase();
 }
 
+function applyTheme(theme) {
+  const mode = theme === "light" ? "light" : "dark";
+  document.body.classList.toggle("theme-light", mode === "light");
+  document.body.classList.toggle("theme-dark", mode === "dark");
+  if (elements.themeToggle) {
+    elements.themeToggle.checked = mode === "light";
+  }
+}
+
 function initTheme() {
-  localStorage.removeItem(themeKey);
-  document.body.classList.remove("theme-light");
-  document.body.classList.add("theme-dark");
+  const stored = localStorage.getItem(themeKey);
+  if (stored) {
+    applyTheme(stored);
+    return;
+  }
+  applyTheme("dark");
 }
 
 
@@ -2431,6 +2444,13 @@ initTheme();
 initGameName();
 
 // Event listeners
+if (elements.themeToggle) {
+  elements.themeToggle.addEventListener("change", () => {
+    const next = elements.themeToggle.checked ? "light" : "dark";
+    localStorage.setItem(themeKey, next);
+    applyTheme(next);
+  });
+}
 
 elements.createGame.addEventListener("click", () => {
   if (configMissing) return;
