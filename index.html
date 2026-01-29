@@ -270,6 +270,45 @@
         </section>
       </div>
 
+      <div id="groupModal" class="modal hidden" role="dialog" aria-modal="true">
+        <div class="modal-backdrop" data-action="close"></div>
+        <section class="panel group-panel">
+          <div class="panel-title summary-header">
+            <div>
+              <h2 id="groupModalTitle">Group</h2>
+              <p class="muted">Manage players in this group.</p>
+            </div>
+            <button id="groupModalClose" class="ghost" type="button">Close</button>
+          </div>
+          <div id="groupPlayerList" class="group-player-list"></div>
+          <form id="groupPlayerForm" class="group-player-form">
+            <label class="field">
+              <span>Add player</span>
+              <input id="groupPlayerName" type="text" placeholder="Name" />
+            </label>
+            <button id="groupPlayerAdd" class="ghost" type="submit">Add player</button>
+          </form>
+        </section>
+      </div>
+
+      <div id="rosterModal" class="modal hidden" role="dialog" aria-modal="true">
+        <div class="modal-backdrop" data-action="close"></div>
+        <section class="panel roster-panel">
+          <div class="panel-title summary-header">
+            <div>
+              <h2 id="rosterTitle">Who's playing?</h2>
+              <p class="muted">Remove anyone sitting out.</p>
+            </div>
+            <button id="rosterClose" class="ghost" type="button">Close</button>
+          </div>
+          <div id="rosterList" class="roster-list"></div>
+          <div class="roster-actions">
+            <button id="rosterCancel" class="ghost" type="button">Cancel</button>
+            <button id="rosterStart" class="primary" type="button">Start game</button>
+          </div>
+        </section>
+      </div>
+
       <footer class="footer">
         <span id="connectionStatus">Offline</span>
         <span id="saveStatus"></span>

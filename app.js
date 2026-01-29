@@ -17,6 +17,19 @@ const elements = {
   groupList: $("#groupList"),
   groupName: $("#groupName"),
   createGroup: $("#createGroup"),
+  groupModal: $("#groupModal"),
+  groupModalTitle: $("#groupModalTitle"),
+  groupModalClose: $("#groupModalClose"),
+  groupPlayerList: $("#groupPlayerList"),
+  groupPlayerForm: $("#groupPlayerForm"),
+  groupPlayerName: $("#groupPlayerName"),
+  groupPlayerAdd: $("#groupPlayerAdd"),
+  rosterModal: $("#rosterModal"),
+  rosterTitle: $("#rosterTitle"),
+  rosterClose: $("#rosterClose"),
+  rosterList: $("#rosterList"),
+  rosterCancel: $("#rosterCancel"),
+  rosterStart: $("#rosterStart"),
   summaryGroup: $("#summaryGroup"),
   summaryQuarter: $("#summaryQuarter"),
   openSummary: $("#openSummary"),
@@ -91,6 +104,9 @@ const state = {
   settlements: [],
   settlementsAvailable: true,
   groups: [],
+  groupPlayers: [],
+  activeGroupId: null,
+  roster: [],
   isHost: false,
   canHost: false,
   playerId: null,
@@ -266,6 +282,16 @@ function saveHostName(value) {
   localStorage.setItem(hostNameKey, trimmed);
 }
 
+function requireHostName() {
+  const name = safeTrim(elements.newHostName?.value);
+  if (!name) {
+    setStatus("Enter your host name to start.", "error");
+    elements.newHostName?.focus();
+    return null;
+  }
+  return name;
+}
+
 function pickRandom(list) {
   return list[Math.floor(Math.random() * list.length)];
 }
@@ -344,7 +370,7 @@ function renderGroupList() {
         <strong>${group.name}</strong>
         <span>Created ${formatShortDate(group.created_at)}</span>
       </div>
-      <button class="ghost" data-action="use-group" data-id="${group.id}">Use</button>
+      <button class="ghost" data-action="open-group" data-id="${group.id}">Open</button>
     `;
     elements.groupList.appendChild(row);
   });
@@ -429,6 +455,140 @@ async function createGroup() {
   }
   saveLastGroup(data.id);
   setStatus("Group created");
+}
+
+async function fetchGroupPlayers(groupId) {
+  if (!supabase || !groupId) return [];
+  const { data, error } = await supabase
+    .from("group_players")
+    .select("*")
+    .eq("group_id", groupId)
+    .order("created_at", { ascending: true });
+  if (error) {
+    setStatus("Could not load group players", "error");
+    return [];
+  }
+  return data || [];
+}
+
+function renderGroupPlayers() {
+  if (!elements.groupPlayerList) return;
+  elements.groupPlayerList.innerHTML = "";
+
+  if (!state.groupPlayers.length) {
+    elements.groupPlayerList.classList.add("hidden");
+    return;
+  }
+
+  elements.groupPlayerList.classList.remove("hidden");
+
+  state.groupPlayers.forEach((player) => {
+    const row = document.createElement("div");
+    row.className = "group-player-row";
+    row.innerHTML = `
+      <div>
+        <strong>${player.name}</strong>
+        <span>Added ${formatShortDate(player.created_at)}</span>
+      </div>
+    `;
+    elements.groupPlayerList.appendChild(row);
+  });
+}
+
+async function openGroupModal(groupId) {
+  if (!elements.groupModal) return;
+  const group = state.groups.find((item) => item.id === groupId);
+  if (!group) return;
+  state.activeGroupId = groupId;
+  if (elements.groupModalTitle) {
+    elements.groupModalTitle.textContent = group.name;
+  }
+  state.groupPlayers = await fetchGroupPlayers(groupId);
+  renderGroupPlayers();
+  elements.groupModal.classList.remove("hidden");
+}
+
+function closeGroupModal() {
+  if (!elements.groupModal) return;
+  elements.groupModal.classList.add("hidden");
+  state.activeGroupId = null;
+}
+
+function renderRosterList() {
+  if (!elements.rosterList) return;
+  elements.rosterList.innerHTML = "";
+
+  if (!state.roster.length) {
+    const empty = document.createElement("p");
+    empty.className = "muted";
+    empty.textContent = "No players in this group yet.";
+    elements.rosterList.appendChild(empty);
+    return;
+  }
+
+  state.roster.forEach((player) => {
+    const row = document.createElement("div");
+    row.className = "roster-row";
+    if (!player.active) {
+      row.classList.add("inactive");
+    }
+    row.dataset.playerId = player.id;
+
+    row.innerHTML = `
+      <div>
+        <strong>${player.name}</strong>
+      </div>
+      <div class="roster-actions">
+        ${
+          player.isHost
+            ? `<span class="host-check">✓ Host</span>`
+            : `<button class="ghost small" data-action="toggle">${player.active ? "✕" : "Undo"}</button>`
+        }
+      </div>
+    `;
+
+    elements.rosterList.appendChild(row);
+  });
+}
+
+async function openRosterModal(groupId) {
+  if (!elements.rosterModal) return;
+  const hostName = requireHostName();
+  if (!hostName) return;
+
+  await getOrCreateGroupPlayer(groupId, hostName);
+  const groupPlayers = await fetchGroupPlayers(groupId);
+  const hostNormalized = normalizeName(hostName);
+
+  const group = state.groups.find((item) => item.id === groupId);
+  if (elements.rosterTitle) {
+    elements.rosterTitle.textContent = group ? `${group.name} roster` : "Who's playing?";
+  }
+
+  state.roster = groupPlayers.map((player) => ({
+    id: player.id,
+    name: player.name,
+    isHost: normalizeName(player.name) === hostNormalized,
+    active: true
+  }));
+
+  if (!state.roster.some((player) => player.isHost)) {
+    state.roster.unshift({
+      id: `host:${hostNormalized}`,
+      name: hostName,
+      isHost: true,
+      active: true
+    });
+  }
+
+  renderRosterList();
+  elements.rosterModal.classList.remove("hidden");
+}
+
+function closeRosterModal() {
+  if (!elements.rosterModal) return;
+  elements.rosterModal.classList.add("hidden");
+  state.roster = [];
 }
 
 function recordRecentGame(game) {
@@ -1550,19 +1710,16 @@ async function loadGameByCode(code) {
   return data;
 }
 
-async function createGame() {
+async function createGame(options = {}) {
   if (!supabase) return;
-  const hostName = safeTrim(elements.newHostName?.value);
-  if (!hostName) {
-    setStatus("Enter your host name to start.", "error");
-    elements.newHostName?.focus();
-    return;
-  }
+  const hostName = requireHostName();
+  if (!hostName) return;
 
   const name = safeTrim(elements.newGameName.value) || generateGameName();
   const currency = "$";
   const defaultBuyIn = Number(elements.newBuyIn.value) || 10;
   const groupId = safeTrim(elements.gameGroup?.value) || null;
+  const roster = options.roster || null;
   let code = generateCode();
 
   let result = await supabase
@@ -1594,23 +1751,65 @@ async function createGame() {
   saveLastGroup(state.game.group_id || "");
   saveHostName(hostName);
 
-  let groupPlayerId = null;
-  if (state.game.group_id) {
-    const groupPlayer = await getOrCreateGroupPlayer(state.game.group_id, hostName);
-    groupPlayerId = groupPlayer?.id || null;
-  }
+  if (roster && roster.length) {
+    const hostEntry = roster.find((player) => player.isHost) || null;
+    const playersPayload = roster.map((player) => ({
+      game_id: state.game.id,
+      name: player.isHost ? `${player.name} (Host)` : player.name,
+      group_player_id: player.id.startsWith("host:") ? null : player.id
+    }));
 
-  const displayName = `${hostName} (Host)`;
+    const { data: createdPlayers, error: playersError } = await supabase
+      .from("players")
+      .insert(playersPayload)
+      .select();
 
-  const { data: hostPlayer, error: hostError } = await supabase
-    .from("players")
-    .insert({ game_id: state.game.id, name: displayName, group_player_id: groupPlayerId })
-    .select()
-    .single();
+    if (playersError || !createdPlayers) {
+      setStatus("Could not add players", "error");
+      return;
+    }
 
-  if (!hostError && hostPlayer) {
-    state.playerId = hostPlayer.id;
-    saveStoredPlayer(state.game.code, { id: hostPlayer.id, name: hostPlayer.name });
+    const buyinsPayload = createdPlayers.map((player) => ({
+      game_id: state.game.id,
+      player_id: player.id,
+      amount: defaultBuyIn
+    }));
+
+    const { error: buyinError } = await supabase.from("buyins").insert(buyinsPayload);
+    if (buyinError) {
+      setStatus("Could not seed buy-ins", "error");
+    }
+
+    const hostPlayer =
+      createdPlayers.find(
+        (player) => hostEntry && player.group_player_id && player.group_player_id === hostEntry.id
+      ) ||
+      createdPlayers.find((player) => player.name?.includes("(Host)")) ||
+      null;
+
+    if (hostPlayer) {
+      state.playerId = hostPlayer.id;
+      saveStoredPlayer(state.game.code, { id: hostPlayer.id, name: hostPlayer.name });
+    }
+  } else {
+    let groupPlayerId = null;
+    if (state.game.group_id) {
+      const groupPlayer = await getOrCreateGroupPlayer(state.game.group_id, hostName);
+      groupPlayerId = groupPlayer?.id || null;
+    }
+
+    const displayName = `${hostName} (Host)`;
+
+    const { data: hostPlayer, error: hostError } = await supabase
+      .from("players")
+      .insert({ game_id: state.game.id, name: displayName, group_player_id: groupPlayerId })
+      .select()
+      .single();
+
+    if (!hostError && hostPlayer) {
+      state.playerId = hostPlayer.id;
+      saveStoredPlayer(state.game.code, { id: hostPlayer.id, name: hostPlayer.name });
+    }
   }
 
   renderAll();
@@ -2036,6 +2235,11 @@ if (elements.themeToggle) {
 
 elements.createGame.addEventListener("click", () => {
   if (configMissing) return;
+  const groupId = safeTrim(elements.gameGroup?.value);
+  if (groupId) {
+    openRosterModal(groupId);
+    return;
+  }
   createGame();
 });
 
@@ -2066,12 +2270,10 @@ if (elements.sessionsBack) {
 
 if (elements.groupList) {
   elements.groupList.addEventListener("click", (event) => {
-    const button = event.target.closest("button[data-action='use-group']");
+    const button = event.target.closest("button[data-action='open-group']");
     if (!button) return;
     const groupId = button.dataset.id;
-    if (elements.gameGroup) elements.gameGroup.value = groupId;
-    if (elements.summaryGroup) elements.summaryGroup.value = groupId;
-    saveLastGroup(groupId);
+    openGroupModal(groupId);
   });
 }
 
@@ -2079,6 +2281,24 @@ if (elements.createGroup) {
   elements.createGroup.addEventListener("click", () => {
     if (configMissing) return;
     createGroup();
+  });
+}
+
+if (elements.groupModalClose) {
+  elements.groupModalClose.addEventListener("click", closeGroupModal);
+}
+
+if (elements.groupPlayerForm) {
+  elements.groupPlayerForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!state.activeGroupId) return;
+    const name = safeTrim(elements.groupPlayerName?.value);
+    if (!name) return;
+    await getOrCreateGroupPlayer(state.activeGroupId, name);
+    elements.groupPlayerName.value = "";
+    state.groupPlayers = await fetchGroupPlayers(state.activeGroupId);
+    renderGroupPlayers();
+    setStatus("Player added");
   });
 }
 
@@ -2155,6 +2375,48 @@ if (elements.summaryModal) {
   });
 }
 
+if (elements.groupModal) {
+  elements.groupModal.addEventListener("click", (event) => {
+    if (event.target.dataset.action === "close") {
+      closeGroupModal();
+    }
+  });
+}
+
+if (elements.rosterClose) {
+  elements.rosterClose.addEventListener("click", closeRosterModal);
+}
+
+if (elements.rosterCancel) {
+  elements.rosterCancel.addEventListener("click", closeRosterModal);
+}
+
+if (elements.rosterList) {
+  elements.rosterList.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-action='toggle']");
+    if (!button) return;
+    const row = button.closest(".roster-row");
+    if (!row) return;
+    const playerId = row.dataset.playerId;
+    const player = state.roster.find((entry) => entry.id === playerId);
+    if (!player || player.isHost) return;
+    player.active = !player.active;
+    renderRosterList();
+  });
+}
+
+if (elements.rosterStart) {
+  elements.rosterStart.addEventListener("click", async () => {
+    const activeRoster = state.roster.filter((player) => player.active || player.isHost);
+    if (!activeRoster.length) {
+      setStatus("Select at least one player.", "error");
+      return;
+    }
+    closeRosterModal();
+    await createGame({ roster: activeRoster });
+  });
+}
+
 if (elements.copyLink) {
   elements.copyLink.addEventListener("click", () => {
     if (!state.game) return;
@@ -2220,6 +2482,12 @@ window.addEventListener("keydown", (event) => {
   }
   if (elements.summaryModal && !elements.summaryModal.classList.contains("hidden")) {
     closeSummaryModal();
+  }
+  if (elements.groupModal && !elements.groupModal.classList.contains("hidden")) {
+    closeGroupModal();
+  }
+  if (elements.rosterModal && !elements.rosterModal.classList.contains("hidden")) {
+    closeRosterModal();
   }
 });
 

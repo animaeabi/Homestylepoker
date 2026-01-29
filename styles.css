@@ -766,6 +766,61 @@ button:disabled {
   overflow: auto;
 }
 
+.group-panel,
+.roster-panel {
+  position: relative;
+  z-index: 1;
+  width: min(92vw, 520px);
+  max-height: 85vh;
+  overflow: auto;
+}
+
+.group-player-list,
+.roster-list {
+  display: grid;
+  gap: 10px;
+}
+
+.group-player-row,
+.roster-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 0.85rem;
+}
+
+.group-player-row span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.75rem;
+  margin-top: 2px;
+}
+
+.roster-row.inactive {
+  opacity: 0.5;
+  text-decoration: line-through;
+}
+
+.host-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.roster-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 .muted {
   color: var(--muted);
   font-size: 0.85rem;
