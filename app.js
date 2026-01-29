@@ -1071,7 +1071,7 @@ function renderRecentGames(list = loadRecentGames()) {
           <span>${dateLabel} · ${game.code}</span>
         </div>
         <div class="recent-actions">
-          <button class="ghost" data-action="open" data-code="${game.code}">Open</button>
+          <button class="ghost" data-action="open" data-code="${game.code}" data-group-id="${game.group_id || ""}">Open</button>
           ${canDelete ? `<button class="danger-outline" data-action="delete" data-code="${game.code}">Delete</button>` : ""}
         </div>
       `;
@@ -2818,9 +2818,16 @@ if (elements.recentGames) {
   elements.recentGames.addEventListener("click", (event) => {
     const button = event.target.closest("button[data-action]");
     if (!button) return;
-    const { action, code } = button.dataset;
+    const { action, code, groupId } = button.dataset;
     if (action === "open") {
-      loadGameByCode(code);
+      const open = async () => {
+        if (groupId) {
+          const unlocked = await ensureGroupUnlocked(groupId);
+          if (!unlocked) return;
+        }
+        loadGameByCode(code);
+      };
+      open();
       return;
     }
     if (action === "delete") {
