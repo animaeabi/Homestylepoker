@@ -126,6 +126,8 @@ const configMissing =
   !SUPABASE_ANON_KEY ||
   SUPABASE_ANON_KEY.startsWith("REPLACE");
 
+let statusTimer = null;
+
 if (configMissing) {
   elements.configNotice.classList.remove("hidden");
   elements.createGame.disabled = true;
@@ -762,6 +764,16 @@ function renderRecentGames(list = loadRecentGames()) {
 function setStatus(text, tone = "info") {
   elements.saveStatus.textContent = text;
   elements.saveStatus.dataset.tone = tone;
+  if (statusTimer) {
+    clearTimeout(statusTimer);
+    statusTimer = null;
+  }
+  if (!text) return;
+  const duration = tone === "error" ? 5000 : 2000;
+  statusTimer = setTimeout(() => {
+    elements.saveStatus.textContent = "";
+    elements.saveStatus.dataset.tone = "";
+  }, duration);
 }
 
 function setConnection(status) {
