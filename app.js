@@ -15,6 +15,7 @@ const elements = {
   joinGame: $("#joinGame"),
   openSessions: $("#openSessions"),
   groupList: $("#groupList"),
+  groupName: $("#groupName"),
   createGroup: $("#createGroup"),
   groupModal: $("#groupModal"),
   groupModalTitle: $("#groupModalTitle"),
@@ -23,12 +24,6 @@ const elements = {
   groupPlayerForm: $("#groupPlayerForm"),
   groupPlayerName: $("#groupPlayerName"),
   groupPlayerAdd: $("#groupPlayerAdd"),
-  createGroupModal: $("#createGroupModal"),
-  createGroupClose: $("#createGroupClose"),
-  createGroupForm: $("#createGroupForm"),
-  createGroupName: $("#createGroupName"),
-  createGroupCancel: $("#createGroupCancel"),
-  createGroupSubmit: $("#createGroupSubmit"),
   rosterModal: $("#rosterModal"),
   rosterTitle: $("#rosterTitle"),
   rosterClose: $("#rosterClose"),
@@ -362,7 +357,7 @@ function renderGroupList() {
   if (!state.groups.length) {
     const empty = document.createElement("p");
     empty.className = "muted";
-    empty.textContent = "No groups yet.";
+    empty.textContent = "No groups yet. Create one for your recurring table.";
     elements.groupList.appendChild(empty);
     return;
   }
@@ -375,7 +370,7 @@ function renderGroupList() {
         <strong>${group.name}</strong>
         <span>Created ${formatShortDate(group.created_at)}</span>
       </div>
-      <button class="ghost" data-action="open-group" data-id="${group.id}">Open</button>
+      <button class="ghost compact-btn" data-action="open-group" data-id="${group.id}">Open</button>
     `;
     elements.groupList.appendChild(row);
   });
@@ -461,6 +456,9 @@ async function createGroup(name) {
     elements.summaryGroup.value = data.id;
   }
   saveLastGroup(data.id);
+  if (elements.groupName) {
+    elements.groupName.value = "";
+  }
   setStatus("Group created");
   return data;
 }
@@ -523,18 +521,6 @@ function closeGroupModal() {
   if (!elements.groupModal) return;
   elements.groupModal.classList.add("hidden");
   state.activeGroupId = null;
-}
-
-function openCreateGroupModal() {
-  if (!elements.createGroupModal) return;
-  elements.createGroupName.value = "";
-  elements.createGroupModal.classList.remove("hidden");
-  elements.createGroupName.focus();
-}
-
-function closeCreateGroupModal() {
-  if (!elements.createGroupModal) return;
-  elements.createGroupModal.classList.add("hidden");
 }
 
 function renderRosterList() {
@@ -2305,25 +2291,7 @@ if (elements.groupList) {
 if (elements.createGroup) {
   elements.createGroup.addEventListener("click", () => {
     if (configMissing) return;
-    openCreateGroupModal();
-  });
-}
-
-if (elements.createGroupClose) {
-  elements.createGroupClose.addEventListener("click", closeCreateGroupModal);
-}
-
-if (elements.createGroupCancel) {
-  elements.createGroupCancel.addEventListener("click", closeCreateGroupModal);
-}
-
-if (elements.createGroupForm) {
-  elements.createGroupForm.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const created = await createGroup(elements.createGroupName?.value);
-    if (created) {
-      closeCreateGroupModal();
-    }
+    createGroup(elements.groupName?.value);
   });
 }
 
@@ -2417,10 +2385,11 @@ if (elements.groupModal) {
   });
 }
 
-if (elements.createGroupModal) {
-  elements.createGroupModal.addEventListener("click", (event) => {
-    if (event.target.dataset.action === "close") {
-      closeCreateGroupModal();
+if (elements.groupName) {
+  elements.groupName.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      createGroup(elements.groupName.value);
     }
   });
 }
@@ -2545,9 +2514,6 @@ window.addEventListener("keydown", (event) => {
   }
   if (elements.groupModal && !elements.groupModal.classList.contains("hidden")) {
     closeGroupModal();
-  }
-  if (elements.createGroupModal && !elements.createGroupModal.classList.contains("hidden")) {
-    closeCreateGroupModal();
   }
   if (elements.rosterModal && !elements.rosterModal.classList.contains("hidden")) {
     closeRosterModal();

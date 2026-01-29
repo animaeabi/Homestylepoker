@@ -228,12 +228,23 @@ body::before {
 }
 
 .landing-card.compact {
-  padding: 14px;
-  gap: 10px;
+  padding: 12px;
+  gap: 8px;
 }
 
 .landing-card.compact h2 {
   font-size: 1.05rem;
+}
+
+.group-card .group-header,
+.group-card .group-list,
+.group-card .group-create {
+  max-width: 360px;
+}
+
+.micro {
+  font-size: 0.75rem;
+  margin-top: 4px;
 }
 
 .landing-card h2 {
@@ -265,7 +276,10 @@ body::before {
 
 .group-list {
   display: grid;
-  gap: 10px;
+  gap: 6px;
+  max-height: 280px;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
 .group-item {
@@ -274,16 +288,33 @@ body::before {
   justify-content: space-between;
   gap: 12px;
   background: rgba(255, 255, 255, 0.06);
-  border-radius: 12px;
-  padding: 10px 12px;
+  border-radius: 10px;
+  padding: 8px 10px;
   font-size: 0.85rem;
 }
 
 .group-item span {
   display: block;
   color: var(--muted);
-  font-size: 0.78rem;
-  margin-top: 2px;
+  font-size: 0.72rem;
+  margin-top: 1px;
+}
+
+.group-create {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.group-create .field {
+  margin: 0;
+  gap: 4px;
+}
+
+.compact-btn {
+  border-radius: 12px;
+  padding: 8px 12px;
+  font-size: 0.82rem;
 }
 
 .recent-group {
@@ -776,8 +807,7 @@ button:disabled {
 }
 
 .group-panel,
-.roster-panel,
-.group-create-panel {
+.roster-panel {
   position: relative;
   z-index: 1;
   width: min(92vw, 520px);
@@ -1305,6 +1335,17 @@ button:disabled {
   .card-header {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .group-card .group-header,
+  .group-card .group-list,
+  .group-card .group-create {
+    max-width: 100%;
+  }
+
+  .group-create {
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .recent-item {
