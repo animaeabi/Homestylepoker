@@ -1118,6 +1118,19 @@ button:disabled {
   overflow: auto;
 }
 
+.lock-modal {
+  position: relative;
+  z-index: 1;
+  width: min(92vw, 420px);
+  max-height: 85vh;
+  overflow: auto;
+}
+
+.lock-modal-body {
+  display: grid;
+  gap: 12px;
+}
+
 .join-player-step {
   display: grid;
   gap: 12px;

@@ -51,6 +51,12 @@ const elements = {
   joinPlayerBack: $("#joinPlayerBack"),
   joinPlayerSubmit: $("#joinPlayerSubmit"),
   rosterModal: $("#rosterModal"),
+  lockPhraseModal: $("#lockPhraseModal"),
+  lockPhraseHint: $("#lockPhraseHint"),
+  lockPhraseInput: $("#lockPhraseInput"),
+  lockPhraseClose: $("#lockPhraseClose"),
+  lockPhraseCancel: $("#lockPhraseCancel"),
+  lockPhraseSubmit: $("#lockPhraseSubmit"),
   rosterTitle: $("#rosterTitle"),
   rosterClose: $("#rosterClose"),
   rosterList: $("#rosterList"),
@@ -152,6 +158,7 @@ const configMissing =
 let statusTimer = null;
 let joinFlowName = "";
 let joinFlowHasList = false;
+let lockResolve = null;
 
 if (configMissing) {
   elements.configNotice.classList.remove("hidden");
@@ -252,6 +259,27 @@ function initTheme() {
     return;
   }
   applyTheme("dark");
+}
+
+function openLockPhraseModal(groupName) {
+  if (!elements.lockPhraseModal) return;
+  elements.lockPhraseHint.textContent = groupName ? `Locked group: ${groupName}` : "This group is locked.";
+  elements.lockPhraseInput.value = "";
+  elements.lockPhraseModal.classList.remove("hidden");
+  setTimeout(() => elements.lockPhraseInput?.focus(), 0);
+}
+
+function closeLockPhraseModal() {
+  if (!elements.lockPhraseModal) return;
+  elements.lockPhraseModal.classList.add("hidden");
+}
+
+function promptLockPhrase(groupName) {
+  return new Promise((resolve) => {
+    if (lockResolve) lockResolve(null);
+    lockResolve = resolve;
+    openLockPhraseModal(groupName);
+  });
 }
 
 function showJoinStep(step) {
@@ -766,7 +794,7 @@ async function ensureGroupUnlocked(groupId) {
   if (!group || !group.lock_phrase_hash) return true;
   if (isGroupUnlocked(groupId)) return true;
 
-  const phrase = window.prompt(`Enter lock phrase for "${group.name}"`);
+  const phrase = await promptLockPhrase(group.name);
   if (phrase === null) return false;
   if (!phrase.trim()) return false;
 
@@ -2884,6 +2912,16 @@ if (elements.joinPlayerModal) {
   });
 }
 
+if (elements.lockPhraseModal) {
+  elements.lockPhraseModal.addEventListener("click", (event) => {
+    if (event.target.dataset.action === "close") {
+      closeLockPhraseModal();
+      if (lockResolve) lockResolve(null);
+      lockResolve = null;
+    }
+  });
+}
+
 if (elements.joinPlayerContinue) {
   elements.joinPlayerContinue.addEventListener("click", handleJoinPlayerContinue);
 }
@@ -2923,6 +2961,40 @@ if (elements.joinPlayerCode) {
     if (event.key === "Enter") {
       event.preventDefault();
       elements.joinPlayerSubmit?.click();
+    }
+  });
+}
+
+if (elements.lockPhraseClose) {
+  elements.lockPhraseClose.addEventListener("click", () => {
+    closeLockPhraseModal();
+    if (lockResolve) lockResolve(null);
+    lockResolve = null;
+  });
+}
+
+if (elements.lockPhraseCancel) {
+  elements.lockPhraseCancel.addEventListener("click", () => {
+    closeLockPhraseModal();
+    if (lockResolve) lockResolve(null);
+    lockResolve = null;
+  });
+}
+
+if (elements.lockPhraseSubmit) {
+  elements.lockPhraseSubmit.addEventListener("click", () => {
+    const value = safeTrim(elements.lockPhraseInput?.value);
+    closeLockPhraseModal();
+    if (lockResolve) lockResolve(value || null);
+    lockResolve = null;
+  });
+}
+
+if (elements.lockPhraseInput) {
+  elements.lockPhraseInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      elements.lockPhraseSubmit?.click();
     }
   });
 }
@@ -3103,6 +3175,11 @@ window.addEventListener("keydown", (event) => {
   }
   if (elements.joinPlayerModal && !elements.joinPlayerModal.classList.contains("hidden")) {
     closeJoinPlayerModal();
+  }
+  if (elements.lockPhraseModal && !elements.lockPhraseModal.classList.contains("hidden")) {
+    closeLockPhraseModal();
+    if (lockResolve) lockResolve(null);
+    lockResolve = null;
   }
 });
 

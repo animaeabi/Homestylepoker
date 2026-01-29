@@ -416,6 +416,29 @@
         </section>
       </div>
 
+      <div id="lockPhraseModal" class="modal hidden" role="dialog" aria-modal="true">
+        <div class="modal-backdrop" data-action="close"></div>
+        <section class="panel lock-modal">
+          <div class="panel-title summary-header">
+            <div>
+              <h2>Enter lock phrase</h2>
+              <p id="lockPhraseHint" class="muted"></p>
+            </div>
+            <button id="lockPhraseClose" class="ghost" type="button">Close</button>
+          </div>
+          <div class="lock-modal-body">
+            <label class="field">
+              <span>Lock phrase</span>
+              <input id="lockPhraseInput" type="password" placeholder="Enter phrase" />
+            </label>
+          </div>
+          <div class="roster-actions">
+            <button id="lockPhraseCancel" class="ghost" type="button">Cancel</button>
+            <button id="lockPhraseSubmit" class="primary" type="button">Unlock</button>
+          </div>
+        </section>
+      </div>
+
       <div id="rosterModal" class="modal hidden" role="dialog" aria-modal="true">
         <div class="modal-backdrop" data-action="close"></div>
         <section class="panel roster-panel">
