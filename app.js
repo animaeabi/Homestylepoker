@@ -32,6 +32,7 @@ const elements = {
   settledNotice: $("#settledNotice"),
   settledAt: $("#settledAt"),
   openSettle: $("#openSettle"),
+  settleModal: $("#settleModal"),
   settlePanel: $("#settlePanel"),
   settleForm: $("#settleForm"),
   settleList: $("#settleList"),
@@ -450,8 +451,8 @@ function applyGameStatus() {
   elements.playerJoinNotice.classList.toggle("hidden", !settled);
   elements.hostPlayerName.disabled = !state.isHost || settled;
   elements.hostAddPlayer.disabled = !state.isHost || settled;
-  if (elements.settlePanel && settled) {
-    elements.settlePanel.classList.add("hidden");
+  if (elements.settleModal && settled) {
+    elements.settleModal.classList.add("hidden");
   }
 }
 
@@ -1306,13 +1307,16 @@ function openSettlePanel() {
     setStatus("Add players before settling.", "error");
     return;
   }
-  elements.settlePanel.classList.remove("hidden");
+  if (elements.settleModal) {
+    elements.settleModal.classList.remove("hidden");
+  }
   renderSettleList();
-  elements.settlePanel.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function closeSettlePanel() {
-  elements.settlePanel.classList.add("hidden");
+  if (elements.settleModal) {
+    elements.settleModal.classList.add("hidden");
+  }
 }
 
 function clearCurrentGame() {
@@ -1333,7 +1337,7 @@ function clearCurrentGame() {
   state.playerId = null;
   elements.gamePanel.classList.add("hidden");
   if (elements.settledNotice) elements.settledNotice.classList.add("hidden");
-  if (elements.settlePanel) elements.settlePanel.classList.add("hidden");
+  if (elements.settleModal) elements.settleModal.classList.add("hidden");
   if (elements.settlementSummary) elements.settlementSummary.classList.add("hidden");
   if (elements.playerSettledSummary) elements.playerSettledSummary.classList.add("hidden");
   elements.landing.classList.remove("hidden");
@@ -1507,6 +1511,20 @@ if (elements.settleCancel) {
 if (elements.settleForm) {
   elements.settleForm.addEventListener("submit", submitSettlement);
 }
+
+if (elements.settleModal) {
+  elements.settleModal.addEventListener("click", (event) => {
+    if (event.target.dataset.action === "close") {
+      closeSettlePanel();
+    }
+  });
+}
+
+window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && elements.settleModal && !elements.settleModal.classList.contains("hidden")) {
+    closeSettlePanel();
+  }
+});
 
 elements.hostModeToggle.addEventListener("change", () => {
   if (!state.game) return;

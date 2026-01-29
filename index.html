@@ -88,6 +88,7 @@
               <input type="checkbox" id="hostModeToggle" />
               <span>Host mode</span>
             </label>
+            <button id="openSettle" class="danger-outline">Settle game</button>
           </div>
         </div>
 
@@ -141,25 +142,11 @@
                     <span>Add player (optional)</span>
                     <input id="hostPlayerName" type="text" placeholder="Player name" />
                   </label>
-              <div class="action-row">
-                <button id="hostAddPlayer" class="primary">Add player</button>
-                <button id="openSettle" class="danger-outline">Settle game</button>
-              </div>
+                  <div class="action-row">
+                    <button id="hostAddPlayer" class="primary">Add player</button>
+                  </div>
                 </div>
                 <div id="players" class="players"></div>
-                <section id="settlePanel" class="settle-panel hidden">
-                  <div class="panel-title">
-                    <h2>Settle</h2>
-                    <p>Enter each player’s remaining chips. This ends the game and saves the results.</p>
-                  </div>
-                  <form id="settleForm" class="settle-form">
-                    <div id="settleList" class="settle-list"></div>
-                    <div class="settle-actions">
-                      <button id="settleCancel" type="button" class="ghost">Cancel</button>
-                      <button type="submit" class="primary">Save settlement</button>
-                    </div>
-                  </form>
-                </section>
                 <section id="settlementSummary" class="settlement-summary hidden"></section>
               </section>
 
@@ -199,6 +186,23 @@
           </section>
         </div>
       </section>
+
+      <div id="settleModal" class="modal hidden" role="dialog" aria-modal="true">
+        <div class="modal-backdrop" data-action="close"></div>
+        <section id="settlePanel" class="panel settle-panel">
+          <div class="panel-title">
+            <h2>Settle</h2>
+            <p>Enter each player’s remaining chips. This ends the game and saves the results.</p>
+          </div>
+          <form id="settleForm" class="settle-form">
+            <div id="settleList" class="settle-list"></div>
+            <div class="settle-actions">
+              <button id="settleCancel" type="button" class="ghost">Cancel</button>
+              <button type="submit" class="primary">Save settlement</button>
+            </div>
+          </form>
+        </section>
+      </div>
 
       <footer class="footer">
         <span id="connectionStatus">Offline</span>

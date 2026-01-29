@@ -678,6 +678,28 @@ button:disabled {
   border: 1px solid rgba(0, 0, 0, 0.2);
 }
 
+.modal {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  z-index: 60;
+}
+
+.modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(6, 5, 3, 0.7);
+}
+
+.modal .settle-panel {
+  position: relative;
+  z-index: 1;
+  width: min(92vw, 520px);
+  max-height: 85vh;
+  overflow: auto;
+}
+
 .muted {
   color: var(--muted);
   font-size: 0.85rem;
