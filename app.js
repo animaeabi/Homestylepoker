@@ -116,6 +116,7 @@ const state = {
   groups: [],
   groupPlayers: [],
   activeGroupId: null,
+  unlockedGroups: new Set(),
   roster: [],
   isHost: false,
   canHost: false,
@@ -148,7 +149,6 @@ const supabase = configMissing ? null : createClient(SUPABASE_URL, SUPABASE_ANON
 
 const playerKey = (code) => `poker_player_${code}`;
 const hostKey = (code) => `poker_host_${code}`;
-const groupUnlockKey = (id) => `poker_group_unlock_${id}`;
 const recentGamesKey = "poker_recent_games";
 const themeKey = "poker_theme";
 const deletePinKey = "poker_delete_pin_ok";
@@ -276,16 +276,16 @@ function saveLastGroup(value) {
 
 function isGroupUnlocked(groupId) {
   if (!groupId) return false;
-  return localStorage.getItem(groupUnlockKey(groupId)) === "true";
+  return state.unlockedGroups.has(groupId);
 }
 
 function setGroupUnlocked(groupId, value) {
   if (!groupId) return;
-  if (!value) {
-    localStorage.removeItem(groupUnlockKey(groupId));
+  if (value) {
+    state.unlockedGroups.add(groupId);
     return;
   }
-  localStorage.setItem(groupUnlockKey(groupId), "true");
+  state.unlockedGroups.delete(groupId);
 }
 
 function requireHostName() {
@@ -540,6 +540,9 @@ async function openGroupModal(groupId) {
 function closeGroupModal() {
   if (!elements.groupModal) return;
   elements.groupModal.classList.add("hidden");
+  if (state.activeGroupId) {
+    setGroupUnlocked(state.activeGroupId, false);
+  }
   state.activeGroupId = null;
 }
 
@@ -766,6 +769,10 @@ async function openRosterModal(groupId) {
 function closeRosterModal() {
   if (!elements.rosterModal) return;
   elements.rosterModal.classList.add("hidden");
+  const groupId = safeTrim(elements.gameGroup?.value);
+  if (groupId) {
+    setGroupUnlocked(groupId, false);
+  }
   state.roster = [];
 }
 
@@ -2288,6 +2295,10 @@ function openSummaryModal() {
 function closeSummaryModal() {
   if (!elements.summaryModal) return;
   elements.summaryModal.classList.add("hidden");
+  const groupId = safeTrim(elements.summaryGroup?.value);
+  if (groupId) {
+    setGroupUnlocked(groupId, false);
+  }
 }
 
 function openSessionsPage() {
