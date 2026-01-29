@@ -23,6 +23,12 @@ const elements = {
   groupPlayerForm: $("#groupPlayerForm"),
   groupPlayerName: $("#groupPlayerName"),
   groupPlayerAdd: $("#groupPlayerAdd"),
+  createGroupModal: $("#createGroupModal"),
+  createGroupClose: $("#createGroupClose"),
+  createGroupForm: $("#createGroupForm"),
+  createGroupName: $("#createGroupName"),
+  createGroupCancel: $("#createGroupCancel"),
+  createGroupSubmit: $("#createGroupSubmit"),
   rosterModal: $("#rosterModal"),
   rosterTitle: $("#rosterTitle"),
   rosterClose: $("#rosterClose"),
@@ -431,16 +437,18 @@ async function refreshGroups() {
   renderGroupSelects();
 }
 
-async function createGroup() {
-  if (!supabase) return;
-  const promptName = window.prompt("Group name");
-  const name = safeTrim(promptName);
-  if (!name) return;
+async function createGroup(name) {
+  if (!supabase) return null;
+  const trimmed = safeTrim(name);
+  if (!trimmed) {
+    setStatus("Enter a group name.", "error");
+    return null;
+  }
 
-  const { data, error } = await supabase.from("groups").insert({ name }).select().single();
+  const { data, error } = await supabase.from("groups").insert({ name: trimmed }).select().single();
   if (error) {
     setStatus("Could not create group", "error");
-    return;
+    return null;
   }
 
   state.groups = [data, ...state.groups.filter((group) => group.id !== data.id)];
@@ -454,6 +462,7 @@ async function createGroup() {
   }
   saveLastGroup(data.id);
   setStatus("Group created");
+  return data;
 }
 
 async function fetchGroupPlayers(groupId) {
@@ -514,6 +523,18 @@ function closeGroupModal() {
   if (!elements.groupModal) return;
   elements.groupModal.classList.add("hidden");
   state.activeGroupId = null;
+}
+
+function openCreateGroupModal() {
+  if (!elements.createGroupModal) return;
+  elements.createGroupName.value = "";
+  elements.createGroupModal.classList.remove("hidden");
+  elements.createGroupName.focus();
+}
+
+function closeCreateGroupModal() {
+  if (!elements.createGroupModal) return;
+  elements.createGroupModal.classList.add("hidden");
 }
 
 function renderRosterList() {
@@ -2284,7 +2305,25 @@ if (elements.groupList) {
 if (elements.createGroup) {
   elements.createGroup.addEventListener("click", () => {
     if (configMissing) return;
-    createGroup();
+    openCreateGroupModal();
+  });
+}
+
+if (elements.createGroupClose) {
+  elements.createGroupClose.addEventListener("click", closeCreateGroupModal);
+}
+
+if (elements.createGroupCancel) {
+  elements.createGroupCancel.addEventListener("click", closeCreateGroupModal);
+}
+
+if (elements.createGroupForm) {
+  elements.createGroupForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const created = await createGroup(elements.createGroupName?.value);
+    if (created) {
+      closeCreateGroupModal();
+    }
   });
 }
 
@@ -2374,6 +2413,14 @@ if (elements.groupModal) {
   elements.groupModal.addEventListener("click", (event) => {
     if (event.target.dataset.action === "close") {
       closeGroupModal();
+    }
+  });
+}
+
+if (elements.createGroupModal) {
+  elements.createGroupModal.addEventListener("click", (event) => {
+    if (event.target.dataset.action === "close") {
+      closeCreateGroupModal();
     }
   });
 }
@@ -2498,6 +2545,9 @@ window.addEventListener("keydown", (event) => {
   }
   if (elements.groupModal && !elements.groupModal.classList.contains("hidden")) {
     closeGroupModal();
+  }
+  if (elements.createGroupModal && !elements.createGroupModal.classList.contains("hidden")) {
+    closeCreateGroupModal();
   }
   if (elements.rosterModal && !elements.rosterModal.classList.contains("hidden")) {
     closeRosterModal();

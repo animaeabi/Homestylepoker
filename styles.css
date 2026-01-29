@@ -776,7 +776,8 @@ button:disabled {
 }
 
 .group-panel,
-.roster-panel {
+.roster-panel,
+.group-create-panel {
   position: relative;
   z-index: 1;
   width: min(92vw, 520px);
