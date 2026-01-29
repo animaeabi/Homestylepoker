@@ -15,7 +15,6 @@ const elements = {
   joinGame: $("#joinGame"),
   openSessions: $("#openSessions"),
   groupList: $("#groupList"),
-  groupName: $("#groupName"),
   createGroup: $("#createGroup"),
   groupModal: $("#groupModal"),
   groupModalTitle: $("#groupModalTitle"),
@@ -24,6 +23,12 @@ const elements = {
   groupPlayerForm: $("#groupPlayerForm"),
   groupPlayerName: $("#groupPlayerName"),
   groupPlayerAdd: $("#groupPlayerAdd"),
+  createGroupModal: $("#createGroupModal"),
+  createGroupClose: $("#createGroupClose"),
+  createGroupForm: $("#createGroupForm"),
+  createGroupName: $("#createGroupName"),
+  createGroupCancel: $("#createGroupCancel"),
+  createGroupSubmit: $("#createGroupSubmit"),
   rosterModal: $("#rosterModal"),
   rosterTitle: $("#rosterTitle"),
   rosterClose: $("#rosterClose"),
@@ -365,12 +370,12 @@ function renderGroupList() {
   state.groups.forEach((group) => {
     const row = document.createElement("div");
     row.className = "group-item";
+    row.dataset.action = "open-group";
+    row.dataset.id = group.id;
+    row.tabIndex = 0;
+    row.setAttribute("role", "button");
     row.innerHTML = `
-      <div>
-        <strong>${group.name}</strong>
-        <span>Created ${formatShortDate(group.created_at)}</span>
-      </div>
-      <button class="ghost compact-btn" data-action="open-group" data-id="${group.id}">Open</button>
+      <strong>${group.name}</strong>
     `;
     elements.groupList.appendChild(row);
   });
@@ -456,9 +461,6 @@ async function createGroup(name) {
     elements.summaryGroup.value = data.id;
   }
   saveLastGroup(data.id);
-  if (elements.groupName) {
-    elements.groupName.value = "";
-  }
   setStatus("Group created");
   return data;
 }
@@ -521,6 +523,18 @@ function closeGroupModal() {
   if (!elements.groupModal) return;
   elements.groupModal.classList.add("hidden");
   state.activeGroupId = null;
+}
+
+function openCreateGroupModal() {
+  if (!elements.createGroupModal) return;
+  elements.createGroupName.value = "";
+  elements.createGroupModal.classList.remove("hidden");
+  elements.createGroupName.focus();
+}
+
+function closeCreateGroupModal() {
+  if (!elements.createGroupModal) return;
+  elements.createGroupModal.classList.add("hidden");
 }
 
 function renderRosterList() {
@@ -2281,17 +2295,43 @@ if (elements.sessionsBack) {
 
 if (elements.groupList) {
   elements.groupList.addEventListener("click", (event) => {
-    const button = event.target.closest("button[data-action='open-group']");
-    if (!button) return;
-    const groupId = button.dataset.id;
+    const row = event.target.closest("[data-action='open-group']");
+    if (!row) return;
+    const groupId = row.dataset.id;
     openGroupModal(groupId);
+  });
+
+  elements.groupList.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    const row = event.target.closest("[data-action='open-group']");
+    if (!row) return;
+    event.preventDefault();
+    openGroupModal(row.dataset.id);
   });
 }
 
 if (elements.createGroup) {
   elements.createGroup.addEventListener("click", () => {
     if (configMissing) return;
-    createGroup(elements.groupName?.value);
+    openCreateGroupModal();
+  });
+}
+
+if (elements.createGroupClose) {
+  elements.createGroupClose.addEventListener("click", closeCreateGroupModal);
+}
+
+if (elements.createGroupCancel) {
+  elements.createGroupCancel.addEventListener("click", closeCreateGroupModal);
+}
+
+if (elements.createGroupForm) {
+  elements.createGroupForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const created = await createGroup(elements.createGroupName?.value);
+    if (created) {
+      closeCreateGroupModal();
+    }
   });
 }
 
@@ -2385,11 +2425,10 @@ if (elements.groupModal) {
   });
 }
 
-if (elements.groupName) {
-  elements.groupName.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      createGroup(elements.groupName.value);
+if (elements.createGroupModal) {
+  elements.createGroupModal.addEventListener("click", (event) => {
+    if (event.target.dataset.action === "close") {
+      closeCreateGroupModal();
     }
   });
 }
@@ -2514,6 +2553,9 @@ window.addEventListener("keydown", (event) => {
   }
   if (elements.groupModal && !elements.groupModal.classList.contains("hidden")) {
     closeGroupModal();
+  }
+  if (elements.createGroupModal && !elements.createGroupModal.classList.contains("hidden")) {
+    closeCreateGroupModal();
   }
   if (elements.rosterModal && !elements.rosterModal.classList.contains("hidden")) {
     closeRosterModal();

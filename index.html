@@ -55,16 +55,9 @@
         <div class="landing-card compact group-card">
           <div class="group-header">
             <h2>Groups</h2>
-            <p class="muted micro">Keep a directory for your recurring table.</p>
-          </div>
-          <div id="groupList" class="group-list"></div>
-          <div class="group-create">
-            <label class="field">
-              <span class="sr-only">New group name</span>
-              <input id="groupName" type="text" placeholder="New group name" />
-            </label>
             <button id="createGroup" class="ghost compact-btn" type="button">Create</button>
           </div>
+          <div id="groupList" class="group-list"></div>
         </div>
       </section>
 
@@ -277,6 +270,29 @@
               <input id="groupPlayerName" type="text" placeholder="Name" />
             </label>
             <button id="groupPlayerAdd" class="ghost" type="submit">Add player</button>
+          </form>
+        </section>
+      </div>
+
+      <div id="createGroupModal" class="modal hidden" role="dialog" aria-modal="true">
+        <div class="modal-backdrop" data-action="close"></div>
+        <section class="panel group-create-panel">
+          <div class="panel-title summary-header">
+            <div>
+              <h2>Create group</h2>
+              <p class="muted">Name this group.</p>
+            </div>
+            <button id="createGroupClose" class="ghost" type="button">Close</button>
+          </div>
+          <form id="createGroupForm" class="group-create-form">
+            <label class="field">
+              <span>Group name</span>
+              <input id="createGroupName" type="text" placeholder="Friday Crew" />
+            </label>
+            <div class="roster-actions">
+              <button id="createGroupCancel" class="ghost" type="button">Cancel</button>
+              <button id="createGroupSubmit" class="primary" type="submit">Create group</button>
+            </div>
           </form>
         </section>
       </div>

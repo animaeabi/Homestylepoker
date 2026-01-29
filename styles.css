@@ -229,36 +229,33 @@ body::before {
 
 .landing-card.compact {
   padding: 12px;
-  gap: 8px;
+  gap: 6px;
 }
 
 .group-card {
   box-shadow: none;
-  padding: 12px 12px 10px;
-  border-radius: 14px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  gap: 6px;
 }
 
 .landing-card.compact h2 {
-  font-size: 1.05rem;
+  font-size: 1.02rem;
 }
 
 .group-card .group-header,
-.group-card .group-list,
-.group-card .group-create {
+.group-card .group-list {
   max-width: 360px;
 }
 
 .group-card .group-header {
-  display: grid;
-  gap: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .group-card .group-header h2 {
-  margin: 0;
-}
-
-.micro {
-  font-size: 0.72rem;
   margin: 0;
 }
 
@@ -302,31 +299,26 @@ body::before {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  background: rgba(255, 255, 255, 0.02);
+  background: transparent;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 6px;
   padding: 8px 10px;
   min-height: 56px;
-  font-size: 0.85rem;
+  font-size: 0.84rem;
+  cursor: pointer;
 }
 
-.group-item span {
-  display: block;
-  color: var(--muted);
-  font-size: 0.72rem;
-  margin-top: 1px;
+.group-item:hover {
+  background: rgba(255, 255, 255, 0.04);
 }
 
-.group-create {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 2px;
+.group-item strong {
+  font-size: 0.9rem;
+  font-weight: 600;
 }
 
-.group-create .field {
-  margin: 0;
-  gap: 4px;
+.group-item:hover strong {
+  color: var(--accent);
 }
 
 .compact-btn {
@@ -825,7 +817,8 @@ button:disabled {
 }
 
 .group-panel,
-.roster-panel {
+.roster-panel,
+.group-create-panel {
   position: relative;
   z-index: 1;
   width: min(92vw, 520px);
@@ -1356,15 +1349,8 @@ button:disabled {
   }
 
   .group-card .group-header,
-  .group-card .group-list,
-  .group-card .group-create {
+  .group-card .group-list {
     max-width: 100%;
-  }
-
-  .group-create {
-    flex-direction: column;
-    align-items: stretch;
-    margin-top: 4px;
   }
 
   .recent-item {
