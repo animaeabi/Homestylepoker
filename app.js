@@ -19,6 +19,8 @@ const elements = {
   groupModal: $("#groupModal"),
   groupModalTitle: $("#groupModalTitle"),
   groupModalClose: $("#groupModalClose"),
+  groupRename: $("#groupRename"),
+  groupDelete: $("#groupDelete"),
   groupPlayerList: $("#groupPlayerList"),
   groupPlayerForm: $("#groupPlayerForm"),
   groupPlayerName: $("#groupPlayerName"),
@@ -514,6 +516,12 @@ async function openGroupModal(groupId) {
   if (elements.groupModalTitle) {
     elements.groupModalTitle.textContent = group.name;
   }
+  if (elements.groupRename) {
+    elements.groupRename.disabled = false;
+  }
+  if (elements.groupDelete) {
+    elements.groupDelete.disabled = false;
+  }
   state.groupPlayers = await fetchGroupPlayers(groupId);
   renderGroupPlayers();
   elements.groupModal.classList.remove("hidden");
@@ -523,6 +531,43 @@ function closeGroupModal() {
   if (!elements.groupModal) return;
   elements.groupModal.classList.add("hidden");
   state.activeGroupId = null;
+}
+
+async function renameActiveGroup() {
+  if (!supabase || !state.activeGroupId) return;
+  const group = state.groups.find((item) => item.id === state.activeGroupId);
+  if (!group) return;
+  const nextName = safeTrim(window.prompt("New group name", group.name));
+  if (!nextName || nextName === group.name) return;
+  const { error } = await supabase.from("groups").update({ name: nextName }).eq("id", group.id);
+  if (error) {
+    setStatus("Could not rename group", "error");
+    return;
+  }
+  state.groups = state.groups.map((item) =>
+    item.id === group.id ? { ...item, name: nextName } : item
+  );
+  renderGroupList();
+  renderGroupSelects();
+  if (elements.groupModalTitle) elements.groupModalTitle.textContent = nextName;
+  setStatus("Group renamed");
+}
+
+async function deleteActiveGroup() {
+  if (!supabase || !state.activeGroupId) return;
+  const group = state.groups.find((item) => item.id === state.activeGroupId);
+  if (!group) return;
+  if (!window.confirm(`Delete group "${group.name}"? This will remove all its players.`)) return;
+  const { error } = await supabase.from("groups").delete().eq("id", group.id);
+  if (error) {
+    setStatus("Could not delete group", "error");
+    return;
+  }
+  state.groups = state.groups.filter((item) => item.id !== group.id);
+  renderGroupList();
+  renderGroupSelects();
+  closeGroupModal();
+  setStatus("Group deleted");
 }
 
 function openCreateGroupModal() {
@@ -2337,6 +2382,14 @@ if (elements.createGroupForm) {
 
 if (elements.groupModalClose) {
   elements.groupModalClose.addEventListener("click", closeGroupModal);
+}
+
+if (elements.groupRename) {
+  elements.groupRename.addEventListener("click", renameActiveGroup);
+}
+
+if (elements.groupDelete) {
+  elements.groupDelete.addEventListener("click", deleteActiveGroup);
 }
 
 if (elements.groupPlayerForm) {
