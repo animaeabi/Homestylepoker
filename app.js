@@ -8,6 +8,7 @@ const elements = {
   landing: $("#landing"),
   newGameName: $("#newGameName"),
   newBuyIn: $("#newBuyIn"),
+  newHostName: $("#newHostName"),
   gameGroup: $("#gameGroup"),
   createGame: $("#createGame"),
   joinCode: $("#joinCode"),
@@ -124,6 +125,7 @@ const themeKey = "poker_theme";
 const deletePinKey = "poker_delete_pin_ok";
 const deletePin = "2/7";
 const lastGroupKey = "poker_last_group";
+const hostNameKey = "poker_host_name";
 
 const safeTrim = (value) => (value || "").trim();
 
@@ -148,6 +150,14 @@ function initTheme() {
     return;
   }
   applyTheme("dark");
+}
+
+function initHostName() {
+  if (!elements.newHostName) return;
+  const stored = loadHostName();
+  if (stored) {
+    elements.newHostName.value = stored;
+  }
 }
 
 function loadStoredPlayer(code) {
@@ -206,6 +216,19 @@ function saveLastGroup(value) {
     return;
   }
   localStorage.setItem(lastGroupKey, value);
+}
+
+function loadHostName() {
+  return safeTrim(localStorage.getItem(hostNameKey));
+}
+
+function saveHostName(value) {
+  const trimmed = safeTrim(value);
+  if (!trimmed) {
+    localStorage.removeItem(hostNameKey);
+    return;
+  }
+  localStorage.setItem(hostNameKey, trimmed);
 }
 
 function isDeletePinAuthorized() {
@@ -1481,6 +1504,8 @@ async function createGame() {
   const currency = "$";
   const defaultBuyIn = Number(elements.newBuyIn.value) || 10;
   const groupId = safeTrim(elements.gameGroup?.value) || null;
+  const enteredHostName = safeTrim(elements.newHostName?.value);
+  const hostName = enteredHostName || loadHostName();
   let code = generateCode();
 
   let result = await supabase
@@ -1510,16 +1535,21 @@ async function createGame() {
   history.replaceState({}, "", getHostLink());
   recordRecentGame(state.game);
   saveLastGroup(state.game.group_id || "");
+  if (enteredHostName) saveHostName(enteredHostName);
 
   let groupPlayerId = null;
   if (state.game.group_id) {
-    const groupPlayer = await getOrCreateGroupPlayer(state.game.group_id, "You (Host)");
-    groupPlayerId = groupPlayer?.id || null;
+    if (hostName) {
+      const groupPlayer = await getOrCreateGroupPlayer(state.game.group_id, hostName);
+      groupPlayerId = groupPlayer?.id || null;
+    }
   }
+
+  const displayName = hostName ? `${hostName} (Host)` : "You (Host)";
 
   const { data: hostPlayer, error: hostError } = await supabase
     .from("players")
-    .insert({ game_id: state.game.id, name: "You (Host)", group_player_id: groupPlayerId })
+    .insert({ game_id: state.game.id, name: displayName, group_player_id: groupPlayerId })
     .select()
     .single();
 
@@ -1934,6 +1964,7 @@ async function submitSettlement(event) {
 
 buildQuarterOptions();
 initTheme();
+initHostName();
 
 // Event listeners
 
@@ -1950,6 +1981,13 @@ elements.createGame.addEventListener("click", () => {
   if (configMissing) return;
   createGame();
 });
+
+if (elements.newHostName) {
+  elements.newHostName.addEventListener("change", () => {
+    const value = safeTrim(elements.newHostName.value);
+    if (value) saveHostName(value);
+  });
+}
 
 elements.joinGame.addEventListener("click", () => {
   if (configMissing) return;
