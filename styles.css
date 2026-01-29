@@ -252,6 +252,18 @@ body.theme-light .topbar::after {
   column-gap: 10px;
 }
 
+.brand-button {
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.brand-button:hover .brand-icon {
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.4);
+}
+
 .brand h1 {
   margin: 0;
   font-family: "Cinzel", "Fraunces", serif;

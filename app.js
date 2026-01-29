@@ -15,6 +15,7 @@ const elements = {
   joinCode: $("#joinCode"),
   joinGame: $("#joinGame"),
   openSessions: $("#openSessions"),
+  homeTitle: $("#homeTitle"),
   groupList: $("#groupList"),
   createGroup: $("#createGroup"),
   groupModal: $("#groupModal"),
@@ -2566,6 +2567,7 @@ function closeSessionsPage() {
   if (!elements.sessionsPanel) return;
   elements.sessionsPanel.classList.add("hidden");
   elements.landing.classList.remove("hidden");
+  history.replaceState({}, "", window.location.pathname);
 }
 
 function clearCurrentGame() {
@@ -2709,6 +2711,13 @@ if (elements.openSessions) {
 
 if (elements.sessionsBack) {
   elements.sessionsBack.addEventListener("click", () => {
+    closeSessionsPage();
+  });
+}
+
+if (elements.homeTitle) {
+  elements.homeTitle.addEventListener("click", () => {
+    clearCurrentGame();
     closeSessionsPage();
   });
 }
