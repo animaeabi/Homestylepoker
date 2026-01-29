@@ -116,6 +116,17 @@ body::before {
   pointer-events: none;
 }
 
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220' viewBox='0 0 220 220' fill='none' stroke='%23d2a64e' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M60 40c-8 0-14 6-14 14 0 6 3 10 8 14l14 12 14-12c5-4 8-8 8-14 0-8-6-14-14-14-5 0-9 3-12 7-3-4-7-7-12-7z'/><path d='M160 46c-8 0-14 6-14 14 0 6 3 10 8 14l14 12 14-12c5-4 8-8 8-14 0-8-6-14-14-14-5 0-9 3-12 7-3-4-7-7-12-7z' transform='rotate(180 174 72)'/><path d='M48 160c0-10 8-18 18-18 8 0 14 4 18 10 4-6 10-10 18-10 10 0 18 8 18 18 0 8-4 14-10 18l-8 6H76l-8-6c-6-4-10-10-10-18z'/><path d='M74 182h24l-6 18h-12z'/><path d='M150 160c0-10 8-18 18-18 8 0 14 4 18 10 4-6 10-10 18-10 10 0 18 8 18 18 0 8-4 14-10 18l-8 6h-28l-8-6c-6-4-10-10-10-18z' transform='rotate(180 174 174)'/><path d='M160 38l18 18-18 18-18-18z'/><path d='M40 120l18 18-18 18-18-18z'/></svg>");
+  background-repeat: repeat;
+  background-size: 220px 220px;
+  opacity: 0.06;
+}
+
 body.theme-light::before {
   background-image: radial-gradient(circle at 20% 20%, rgba(212, 164, 68, 0.08), transparent 45%),
     radial-gradient(circle at 80% 30%, rgba(31, 111, 92, 0.08), transparent 50%),
@@ -127,6 +138,11 @@ body.theme-light::before {
       transparent 7px
     );
   opacity: 0.8;
+}
+
+body.theme-light::after {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220' viewBox='0 0 220 220' fill='none' stroke='%231f6f5c' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'><path d='M60 40c-8 0-14 6-14 14 0 6 3 10 8 14l14 12 14-12c5-4 8-8 8-14 0-8-6-14-14-14-5 0-9 3-12 7-3-4-7-7-12-7z'/><path d='M160 46c-8 0-14 6-14 14 0 6 3 10 8 14l14 12 14-12c5-4 8-8 8-14 0-8-6-14-14-14-5 0-9 3-12 7-3-4-7-7-12-7z' transform='rotate(180 174 72)'/><path d='M48 160c0-10 8-18 18-18 8 0 14 4 18 10 4-6 10-10 18-10 10 0 18 8 18 18 0 8-4 14-10 18l-8 6H76l-8-6c-6-4-10-10-10-18z'/><path d='M74 182h24l-6 18h-12z'/><path d='M150 160c0-10 8-18 18-18 8 0 14 4 18 10 4-6 10-10 18-10 10 0 18 8 18 18 0 8-4 14-10 18l-8 6h-28l-8-6c-6-4-10-10-10-18z' transform='rotate(180 174 174)'/><path d='M160 38l18 18-18 18-18-18z'/><path d='M40 120l18 18-18 18-18-18z'/></svg>");
+  opacity: 0.08;
 }
 
 .app {
