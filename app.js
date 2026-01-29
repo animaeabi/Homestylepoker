@@ -490,6 +490,9 @@ function renderGroupPlayers() {
         <strong>${player.name}</strong>
         <span>Added ${formatShortDate(player.created_at)}</span>
       </div>
+      <button class="ghost small" data-action="delete-group-player" data-id="${player.id}">
+        ✕
+      </button>
     `;
     elements.groupPlayerList.appendChild(row);
   });
@@ -2380,6 +2383,24 @@ if (elements.groupModal) {
     if (event.target.dataset.action === "close") {
       closeGroupModal();
     }
+  });
+}
+
+if (elements.groupPlayerList) {
+  elements.groupPlayerList.addEventListener("click", async (event) => {
+    const button = event.target.closest("button[data-action='delete-group-player']");
+    if (!button) return;
+    const playerId = button.dataset.id;
+    if (!playerId || !state.activeGroupId) return;
+    if (!window.confirm("Remove this player from the group?")) return;
+    const { error } = await supabase.from("group_players").delete().eq("id", playerId);
+    if (error) {
+      setStatus("Could not delete player", "error");
+      return;
+    }
+    state.groupPlayers = await fetchGroupPlayers(state.activeGroupId);
+    renderGroupPlayers();
+    setStatus("Player removed");
   });
 }
 
