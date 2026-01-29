@@ -423,6 +423,12 @@ body.theme-light .brand-icon {
   border: 1px solid var(--surface-border);
 }
 
+.history-btn {
+  justify-self: end;
+  padding: 6px 12px;
+  font-size: 0.78rem;
+}
+
 .landing-card.compact h2 {
   font-size: 1.02rem;
 }
