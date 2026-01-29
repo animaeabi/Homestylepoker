@@ -1823,6 +1823,19 @@ body:not(.theme-light) .footer-toggle input {
     align-items: flex-start;
   }
 
+  .lets-play .card-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+  }
+
+  .lets-play .history-btn {
+    justify-self: end;
+    margin-left: 0;
+  }
+
   .group-card .group-header,
   .group-card .group-list {
     max-width: 100%;
