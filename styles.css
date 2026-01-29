@@ -193,8 +193,11 @@ body.theme-light::after {
 
 .brand h1 {
   margin: 0;
-  font-size: 1.6rem;
-  line-height: 1.15;
+  font-family: "Cinzel", "Fraunces", serif;
+  font-size: 1.7rem;
+  line-height: 1.1;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
 }
 
 .brand-chip {
@@ -209,12 +212,6 @@ body.theme-light::after {
   text-transform: uppercase;
   letter-spacing: 0.18em;
   width: fit-content;
-}
-
-.brand p {
-  color: var(--muted);
-  font-size: 0.9rem;
-  margin: 0;
 }
 
 .brand-meta {
