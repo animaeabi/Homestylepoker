@@ -237,7 +237,8 @@ body::before {
   padding: 10px 12px;
   border-radius: 12px;
   gap: 6px;
-  width: fit-content;
+  display: inline-grid;
+  width: max-content;
   max-width: 100%;
   justify-self: end;
   align-self: start;
@@ -293,7 +294,8 @@ body::before {
   max-height: 240px;
   overflow-y: auto;
   padding-right: 4px;
-  width: 100%;
+  width: max-content;
+  max-width: 100%;
 }
 
 .group-item {
@@ -834,6 +836,29 @@ button:disabled {
 .roster-list {
   display: grid;
   gap: 10px;
+}
+
+.group-lock {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  font-size: 0.82rem;
+}
+
+.group-lock span {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.72rem;
+}
+
+.group-lock-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 
 .group-player-row,

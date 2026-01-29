@@ -21,6 +21,9 @@ const elements = {
   groupModalClose: $("#groupModalClose"),
   groupRename: $("#groupRename"),
   groupDelete: $("#groupDelete"),
+  groupLockStatus: $("#groupLockStatus"),
+  groupLockSet: $("#groupLockSet"),
+  groupLockRemove: $("#groupLockRemove"),
   groupPlayerList: $("#groupPlayerList"),
   groupPlayerForm: $("#groupPlayerForm"),
   groupPlayerName: $("#groupPlayerName"),
@@ -145,6 +148,7 @@ const supabase = configMissing ? null : createClient(SUPABASE_URL, SUPABASE_ANON
 
 const playerKey = (code) => `poker_player_${code}`;
 const hostKey = (code) => `poker_host_${code}`;
+const groupUnlockKey = (id) => `poker_group_unlock_${id}`;
 const recentGamesKey = "poker_recent_games";
 const themeKey = "poker_theme";
 const deletePinKey = "poker_delete_pin_ok";
@@ -270,6 +274,20 @@ function saveLastGroup(value) {
   localStorage.setItem(lastGroupKey, value);
 }
 
+function isGroupUnlocked(groupId) {
+  if (!groupId) return false;
+  return localStorage.getItem(groupUnlockKey(groupId)) === "true";
+}
+
+function setGroupUnlocked(groupId, value) {
+  if (!groupId) return;
+  if (!value) {
+    localStorage.removeItem(groupUnlockKey(groupId));
+    return;
+  }
+  localStorage.setItem(groupUnlockKey(groupId), "true");
+}
+
 function requireHostName() {
   const name = safeTrim(elements.newHostName?.value);
   if (!name) {
@@ -278,6 +296,14 @@ function requireHostName() {
     return null;
   }
   return name;
+}
+
+async function hashPhrase(value) {
+  const data = new TextEncoder().encode(value);
+  const hash = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(hash))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 function pickRandom(list) {
@@ -493,6 +519,8 @@ async function openGroupModal(groupId) {
   if (!elements.groupModal) return;
   const group = state.groups.find((item) => item.id === groupId);
   if (!group) return;
+  const unlocked = await ensureGroupUnlocked(groupId);
+  if (!unlocked) return;
   state.activeGroupId = groupId;
   if (elements.groupModalTitle) {
     elements.groupModalTitle.textContent = group.name;
@@ -503,6 +531,7 @@ async function openGroupModal(groupId) {
   if (elements.groupDelete) {
     elements.groupDelete.disabled = false;
   }
+  updateGroupLockUI(group);
   state.groupPlayers = await fetchGroupPlayers(groupId);
   renderGroupPlayers();
   elements.groupModal.classList.remove("hidden");
@@ -512,6 +541,88 @@ function closeGroupModal() {
   if (!elements.groupModal) return;
   elements.groupModal.classList.add("hidden");
   state.activeGroupId = null;
+}
+
+function updateGroupLockUI(group) {
+  if (!group) return;
+  const locked = Boolean(group.lock_phrase_hash);
+  const unlocked = isGroupUnlocked(group.id);
+  if (elements.groupLockStatus) {
+    elements.groupLockStatus.textContent = locked ? (unlocked ? "Unlocked" : "Locked") : "Open";
+  }
+  if (elements.groupLockSet) {
+    elements.groupLockSet.disabled = locked && !unlocked;
+    elements.groupLockSet.textContent = locked ? "Change phrase" : "Set phrase";
+  }
+  if (elements.groupLockRemove) {
+    elements.groupLockRemove.disabled = !locked;
+  }
+}
+
+async function ensureGroupUnlocked(groupId) {
+  const group = state.groups.find((item) => item.id === groupId);
+  if (!group || !group.lock_phrase_hash) return true;
+  if (isGroupUnlocked(groupId)) return true;
+
+  const phrase = window.prompt(`Enter lock phrase for "${group.name}"`);
+  if (phrase === null) return false;
+  if (!phrase.trim()) return false;
+
+  const digest = await hashPhrase(phrase.trim());
+  if (digest === group.lock_phrase_hash) {
+    setGroupUnlocked(groupId, true);
+    return true;
+  }
+  setStatus("Incorrect lock phrase.", "error");
+  return false;
+}
+
+async function setGroupLockPhrase() {
+  if (!supabase || !state.activeGroupId) return;
+  const group = state.groups.find((item) => item.id === state.activeGroupId);
+  if (!group) return;
+  const phrase = window.prompt("Set lock phrase");
+  if (phrase === null) return;
+  if (!phrase.trim()) {
+    setStatus("Enter a lock phrase.", "error");
+    return;
+  }
+  const digest = await hashPhrase(phrase.trim());
+  const { error } = await supabase
+    .from("groups")
+    .update({ lock_phrase_hash: digest })
+    .eq("id", group.id);
+  if (error) {
+    setStatus("Could not set lock phrase", "error");
+    return;
+  }
+  state.groups = state.groups.map((item) =>
+    item.id === group.id ? { ...item, lock_phrase_hash: digest } : item
+  );
+  setGroupUnlocked(group.id, true);
+  updateGroupLockUI({ ...group, lock_phrase_hash: digest });
+  setStatus("Lock phrase set");
+}
+
+async function removeGroupLockPhrase() {
+  if (!supabase || !state.activeGroupId) return;
+  const group = state.groups.find((item) => item.id === state.activeGroupId);
+  if (!group) return;
+  if (!window.confirm("Remove lock phrase?")) return;
+  const { error } = await supabase
+    .from("groups")
+    .update({ lock_phrase_hash: null })
+    .eq("id", group.id);
+  if (error) {
+    setStatus("Could not remove lock phrase", "error");
+    return;
+  }
+  state.groups = state.groups.map((item) =>
+    item.id === group.id ? { ...item, lock_phrase_hash: null } : item
+  );
+  setGroupUnlocked(group.id, false);
+  updateGroupLockUI({ ...group, lock_phrase_hash: null });
+  setStatus("Lock phrase removed");
 }
 
 async function renameActiveGroup() {
@@ -547,6 +658,7 @@ async function deleteActiveGroup() {
   state.groups = state.groups.filter((item) => item.id !== group.id);
   renderGroupList();
   renderGroupSelects();
+  setGroupUnlocked(group.id, false);
   closeGroupModal();
   setStatus("Group deleted");
 }
@@ -602,6 +714,8 @@ function renderRosterList() {
 
 async function openRosterModal(groupId) {
   if (!elements.rosterModal) return;
+  const unlocked = await ensureGroupUnlocked(groupId);
+  if (!unlocked) return;
   const hostName = requireHostName();
   if (!hostName) return;
 
@@ -2148,8 +2262,12 @@ function openSummaryModal() {
     setStatus("Select a group for summary.", "error");
     return;
   }
-  elements.summaryModal.classList.remove("hidden");
-  loadQuarterSummary();
+  ensureGroupUnlocked(groupId).then((unlocked) => {
+    if (!unlocked) return;
+    elements.summaryModal.classList.remove("hidden");
+    loadQuarterSummary();
+  });
+  return;
 }
 
 function closeSummaryModal() {
@@ -2372,6 +2490,14 @@ if (elements.groupRename) {
 
 if (elements.groupDelete) {
   elements.groupDelete.addEventListener("click", deleteActiveGroup);
+}
+
+if (elements.groupLockSet) {
+  elements.groupLockSet.addEventListener("click", setGroupLockPhrase);
+}
+
+if (elements.groupLockRemove) {
+  elements.groupLockRemove.addEventListener("click", removeGroupLockPhrase);
 }
 
 if (elements.groupPlayerForm) {

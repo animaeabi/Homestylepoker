@@ -11,6 +11,7 @@ Real-time, multi-device poker buy-in tracking with Supabase. Host creates a game
 create table if not exists groups (
   id uuid primary key default gen_random_uuid(),
   name text not null,
+  lock_phrase_hash text,
   created_at timestamptz default now()
 );
 
@@ -75,6 +76,7 @@ create index if not exists idx_settlements_game_id on settlements(game_id);
 create table if not exists groups (
   id uuid primary key default gen_random_uuid(),
   name text not null,
+  lock_phrase_hash text,
   created_at timestamptz default now()
 );
 
@@ -88,6 +90,7 @@ create table if not exists group_players (
 );
 
 alter table games add column if not exists group_id uuid references groups(id) on delete set null;
+alter table groups add column if not exists lock_phrase_hash text;
 alter table games add column if not exists ended_at timestamptz;
 alter table players add column if not exists group_player_id uuid references group_players(id) on delete set null;
 create table if not exists settlements (
