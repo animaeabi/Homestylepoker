@@ -698,6 +698,9 @@ button:disabled {
   width: min(92vw, 520px);
   max-height: 85vh;
   overflow: auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
 }
 
 .muted {
@@ -936,6 +939,15 @@ button:disabled {
   padding: 16px;
   display: grid;
   gap: 12px;
+}
+
+.form-error {
+  background: rgba(178, 74, 59, 0.15);
+  border: 1px solid rgba(178, 74, 59, 0.45);
+  color: #ffd9d2;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 0.85rem;
 }
 
 .settle-form {

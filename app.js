@@ -37,6 +37,7 @@ const elements = {
   settleForm: $("#settleForm"),
   settleList: $("#settleList"),
   settleCancel: $("#settleCancel"),
+  settleError: $("#settleError"),
   settlementSummary: $("#settlementSummary"),
   hostModeToggle: $("#hostModeToggle"),
   hostPanel: $("#hostPanel"),
@@ -1290,6 +1291,18 @@ function renderSettleList() {
   });
 }
 
+function setSettleError(message = "") {
+  if (!elements.settleError) return;
+  const trimmed = safeTrim(message);
+  if (!trimmed) {
+    elements.settleError.classList.add("hidden");
+    elements.settleError.textContent = "";
+    return;
+  }
+  elements.settleError.textContent = trimmed;
+  elements.settleError.classList.remove("hidden");
+}
+
 function openSettlePanel() {
   if (!state.isHost || !state.game) {
     setStatus("Enable host mode to settle.", "error");
@@ -1307,6 +1320,7 @@ function openSettlePanel() {
     setStatus("Add players before settling.", "error");
     return;
   }
+  setSettleError("");
   if (elements.settleModal) {
     elements.settleModal.classList.remove("hidden");
   }
@@ -1317,6 +1331,7 @@ function closeSettlePanel() {
   if (elements.settleModal) {
     elements.settleModal.classList.add("hidden");
   }
+  setSettleError("");
 }
 
 function clearCurrentGame() {
@@ -1362,6 +1377,7 @@ async function submitSettlement(event) {
     const playerId = row.dataset.playerId;
     const amount = Number(input.value);
     if (!Number.isFinite(amount) || amount < 0) {
+      setSettleError("Enter valid chip totals for every player.");
       setStatus("Enter valid chip totals for every player.", "error");
       input.focus();
       return;
@@ -1372,17 +1388,17 @@ async function submitSettlement(event) {
 
   const { totalBuyins } = computeSummary();
   if (Math.abs(settledTotal - totalBuyins) > 0.01) {
-    setStatus(
-      `Count error: settlement ${formatCurrency(settledTotal)} does not match pot ${formatCurrency(
-        totalBuyins
-      )}.`,
-      "error"
-    );
+    const message = `Count error: settlement ${formatCurrency(
+      settledTotal
+    )} does not match pot ${formatCurrency(totalBuyins)}.`;
+    setSettleError(message);
+    setStatus(message, "error");
     return;
   }
 
   const { error: settlementError } = await supabase.from("settlements").insert(entries);
   if (settlementError) {
+    setSettleError("Settlement failed. Please try again.");
     setStatus("Settlement failed", "error");
     return;
   }
