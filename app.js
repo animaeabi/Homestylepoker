@@ -11,6 +11,7 @@ const elements = {
   newHostName: $("#newHostName"),
   gameGroup: $("#gameGroup"),
   createGame: $("#createGame"),
+  joinPlayer: $("#joinPlayer"),
   joinCode: $("#joinCode"),
   joinGame: $("#joinGame"),
   openSessions: $("#openSessions"),
@@ -34,6 +35,20 @@ const elements = {
   createGroupName: $("#createGroupName"),
   createGroupCancel: $("#createGroupCancel"),
   createGroupSubmit: $("#createGroupSubmit"),
+  joinPlayerModal: $("#joinPlayerModal"),
+  joinPlayerClose: $("#joinPlayerClose"),
+  joinPlayerName: $("#joinPlayerName"),
+  joinPlayerContinue: $("#joinPlayerContinue"),
+  joinPlayerStepName: $("#joinPlayerStepName"),
+  joinPlayerStepList: $("#joinPlayerStepList"),
+  joinPlayerStepCode: $("#joinPlayerStepCode"),
+  joinPlayerListHint: $("#joinPlayerListHint"),
+  joinPlayerGameList: $("#joinPlayerGameList"),
+  joinPlayerUseCode: $("#joinPlayerUseCode"),
+  joinPlayerCode: $("#joinPlayerCode"),
+  joinPlayerCodeHint: $("#joinPlayerCodeHint"),
+  joinPlayerBack: $("#joinPlayerBack"),
+  joinPlayerSubmit: $("#joinPlayerSubmit"),
   rosterModal: $("#rosterModal"),
   rosterTitle: $("#rosterTitle"),
   rosterClose: $("#rosterClose"),
@@ -134,10 +149,13 @@ const configMissing =
   SUPABASE_ANON_KEY.startsWith("REPLACE");
 
 let statusTimer = null;
+let joinFlowName = "";
+let joinFlowHasList = false;
 
 if (configMissing) {
   elements.configNotice.classList.remove("hidden");
   elements.createGame.disabled = true;
+  if (elements.joinPlayer) elements.joinPlayer.disabled = true;
   if (elements.joinGame) elements.joinGame.disabled = true;
   elements.joinAsPlayer.disabled = true;
   elements.hostAddPlayer.disabled = true;
@@ -233,6 +251,133 @@ function initTheme() {
     return;
   }
   applyTheme("dark");
+}
+
+function showJoinStep(step) {
+  if (!elements.joinPlayerStepName) return;
+  elements.joinPlayerStepName.classList.toggle("hidden", step !== "name");
+  elements.joinPlayerStepList.classList.toggle("hidden", step !== "list");
+  elements.joinPlayerStepCode.classList.toggle("hidden", step !== "code");
+}
+
+function openJoinPlayerModal() {
+  if (!elements.joinPlayerModal) return;
+  joinFlowName = "";
+  joinFlowHasList = false;
+  elements.joinPlayerGameList.innerHTML = "";
+  elements.joinPlayerListHint.textContent = "";
+  elements.joinPlayerCodeHint.textContent = "";
+  elements.joinPlayerName.value = "";
+  elements.joinPlayerCode.value = "";
+  showJoinStep("name");
+  elements.joinPlayerModal.classList.remove("hidden");
+  setTimeout(() => elements.joinPlayerName?.focus(), 0);
+}
+
+function closeJoinPlayerModal() {
+  if (!elements.joinPlayerModal) return;
+  elements.joinPlayerModal.classList.add("hidden");
+}
+
+async function fetchActiveGamesByGroups(groupIds) {
+  if (!supabase || !groupIds.length) return [];
+  const { data, error } = await supabase
+    .from("games")
+    .select("id,code,name,group_id,created_at")
+    .in("group_id", groupIds)
+    .is("ended_at", null)
+    .order("created_at", { ascending: false });
+  if (error) {
+    setStatus("Could not load active games", "error");
+    return [];
+  }
+  return data || [];
+}
+
+async function getGroupNameMap(groupIds) {
+  const map = new Map();
+  state.groups.forEach((group) => map.set(group.id, group.name));
+  const missing = groupIds.filter((id) => !map.has(id));
+  if (!missing.length || !supabase) return map;
+  const { data, error } = await supabase.from("groups").select("id,name").in("id", missing);
+  if (!error && data) {
+    data.forEach((group) => map.set(group.id, group.name));
+  }
+  return map;
+}
+
+async function joinGameByCodeWithName(code, name) {
+  const loaded = await loadGameByCode(code);
+  if (!loaded) return false;
+  elements.playerName.value = name;
+  await joinAsPlayer();
+  closeJoinPlayerModal();
+  return true;
+}
+
+async function handleJoinPlayerContinue() {
+  if (!supabase) return;
+  const name = safeTrim(elements.joinPlayerName.value);
+  if (!name) {
+    setStatus("Enter your name to continue.", "error");
+    return;
+  }
+  joinFlowName = name;
+  const normalized = normalizeName(name);
+  const { data, error } = await supabase
+    .from("group_players")
+    .select("group_id")
+    .eq("normalized_name", normalized);
+  if (error) {
+    setStatus("Could not check groups.", "error");
+    return;
+  }
+  const groupIds = Array.from(new Set((data || []).map((row) => row.group_id))).filter(Boolean);
+  if (!groupIds.length) {
+    joinFlowHasList = false;
+    elements.joinPlayerCodeHint.textContent = "No group match found. Enter a game code.";
+    showJoinStep("code");
+    return;
+  }
+
+  const activeGames = await fetchActiveGamesByGroups(groupIds);
+  if (activeGames.length === 1) {
+    await joinGameByCodeWithName(activeGames[0].code, name);
+    return;
+  }
+
+  if (!activeGames.length) {
+    joinFlowHasList = false;
+    elements.joinPlayerCodeHint.textContent = "No active group game found. Enter a game code.";
+    showJoinStep("code");
+    return;
+  }
+
+  joinFlowHasList = true;
+  const groupNameMap = await getGroupNameMap(groupIds);
+  elements.joinPlayerListHint.textContent = "Select your active table.";
+  elements.joinPlayerGameList.innerHTML = "";
+  activeGames.forEach((game) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "join-player-item";
+    const groupName = groupNameMap.get(game.group_id) || "Group";
+    button.innerHTML = `
+      <strong>${game.name || "Home Game"}</strong>
+      <span>${groupName} · ${game.code}</span>
+    `;
+    button.addEventListener("click", () => joinGameByCodeWithName(game.code, joinFlowName));
+    elements.joinPlayerGameList.appendChild(button);
+  });
+  showJoinStep("list");
+}
+
+function handleJoinPlayerBack() {
+  if (joinFlowHasList) {
+    showJoinStep("list");
+  } else {
+    showJoinStep("name");
+  }
 }
 
 
@@ -2704,6 +2849,68 @@ if (elements.openGuide) {
   });
 }
 
+if (elements.joinPlayer) {
+  elements.joinPlayer.addEventListener("click", () => {
+    if (configMissing) return;
+    openJoinPlayerModal();
+  });
+}
+
+if (elements.joinPlayerClose) {
+  elements.joinPlayerClose.addEventListener("click", closeJoinPlayerModal);
+}
+
+if (elements.joinPlayerModal) {
+  elements.joinPlayerModal.addEventListener("click", (event) => {
+    if (event.target.dataset.action === "close") {
+      closeJoinPlayerModal();
+    }
+  });
+}
+
+if (elements.joinPlayerContinue) {
+  elements.joinPlayerContinue.addEventListener("click", handleJoinPlayerContinue);
+}
+
+if (elements.joinPlayerName) {
+  elements.joinPlayerName.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      handleJoinPlayerContinue();
+    }
+  });
+}
+
+if (elements.joinPlayerUseCode) {
+  elements.joinPlayerUseCode.addEventListener("click", () => {
+    elements.joinPlayerCodeHint.textContent = "Enter a game code.";
+    showJoinStep("code");
+  });
+}
+
+if (elements.joinPlayerSubmit) {
+  elements.joinPlayerSubmit.addEventListener("click", () => {
+    const code = safeTrim(elements.joinPlayerCode.value);
+    if (!code) {
+      setStatus("Enter a game code.", "error");
+      return;
+    }
+    joinGameByCodeWithName(code, joinFlowName);
+  });
+}
+
+if (elements.joinPlayerBack) {
+  elements.joinPlayerBack.addEventListener("click", handleJoinPlayerBack);
+}
+
+if (elements.joinPlayerCode) {
+  elements.joinPlayerCode.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      elements.joinPlayerSubmit?.click();
+    }
+  });
+}
+
 if (elements.guideClose) {
   elements.guideClose.addEventListener("click", () => {
     if (elements.guideModal) elements.guideModal.classList.add("hidden");
@@ -2877,6 +3084,9 @@ window.addEventListener("keydown", (event) => {
   }
   if (elements.rosterModal && !elements.rosterModal.classList.contains("hidden")) {
     closeRosterModal();
+  }
+  if (elements.joinPlayerModal && !elements.joinPlayerModal.classList.contains("hidden")) {
+    closeJoinPlayerModal();
   }
 });
 

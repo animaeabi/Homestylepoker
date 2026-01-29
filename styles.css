@@ -749,6 +749,24 @@ button:disabled {
   box-shadow: 0 14px 28px rgba(0, 0, 0, 0.35);
 }
 
+.secondary {
+  background: rgba(61, 140, 125, 0.2);
+  color: #e7fff6;
+  border: 1px solid rgba(61, 140, 125, 0.45);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.3);
+}
+
+.secondary:hover {
+  box-shadow: 0 16px 30px rgba(0, 0, 0, 0.35);
+}
+
+.theme-light .secondary {
+  background: rgba(31, 111, 92, 0.14);
+  color: #1a2a25;
+  border-color: rgba(31, 111, 92, 0.3);
+  box-shadow: 0 12px 24px rgba(27, 26, 23, 0.12);
+}
+
 .ghost {
   background: rgba(255, 255, 255, 0.05);
   color: var(--ink);
@@ -1031,6 +1049,42 @@ button:disabled {
   width: min(92vw, 720px);
   max-height: 85vh;
   overflow: auto;
+}
+
+.join-player-panel {
+  position: relative;
+  z-index: 1;
+  width: min(92vw, 480px);
+  max-height: 85vh;
+  overflow: auto;
+}
+
+.join-player-step {
+  display: grid;
+  gap: 12px;
+}
+
+.join-player-list {
+  display: grid;
+  gap: 10px;
+}
+
+.join-player-item {
+  display: grid;
+  gap: 4px;
+  text-align: left;
+  background: var(--row-bg);
+  border: 1px solid var(--row-border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.join-player-item span {
+  font-size: 0.75rem;
+  color: var(--muted);
+  font-weight: 500;
 }
 
 .guide-content {

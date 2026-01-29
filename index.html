@@ -48,6 +48,7 @@
             </select>
           </label>
           <button id="createGame" class="primary">Host a game</button>
+          <button id="joinPlayer" class="secondary" type="button">Join as player</button>
           <p class="hint">You’ll be the host for this game (can’t be changed).</p>
         </div>
 
@@ -361,6 +362,46 @@
               <li>Per‑player notes and settlements history.</li>
               <li>Private accounts with Supabase Auth (if you want).</li>
             </ul>
+          </div>
+        </section>
+      </div>
+
+      <div id="joinPlayerModal" class="modal hidden" role="dialog" aria-modal="true">
+        <div class="modal-backdrop" data-action="close"></div>
+        <section class="panel join-player-panel">
+          <div class="panel-title summary-header">
+            <div>
+              <h2>Join as player</h2>
+              <p class="muted">Find the active table or enter a code.</p>
+            </div>
+            <button id="joinPlayerClose" class="ghost" type="button">Close</button>
+          </div>
+          <div id="joinPlayerStepName" class="join-player-step">
+            <label class="field">
+              <span>Your name</span>
+              <input id="joinPlayerName" type="text" placeholder="Name" />
+            </label>
+            <div class="roster-actions">
+              <button id="joinPlayerContinue" class="primary" type="button">Continue</button>
+            </div>
+          </div>
+          <div id="joinPlayerStepList" class="join-player-step hidden">
+            <p id="joinPlayerListHint" class="muted"></p>
+            <div id="joinPlayerGameList" class="join-player-list"></div>
+            <div class="roster-actions">
+              <button id="joinPlayerUseCode" class="ghost" type="button">Join by code</button>
+            </div>
+          </div>
+          <div id="joinPlayerStepCode" class="join-player-step hidden">
+            <p id="joinPlayerCodeHint" class="muted"></p>
+            <label class="field">
+              <span>Game code</span>
+              <input id="joinPlayerCode" type="text" placeholder="ABCD" />
+            </label>
+            <div class="roster-actions">
+              <button id="joinPlayerBack" class="ghost" type="button">Back</button>
+              <button id="joinPlayerSubmit" class="primary" type="button">Join game</button>
+            </div>
           </div>
         </section>
       </div>
