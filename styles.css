@@ -93,6 +93,14 @@ body {
   overflow-x: hidden;
 }
 
+body.theme-light {
+  background: radial-gradient(circle at 15% 10%, rgba(212, 164, 68, 0.2), transparent 50%),
+    radial-gradient(circle at 85% 15%, rgba(31, 111, 92, 0.18), transparent 55%),
+    radial-gradient(circle at 50% 90%, rgba(15, 20, 16, 0.08), transparent 50%),
+    linear-gradient(135deg, rgba(244, 239, 230, 0.95) 0%, rgba(235, 225, 212, 0.92) 45%, rgba(244, 239, 230, 0.98) 100%),
+    var(--bg);
+}
+
 body::before {
   content: "";
   position: fixed;
@@ -106,6 +114,19 @@ body::before {
       transparent 5px
     );
   pointer-events: none;
+}
+
+body.theme-light::before {
+  background-image: radial-gradient(circle at 20% 20%, rgba(212, 164, 68, 0.08), transparent 45%),
+    radial-gradient(circle at 80% 30%, rgba(31, 111, 92, 0.08), transparent 50%),
+    repeating-linear-gradient(
+      120deg,
+      rgba(210, 166, 78, 0.05) 0,
+      rgba(210, 166, 78, 0.05) 1px,
+      transparent 1px,
+      transparent 7px
+    );
+  opacity: 0.8;
 }
 
 .app {
