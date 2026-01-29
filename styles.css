@@ -220,6 +220,20 @@ body.theme-light::after {
   pointer-events: none;
 }
 
+body.theme-light .topbar {
+  background: radial-gradient(circle at 12% 18%, rgba(210, 166, 78, 0.18), transparent 55%),
+    radial-gradient(circle at 88% 22%, rgba(31, 111, 92, 0.18), transparent 60%),
+    #fbf6ee;
+  border: 1px solid rgba(31, 111, 92, 0.18);
+  box-shadow: 0 14px 30px rgba(27, 26, 23, 0.12);
+}
+
+body.theme-light .topbar::after {
+  background: radial-gradient(circle at 18% 10%, rgba(210, 166, 78, 0.2), transparent 60%),
+    radial-gradient(circle at 85% 0%, rgba(31, 111, 92, 0.18), transparent 65%);
+  opacity: 0.28;
+}
+
 .top-actions {
   display: flex;
   flex-wrap: wrap;
@@ -261,6 +275,13 @@ body.theme-light::after {
   border: 1px solid rgba(255, 255, 255, 0.2);
   position: relative;
   z-index: 1;
+}
+
+body.theme-light .brand-icon {
+  background: linear-gradient(135deg, rgba(31, 111, 92, 0.22), rgba(210, 166, 78, 0.25));
+  color: #1a2a25;
+  border-color: rgba(31, 111, 92, 0.25);
+  box-shadow: 0 8px 18px rgba(27, 26, 23, 0.12);
 }
 
 .brand-chip {
