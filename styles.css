@@ -471,6 +471,11 @@ body.theme-light .brand-icon {
 
 .lets-play .card-header h2 {
   margin: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .card-header .muted {
@@ -1750,6 +1755,12 @@ body:not(.theme-light) .footer-toggle input {
   .lets-play .history-btn {
     padding: 6px 10px;
     font-size: 0.72rem;
+    flex-shrink: 0;
+  }
+
+  .lets-play .card-header h2 {
+    font-size: 1rem;
+    letter-spacing: 0.08em;
   }
 
   .topbar {
