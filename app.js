@@ -122,7 +122,7 @@ const configMissing =
 if (configMissing) {
   elements.configNotice.classList.remove("hidden");
   elements.createGame.disabled = true;
-  elements.joinGame.disabled = true;
+  if (elements.joinGame) elements.joinGame.disabled = true;
   elements.joinAsPlayer.disabled = true;
   elements.hostAddPlayer.disabled = true;
   if (elements.openSettle) elements.openSettle.disabled = true;
@@ -2253,10 +2253,12 @@ if (elements.newHostName) {
   });
 }
 
-elements.joinGame.addEventListener("click", () => {
-  if (configMissing) return;
-  loadGameByCode(elements.joinCode.value);
-});
+if (elements.joinGame) {
+  elements.joinGame.addEventListener("click", () => {
+    if (configMissing) return;
+    loadGameByCode(elements.joinCode.value);
+  });
+}
 
 if (elements.openSessions) {
   elements.openSessions.addEventListener("click", () => {
