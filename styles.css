@@ -237,15 +237,13 @@ body::before {
   padding: 10px 12px;
   border-radius: 12px;
   gap: 6px;
+  width: fit-content;
+  max-width: 100%;
+  justify-self: start;
 }
 
 .landing-card.compact h2 {
   font-size: 1.02rem;
-}
-
-.group-card .group-header,
-.group-card .group-list {
-  max-width: 360px;
 }
 
 .group-card .group-header {
@@ -292,10 +290,12 @@ body::before {
   max-height: 240px;
   overflow-y: auto;
   padding-right: 4px;
+  width: fit-content;
+  justify-items: start;
 }
 
 .group-item {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
@@ -306,6 +306,8 @@ body::before {
   min-height: 56px;
   font-size: 0.84rem;
   cursor: pointer;
+  width: fit-content;
+  max-width: 100%;
 }
 
 .group-item:hover {
@@ -1351,6 +1353,14 @@ button:disabled {
   .group-card .group-header,
   .group-card .group-list {
     max-width: 100%;
+  }
+
+  .group-card {
+    width: 100%;
+  }
+
+  .group-list {
+    width: 100%;
   }
 
   .recent-item {
