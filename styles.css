@@ -232,6 +232,12 @@ body::before {
   gap: 8px;
 }
 
+.group-card {
+  box-shadow: none;
+  padding: 12px 12px 10px;
+  border-radius: 14px;
+}
+
 .landing-card.compact h2 {
   font-size: 1.05rem;
 }
@@ -242,9 +248,18 @@ body::before {
   max-width: 360px;
 }
 
+.group-card .group-header {
+  display: grid;
+  gap: 4px;
+}
+
+.group-card .group-header h2 {
+  margin: 0;
+}
+
 .micro {
-  font-size: 0.75rem;
-  margin-top: 4px;
+  font-size: 0.72rem;
+  margin: 0;
 }
 
 .landing-card h2 {
@@ -277,7 +292,7 @@ body::before {
 .group-list {
   display: grid;
   gap: 6px;
-  max-height: 280px;
+  max-height: 240px;
   overflow-y: auto;
   padding-right: 4px;
 }
@@ -287,9 +302,11 @@ body::before {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  background: rgba(255, 255, 255, 0.06);
-  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border);
+  border-radius: 8px;
   padding: 8px 10px;
+  min-height: 56px;
   font-size: 0.85rem;
 }
 
@@ -304,6 +321,7 @@ body::before {
   display: flex;
   align-items: center;
   gap: 8px;
+  margin-top: 2px;
 }
 
 .group-create .field {
@@ -312,9 +330,9 @@ body::before {
 }
 
 .compact-btn {
-  border-radius: 12px;
-  padding: 8px 12px;
-  font-size: 0.82rem;
+  border-radius: 10px;
+  padding: 6px 10px;
+  font-size: 0.78rem;
 }
 
 .recent-group {
@@ -1346,6 +1364,7 @@ button:disabled {
   .group-create {
     flex-direction: column;
     align-items: stretch;
+    margin-top: 4px;
   }
 
   .recent-item {
