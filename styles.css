@@ -1289,8 +1289,23 @@ button:disabled {
   gap: 12px;
 }
 
+.summary-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .summary-header button {
   white-space: nowrap;
+}
+
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 12px;
+  font-size: 0.95rem;
 }
 
 .summary {

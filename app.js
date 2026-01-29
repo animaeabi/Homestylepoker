@@ -1937,7 +1937,15 @@ function renderSettlementSummary() {
           <div>
             <h2>${title}</h2>
           </div>
-          <button class="ghost" type="button" data-action="home">Home</button>
+          <div class="summary-actions">
+            <button class="ghost icon-button" type="button" data-action="home" aria-label="Home">
+              <span aria-hidden="true">⌂</span>
+            </button>
+            <button class="ghost icon-button" type="button" data-action="history" aria-label="Back to history">
+              <span aria-hidden="true">←</span>
+              <span>History</span>
+            </button>
+          </div>
         </div>
       `;
     } else {
@@ -3533,18 +3541,30 @@ if (elements.playerMatchList) {
 if (elements.playerSettledSummary) {
   elements.playerSettledSummary.addEventListener("click", (event) => {
     const button = event.target.closest("button[data-action='home']");
-    if (!button) return;
+    if (button) {
+      clearCurrentGame();
+      setStatus("Ready");
+      return;
+    }
+    const historyButton = event.target.closest("button[data-action='history']");
+    if (!historyButton) return;
     clearCurrentGame();
-    setStatus("Ready");
+    openSessionsPage();
   });
 }
 
 if (elements.settlementSummary) {
   elements.settlementSummary.addEventListener("click", (event) => {
     const button = event.target.closest("button[data-action='home']");
-    if (!button) return;
+    if (button) {
+      clearCurrentGame();
+      setStatus("Ready");
+      return;
+    }
+    const historyButton = event.target.closest("button[data-action='history']");
+    if (!historyButton) return;
     clearCurrentGame();
-    setStatus("Ready");
+    openSessionsPage();
   });
 }
 
