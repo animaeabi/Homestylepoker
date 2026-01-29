@@ -84,11 +84,6 @@
               Status
               <strong id="gameStatusChip">Live</strong>
             </div>
-          </div>
-          <div class="game-actions">
-            <button id="leaveGame" class="ghost">New game</button>
-            <button id="copyLink" class="ghost">Copy join link</button>
-            <button id="openLink" class="ghost">Open join link</button>
             <label class="toggle">
               <input type="checkbox" id="hostModeToggle" />
               <span>Host mode</span>
@@ -108,14 +103,12 @@
             <div class="host-left">
               <div id="joinPanel" class="join-panel">
                 <div class="join-card">
-                  <h3>Share this game</h3>
                   <p>Players join with the link or QR.</p>
                   <div class="link-row">
                     <input id="joinLink" type="text" readonly />
-                    <button id="copyLinkInline" class="ghost">Copy</button>
+                    <button id="copyLinkInline" class="ghost">Share</button>
                   </div>
-                  <canvas id="qrCanvas" width="180" height="180"></canvas>
-                  <p class="muted">Anyone with the link can add buy-ins.</p>
+                  <canvas id="qrCanvas" width="140" height="140"></canvas>
                 </div>
                 <div class="join-card hidden">
                   <h3>Game settings</h3>

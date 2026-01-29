@@ -466,7 +466,7 @@ function hydrateInputs() {
   QRCode.toCanvas(
     elements.qrCanvas,
     joinLink,
-    { width: 180, margin: 1, color: { dark: "#1b140c", light: "#ffffff" } },
+    { width: 140, margin: 1, color: { dark: "#1b140c", light: "#ffffff" } },
     () => {}
   );
 }
@@ -1456,20 +1456,26 @@ if (elements.deleteAllGames) {
   });
 }
 
-elements.copyLink.addEventListener("click", () => {
-  if (!state.game) return;
-  copyText(getJoinLink());
-});
+if (elements.copyLink) {
+  elements.copyLink.addEventListener("click", () => {
+    if (!state.game) return;
+    copyText(getJoinLink());
+  });
+}
 
-elements.copyLinkInline.addEventListener("click", () => {
-  if (!state.game) return;
-  copyText(getJoinLink());
-});
+if (elements.copyLinkInline) {
+  elements.copyLinkInline.addEventListener("click", () => {
+    if (!state.game) return;
+    copyText(getJoinLink());
+  });
+}
 
-elements.openLink.addEventListener("click", () => {
-  if (!state.game) return;
-  window.open(getJoinLink(), "_blank");
-});
+if (elements.openLink) {
+  elements.openLink.addEventListener("click", () => {
+    if (!state.game) return;
+    window.open(getJoinLink(), "_blank");
+  });
+}
 
 if (elements.leaveGame) {
   elements.leaveGame.addEventListener("click", () => {
