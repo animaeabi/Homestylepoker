@@ -732,16 +732,34 @@ function renderRosterList() {
 
 async function openRosterModal(groupId) {
   if (!elements.rosterModal) return;
-  const unlocked = await ensureGroupUnlocked(groupId);
-  if (!unlocked) return;
   const hostName = requireHostName();
   if (!hostName) return;
 
+  const group = state.groups.find((item) => item.id === groupId);
+  const hostNormalized = normalizeName(hostName);
+  let hostExists = false;
+
+  if (supabase && groupId) {
+    const { data, error } = await supabase
+      .from("group_players")
+      .select("id")
+      .eq("group_id", groupId)
+      .eq("normalized_name", hostNormalized)
+      .maybeSingle();
+    if (error) {
+      setStatus("Could not check group membership", "error");
+      return;
+    }
+    hostExists = Boolean(data);
+  }
+
+  if (!hostExists && group?.lock_phrase_hash) {
+    const unlocked = await ensureGroupUnlocked(groupId);
+    if (!unlocked) return;
+  }
+
   await getOrCreateGroupPlayer(groupId, hostName);
   const groupPlayers = await fetchGroupPlayers(groupId);
-  const hostNormalized = normalizeName(hostName);
-
-  const group = state.groups.find((item) => item.id === groupId);
   if (elements.rosterTitle) {
     elements.rosterTitle.textContent = group ? `${group.name} roster` : "Who's playing?";
   }
