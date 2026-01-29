@@ -333,6 +333,17 @@ body::before {
   font-size: 0.78rem;
 }
 
+.add-group-btn {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  font-size: 1rem;
+}
+
 .recent-group {
   border: 1px solid var(--border);
   border-radius: 14px;
