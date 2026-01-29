@@ -318,11 +318,28 @@ function generateGameName() {
   return `${adjective} ${noun}`;
 }
 
-function initGameName() {
-  if (!elements.newGameName) return;
-  if (!safeTrim(elements.newGameName.value)) {
-    elements.newGameName.value = generateGameName();
+async function isGameNameTaken(name) {
+  if (!supabase) return false;
+  const { data, error } = await supabase.from("games").select("id").eq("name", name).limit(1);
+  if (error) return false;
+  return Array.isArray(data) && data.length > 0;
+}
+
+async function ensureUniqueGameName(seed) {
+  let candidate = safeTrim(seed) || generateGameName();
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    if (!(await isGameNameTaken(candidate))) return candidate;
+    candidate = generateGameName();
   }
+  return `${generateGameName()} ${Math.floor(Math.random() * 90 + 10)}`;
+}
+
+async function initGameName() {
+  if (!elements.newGameName) return;
+  if (safeTrim(elements.newGameName.value)) return;
+  const suggestion = await ensureUniqueGameName(elements.newGameName.placeholder);
+  elements.newGameName.placeholder = suggestion;
+  elements.newGameName.dataset.suggested = suggestion;
 }
 
 function isDeletePinAuthorized() {
@@ -1930,7 +1947,8 @@ async function createGame(options = {}) {
   const hostName = requireHostName();
   if (!hostName) return;
 
-  const name = safeTrim(elements.newGameName.value) || generateGameName();
+  const typedName = safeTrim(elements.newGameName.value);
+  const name = typedName || (await ensureUniqueGameName(elements.newGameName.placeholder));
   const currency = "$";
   const defaultBuyIn = Number(elements.newBuyIn.value) || 10;
   const groupId = safeTrim(elements.gameGroup?.value) || null;
@@ -2030,7 +2048,11 @@ async function createGame(options = {}) {
   await refreshData();
   await startRealtime();
   setStatus("Game created");
-  initGameName();
+  if (elements.newGameName) {
+    elements.newGameName.value = "";
+    elements.newGameName.dataset.suggested = "";
+  }
+  await initGameName();
 }
 
 async function joinAsPlayer() {
@@ -2441,7 +2463,7 @@ async function submitSettlement(event) {
 
 buildQuarterOptions();
 initTheme();
-initGameName();
+void initGameName();
 
 // Event listeners
 if (elements.themeToggle) {

@@ -683,6 +683,12 @@ h1 {
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
+.field input::placeholder,
+.link-row input::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+
 .field select {
   appearance: none;
   background-image:
