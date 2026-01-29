@@ -1148,6 +1148,12 @@ function formatCurrency(amount) {
   return `${currency}${numeric.toFixed(2)}`;
 }
 
+function formatSkillScore(score) {
+  const numeric = Number(score) || 0;
+  const sign = numeric > 0 ? "+" : "";
+  return `${sign}${(numeric * 100).toFixed(1)}%`;
+}
+
 function formatTime(iso) {
   return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
@@ -1324,14 +1330,12 @@ async function loadGroupStats() {
   const totalBuyins = rows.reduce((sum, row) => sum + row.buyinTotal, 0);
   const totalCashout = rows.reduce((sum, row) => sum + row.cashout, 0);
   const totalNet = totalCashout - totalBuyins;
-  const totalBuyinCount = rows.reduce((sum, row) => sum + row.buyinCount, 0);
-  const avgBuyinAmount = totalBuyinCount ? totalBuyins / totalBuyinCount : 0;
 
   rows.forEach((row) => {
-    row.score = row.net + row.buyinCount * avgBuyinAmount * 0.1;
+    row.skillScore = row.buyinTotal ? row.net / row.buyinTotal : 0;
   });
 
-  rows.sort((a, b) => b.score - a.score);
+  rows.sort((a, b) => b.net - a.net || b.skillScore - a.skillScore);
 
   elements.statsSubtitle.textContent = `${rows.length} players · ${gamesSet.size} games`;
 
@@ -1351,7 +1355,7 @@ async function loadGroupStats() {
   elements.statsLeaderboard.innerHTML = "";
   const header = document.createElement("div");
   header.className = "stats-row header";
-  header.innerHTML = `<span>Player</span><span>Net</span><span>Buy-ins</span><span>Score</span>`;
+  header.innerHTML = `<span>Player</span><span>Net</span><span>Buy-ins</span><span>Skill</span>`;
   elements.statsLeaderboard.appendChild(header);
 
   rows.forEach((row) => {
@@ -1362,7 +1366,7 @@ async function loadGroupStats() {
       <span>${row.name}</span>
       <strong class="${netClass}">${formatCurrency(row.net)}</strong>
       <span>${row.buyinCount}</span>
-      <strong>${formatCurrency(row.score)}</strong>
+      <strong>${formatSkillScore(row.skillScore)}</strong>
     `;
     elements.statsLeaderboard.appendChild(rowEl);
   });
