@@ -105,6 +105,7 @@ body::before {
   content: "";
   position: fixed;
   inset: 0;
+  z-index: 0;
   background-image: radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.04), transparent 45%),
     repeating-linear-gradient(
       135deg,
@@ -120,8 +121,9 @@ body::after {
   content: "";
   position: fixed;
   inset: 0;
+  z-index: 0;
   pointer-events: none;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220' viewBox='0 0 220 220' fill='none' stroke='%23d2a64e' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M60 40c-8 0-14 6-14 14 0 6 3 10 8 14l14 12 14-12c5-4 8-8 8-14 0-8-6-14-14-14-5 0-9 3-12 7-3-4-7-7-12-7z'/><path d='M160 46c-8 0-14 6-14 14 0 6 3 10 8 14l14 12 14-12c5-4 8-8 8-14 0-8-6-14-14-14-5 0-9 3-12 7-3-4-7-7-12-7z' transform='rotate(180 174 72)'/><path d='M48 160c0-10 8-18 18-18 8 0 14 4 18 10 4-6 10-10 18-10 10 0 18 8 18 18 0 8-4 14-10 18l-8 6H76l-8-6c-6-4-10-10-10-18z'/><path d='M74 182h24l-6 18h-12z'/><path d='M150 160c0-10 8-18 18-18 8 0 14 4 18 10 4-6 10-10 18-10 10 0 18 8 18 18 0 8-4 14-10 18l-8 6h-28l-8-6c-6-4-10-10-10-18z' transform='rotate(180 174 174)'/><path d='M160 38l18 18-18 18-18-18z'/><path d='M40 120l18 18-18 18-18-18z'/></svg>");
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240' viewBox='0 0 240 240' fill='none' stroke='%23d2a64e' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'><path d='M36 32c-6 0-10 4-10 10 0 4 2 7 6 10l10 8 10-8c4-3 6-6 6-10 0-6-4-10-10-10-4 0-6 2-8 5-2-3-4-5-8-5z'/><path d='M120 26l12 14-12 14-12-14z'/><path d='M188 44c-6 0-10 4-10 10 0 4 2 7 6 10l10 8 10-8c4-3 6-6 6-10 0-6-4-10-10-10-4 0-6 2-8 5-2-3-4-5-8-5z' transform='rotate(180 198 60)'/><path d='M60 132c0-8 6-14 14-14 6 0 10 3 14 8 4-5 8-8 14-8 8 0 14 6 14 14 0 6-3 10-8 13l-6 5H78l-6-5c-5-3-8-7-8-13z'/><path d='M82 150h20l-5 14h-10z'/><path d='M150 116c-8 10-16 16-16 22a8 8 0 0 0 16 0 8 8 0 0 0 16 0c0-6-8-12-16-22z'/><path d='M146 144h8l-3 10h-2z'/><circle cx='176' cy='78' r='6'/><circle cx='166' cy='88' r='6'/><circle cx='186' cy='88' r='6'/><path d='M172 94h12l-4 10h-4z'/><path d='M206 120l10 12-10 12-10-12z'/><path d='M26 118l10 12-10 12-10-12z'/><path d='M96 200l10 12-10 12-10-12z'/><path d='M174 180c-6 0-10 4-10 10 0 4 2 7 6 10l10 8 10-8c4-3 6-6 6-10 0-6-4-10-10-10-4 0-6 2-8 5-2-3-4-5-8-5z'/></svg>");
   background-repeat: repeat;
   background-size: 220px 220px;
   opacity: 0.06;
@@ -141,7 +143,7 @@ body.theme-light::before {
 }
 
 body.theme-light::after {
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220' viewBox='0 0 220 220' fill='none' stroke='%231f6f5c' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'><path d='M60 40c-8 0-14 6-14 14 0 6 3 10 8 14l14 12 14-12c5-4 8-8 8-14 0-8-6-14-14-14-5 0-9 3-12 7-3-4-7-7-12-7z'/><path d='M160 46c-8 0-14 6-14 14 0 6 3 10 8 14l14 12 14-12c5-4 8-8 8-14 0-8-6-14-14-14-5 0-9 3-12 7-3-4-7-7-12-7z' transform='rotate(180 174 72)'/><path d='M48 160c0-10 8-18 18-18 8 0 14 4 18 10 4-6 10-10 18-10 10 0 18 8 18 18 0 8-4 14-10 18l-8 6H76l-8-6c-6-4-10-10-10-18z'/><path d='M74 182h24l-6 18h-12z'/><path d='M150 160c0-10 8-18 18-18 8 0 14 4 18 10 4-6 10-10 18-10 10 0 18 8 18 18 0 8-4 14-10 18l-8 6h-28l-8-6c-6-4-10-10-10-18z' transform='rotate(180 174 174)'/><path d='M160 38l18 18-18 18-18-18z'/><path d='M40 120l18 18-18 18-18-18z'/></svg>");
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240' viewBox='0 0 240 240' fill='none' stroke='%231f6f5c' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'><path d='M36 32c-6 0-10 4-10 10 0 4 2 7 6 10l10 8 10-8c4-3 6-6 6-10 0-6-4-10-10-10-4 0-6 2-8 5-2-3-4-5-8-5z'/><path d='M120 26l12 14-12 14-12-14z'/><path d='M188 44c-6 0-10 4-10 10 0 4 2 7 6 10l10 8 10-8c4-3 6-6 6-10 0-6-4-10-10-10-4 0-6 2-8 5-2-3-4-5-8-5z' transform='rotate(180 198 60)'/><path d='M60 132c0-8 6-14 14-14 6 0 10 3 14 8 4-5 8-8 14-8 8 0 14 6 14 14 0 6-3 10-8 13l-6 5H78l-6-5c-5-3-8-7-8-13z'/><path d='M82 150h20l-5 14h-10z'/><path d='M150 116c-8 10-16 16-16 22a8 8 0 0 0 16 0 8 8 0 0 0 16 0c0-6-8-12-16-22z'/><path d='M146 144h8l-3 10h-2z'/><circle cx='176' cy='78' r='6'/><circle cx='166' cy='88' r='6'/><circle cx='186' cy='88' r='6'/><path d='M172 94h12l-4 10h-4z'/><path d='M206 120l10 12-10 12-10-12z'/><path d='M26 118l10 12-10 12-10-12z'/><path d='M96 200l10 12-10 12-10-12z'/><path d='M174 180c-6 0-10 4-10 10 0 4 2 7 6 10l10 8 10-8c4-3 6-6 6-10 0-6-4-10-10-10-4 0-6 2-8 5-2-3-4-5-8-5z'/></svg>");
   opacity: 0.08;
 }
 
@@ -152,6 +154,8 @@ body.theme-light::after {
   display: flex;
   flex-direction: column;
   gap: 20px;
+  position: relative;
+  z-index: 1;
 }
 
 .hidden {
