@@ -1361,6 +1361,63 @@ button:disabled {
   font-variant-numeric: tabular-nums;
 }
 
+.stats-panel {
+  position: relative;
+  z-index: 1;
+  width: min(92vw, 720px);
+  max-height: 85vh;
+  overflow: auto;
+}
+
+.stats-controls {
+  display: grid;
+  gap: 12px;
+}
+
+.stats-section {
+  display: grid;
+  gap: 10px;
+}
+
+.stats-section h3 {
+  font-family: "Cinzel", "Fraunces", serif;
+  font-size: 1rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.stats-table {
+  display: grid;
+  gap: 8px;
+}
+
+.stats-row {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr 1fr 1fr;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--row-bg);
+  border: 1px solid var(--row-border);
+  font-size: 0.9rem;
+}
+
+.stats-row.header {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--muted);
+  background: rgba(210, 166, 78, 0.18);
+}
+
+.recent-summary-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .host-actions {
   display: grid;
   gap: 10px;

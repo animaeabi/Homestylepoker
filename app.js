@@ -101,6 +101,13 @@ const elements = {
   summarySubtitle: $("#summarySubtitle"),
   summaryBreakdown: $("#summaryBreakdown"),
   summaryTransfers: $("#summaryTransfers"),
+  statsModal: $("#statsModal"),
+  statsClose: $("#statsClose"),
+  statsTitle: $("#statsTitle"),
+  statsSubtitle: $("#statsSubtitle"),
+  statsRange: $("#statsRange"),
+  statsSummary: $("#statsSummary"),
+  statsLeaderboard: $("#statsLeaderboard"),
   hostModeToggle: $("#hostModeToggle"),
   openGuide: $("#openGuide"),
   guideModal: $("#guideModal"),
@@ -146,7 +153,8 @@ const state = {
   isHost: false,
   canHost: false,
   playerId: null,
-  channel: null
+  channel: null,
+  statsGroupId: null
 };
 
 const configMissing =
@@ -1082,7 +1090,10 @@ function renderRecentGames(list = loadRecentGames()) {
     summary.className = "recent-summary";
     summary.innerHTML = `
       <span>${group.label}</span>
-      <strong>${group.games.length}</strong>
+      <span class="recent-summary-actions">
+        ${key !== "ungrouped" ? `<button class="ghost small" data-action="stats" data-group-id="${key}">Stats</button>` : ""}
+        <strong>${group.games.length}</strong>
+      </span>
     `;
     details.appendChild(summary);
 
@@ -1151,6 +1162,209 @@ function formatShortDate(iso) {
     month: "short",
     day: "numeric",
     year: "numeric"
+  });
+}
+
+function buildStatsRanges() {
+  if (!elements.statsRange) return;
+  elements.statsRange.innerHTML = "";
+  const options = [
+    { value: "all", label: "All time" },
+    { value: "30d", label: "Last 30 days" },
+    { value: "90d", label: "Last 90 days" },
+    { value: "ytd", label: "Year to date" },
+    { value: "this-quarter", label: "This quarter" },
+    { value: "last-quarter", label: "Last quarter" },
+    { value: "12m", label: "Last 12 months" }
+  ];
+  options.forEach((opt) => {
+    const node = document.createElement("option");
+    node.value = opt.value;
+    node.textContent = opt.label;
+    elements.statsRange.appendChild(node);
+  });
+  elements.statsRange.value = "all";
+}
+
+function getRangeBounds(range) {
+  if (range === "all") return null;
+  const now = new Date();
+  if (range === "30d") {
+    const start = new Date(now);
+    start.setDate(now.getDate() - 30);
+    return { start, end: now };
+  }
+  if (range === "90d") {
+    const start = new Date(now);
+    start.setDate(now.getDate() - 90);
+    return { start, end: now };
+  }
+  if (range === "12m") {
+    const start = new Date(now);
+    start.setFullYear(now.getFullYear() - 1);
+    return { start, end: now };
+  }
+  if (range === "ytd") {
+    const start = new Date(Date.UTC(now.getUTCFullYear(), 0, 1));
+    return { start, end: now };
+  }
+  const quarterStartMonth = Math.floor(now.getUTCMonth() / 3) * 3;
+  if (range === "this-quarter") {
+    const start = new Date(Date.UTC(now.getUTCFullYear(), quarterStartMonth, 1));
+    return { start, end: now };
+  }
+  if (range === "last-quarter") {
+    const start = new Date(Date.UTC(now.getUTCFullYear(), quarterStartMonth - 3, 1));
+    const end = new Date(Date.UTC(now.getUTCFullYear(), quarterStartMonth, 1));
+    return { start, end };
+  }
+  return null;
+}
+
+async function openStatsModal(groupId) {
+  if (!elements.statsModal) return;
+  state.statsGroupId = groupId;
+  const group = state.groups.find((item) => item.id === groupId);
+  elements.statsTitle.textContent = group ? `${group.name} stats` : "Group stats";
+  elements.statsSubtitle.textContent = "";
+  elements.statsSummary.innerHTML = "";
+  elements.statsLeaderboard.innerHTML = "";
+  elements.statsModal.classList.remove("hidden");
+  await loadGroupStats();
+}
+
+function closeStatsModal() {
+  if (!elements.statsModal) return;
+  elements.statsModal.classList.add("hidden");
+  state.statsGroupId = null;
+}
+
+async function loadGroupStats() {
+  if (!supabase || !state.statsGroupId) return;
+  const range = safeTrim(elements.statsRange?.value) || "all";
+  const bounds = getRangeBounds(range);
+  const { data: games, error: gamesError } = await supabase
+    .from("games")
+    .select("id,ended_at,created_at,default_buyin")
+    .eq("group_id", state.statsGroupId)
+    .not("ended_at", "is", null);
+  if (gamesError) {
+    setStatus("Could not load stats", "error");
+    return;
+  }
+
+  const filteredGames = (games || []).filter((game) => {
+    if (!bounds) return true;
+    const stamp = game.ended_at || game.created_at;
+    const date = stamp ? new Date(stamp) : null;
+    if (!date) return false;
+    if (bounds.start && date < bounds.start) return false;
+    if (bounds.end && date > bounds.end) return false;
+    return true;
+  });
+
+  if (!filteredGames.length) {
+    elements.statsSubtitle.textContent = "No settled games in this range.";
+    return;
+  }
+
+  const gameIds = filteredGames.map((game) => game.id);
+  const [playersRes, buyinsRes, settlementsRes, groupPlayersRes] = await Promise.all([
+    supabase.from("players").select("id,game_id,name,group_player_id").in("game_id", gameIds),
+    supabase.from("buyins").select("player_id,amount,game_id").in("game_id", gameIds),
+    supabase.from("settlements").select("player_id,amount,game_id").in("game_id", gameIds),
+    supabase.from("group_players").select("id,name,normalized_name").eq("group_id", state.statsGroupId)
+  ]);
+
+  if (playersRes.error || buyinsRes.error || settlementsRes.error || groupPlayersRes.error) {
+    setStatus("Could not load stats", "error");
+    return;
+  }
+
+  const groupNameById = new Map((groupPlayersRes.data || []).map((row) => [row.id, row.name]));
+  const ledger = new Map();
+  const gamesSet = new Set();
+
+  (playersRes.data || []).forEach((player) => {
+    gamesSet.add(player.game_id);
+    const normalized = normalizeName(player.name.replace(/\s*\(Host\)$/i, ""));
+    const key = player.group_player_id || normalized;
+    if (!ledger.has(key)) {
+      ledger.set(key, {
+        name: groupNameById.get(player.group_player_id) || player.name.replace(/\s*\(Host\)$/i, ""),
+        buyinCount: 0,
+        buyinTotal: 0,
+        cashout: 0
+      });
+    }
+  });
+
+  (buyinsRes.data || []).forEach((buyin) => {
+    const key = (playersRes.data || []).find((p) => p.id === buyin.player_id)?.group_player_id ||
+      normalizeName((playersRes.data || []).find((p) => p.id === buyin.player_id)?.name || "");
+    if (!key || !ledger.has(key)) return;
+    const entry = ledger.get(key);
+    entry.buyinCount += 1;
+    entry.buyinTotal += Number(buyin.amount || 0);
+  });
+
+  (settlementsRes.data || []).forEach((settlement) => {
+    const key = (playersRes.data || []).find((p) => p.id === settlement.player_id)?.group_player_id ||
+      normalizeName((playersRes.data || []).find((p) => p.id === settlement.player_id)?.name || "");
+    if (!key || !ledger.has(key)) return;
+    const entry = ledger.get(key);
+    entry.cashout += Number(settlement.amount || 0);
+  });
+
+  const rows = Array.from(ledger.values()).map((entry) => {
+    const net = entry.cashout - entry.buyinTotal;
+    return { ...entry, net };
+  });
+
+  const totalBuyins = rows.reduce((sum, row) => sum + row.buyinTotal, 0);
+  const totalCashout = rows.reduce((sum, row) => sum + row.cashout, 0);
+  const totalNet = totalCashout - totalBuyins;
+  const totalBuyinCount = rows.reduce((sum, row) => sum + row.buyinCount, 0);
+  const avgBuyinAmount = totalBuyinCount ? totalBuyins / totalBuyinCount : 0;
+
+  rows.forEach((row) => {
+    row.score = row.net + row.buyinCount * avgBuyinAmount * 0.1;
+  });
+
+  rows.sort((a, b) => b.score - a.score);
+
+  elements.statsSubtitle.textContent = `${rows.length} players · ${gamesSet.size} games`;
+
+  elements.statsSummary.innerHTML = "";
+  [
+    { label: "Games", value: gamesSet.size },
+    { label: "Total buy-ins", value: formatCurrency(totalBuyins) },
+    { label: "Total cash-out", value: formatCurrency(totalCashout) },
+    { label: "Net", value: formatCurrency(totalNet) }
+  ].forEach((card) => {
+    const node = document.createElement("div");
+    node.className = "summary-card";
+    node.innerHTML = `<span>${card.label}</span><strong>${card.value}</strong>`;
+    elements.statsSummary.appendChild(node);
+  });
+
+  elements.statsLeaderboard.innerHTML = "";
+  const header = document.createElement("div");
+  header.className = "stats-row header";
+  header.innerHTML = `<span>Player</span><span>Net</span><span>Buy-ins</span><span>Score</span>`;
+  elements.statsLeaderboard.appendChild(header);
+
+  rows.forEach((row) => {
+    const netClass = row.net >= 0 ? "money-pos" : "money-neg";
+    const rowEl = document.createElement("div");
+    rowEl.className = "stats-row";
+    rowEl.innerHTML = `
+      <span>${row.name}</span>
+      <strong class="${netClass}">${formatCurrency(row.net)}</strong>
+      <span>${row.buyinCount}</span>
+      <strong>${formatCurrency(row.score)}</strong>
+    `;
+    elements.statsLeaderboard.appendChild(rowEl);
   });
 }
 
@@ -2701,6 +2915,7 @@ async function submitSettlement(event) {
   }
 
 buildQuarterOptions();
+buildStatsRanges();
 initTheme();
 void initGameName();
 
@@ -2867,6 +3082,19 @@ if (elements.recentGames) {
       open();
       return;
     }
+    if (action === "stats") {
+      event.preventDefault();
+      event.stopPropagation();
+      const open = async () => {
+        if (groupId) {
+          const unlocked = await ensureGroupUnlocked(groupId);
+          if (!unlocked) return;
+        }
+        await openStatsModal(groupId);
+      };
+      open();
+      return;
+    }
     if (action === "delete") {
       deleteGameByCode(code);
     }
@@ -3013,6 +3241,26 @@ if (elements.summaryModal) {
   elements.summaryModal.addEventListener("click", (event) => {
     if (event.target.dataset.action === "close") {
       closeSummaryModal();
+    }
+  });
+}
+
+if (elements.statsClose) {
+  elements.statsClose.addEventListener("click", closeStatsModal);
+}
+
+if (elements.statsModal) {
+  elements.statsModal.addEventListener("click", (event) => {
+    if (event.target.dataset.action === "close") {
+      closeStatsModal();
+    }
+  });
+}
+
+if (elements.statsRange) {
+  elements.statsRange.addEventListener("change", () => {
+    if (elements.statsModal && !elements.statsModal.classList.contains("hidden")) {
+      loadGroupStats();
     }
   });
 }
@@ -3175,6 +3423,9 @@ window.addEventListener("keydown", (event) => {
   }
   if (elements.joinPlayerModal && !elements.joinPlayerModal.classList.contains("hidden")) {
     closeJoinPlayerModal();
+  }
+  if (elements.statsModal && !elements.statsModal.classList.contains("hidden")) {
+    closeStatsModal();
   }
   if (elements.lockPhraseModal && !elements.lockPhraseModal.classList.contains("hidden")) {
     closeLockPhraseModal();

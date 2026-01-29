@@ -253,6 +253,30 @@
         </section>
       </div>
 
+      <div id="statsModal" class="modal hidden" role="dialog" aria-modal="true">
+        <div class="modal-backdrop" data-action="close"></div>
+        <section class="panel stats-panel">
+          <div class="panel-title summary-header">
+            <div>
+              <h2 id="statsTitle">Group stats</h2>
+              <p id="statsSubtitle" class="muted"></p>
+            </div>
+            <button id="statsClose" class="ghost" type="button">Close</button>
+          </div>
+          <div class="stats-controls">
+            <label class="field">
+              <span>Range</span>
+              <select id="statsRange"></select>
+            </label>
+          </div>
+          <div id="statsSummary" class="summary"></div>
+          <div class="stats-section">
+            <h3>Leaderboard</h3>
+            <div id="statsLeaderboard" class="stats-table"></div>
+          </div>
+        </section>
+      </div>
+
       <div id="groupModal" class="modal hidden" role="dialog" aria-modal="true">
         <div class="modal-backdrop" data-action="close"></div>
         <section class="panel group-panel">
