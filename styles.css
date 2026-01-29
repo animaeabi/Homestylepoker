@@ -644,9 +644,24 @@ button:disabled {
 }
 
 .link-row {
-  display: grid;
+  display: flex;
+  align-items: center;
   gap: 8px;
-  grid-template-columns: 1fr auto;
+}
+
+.link-row input {
+  flex: 1;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
 }
 
 .join-card canvas {
@@ -1059,7 +1074,8 @@ button:disabled {
   }
 
   .link-row {
-    grid-template-columns: 1fr;
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .landing-card {
