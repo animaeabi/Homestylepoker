@@ -912,7 +912,7 @@ function setStatus(text, tone = "info") {
 }
 
 function setConnection(status) {
-  elements.connectionStatus.textContent = status;
+  elements.connectionStatus.textContent = status === "Live" ? "Live" : "";
 }
 
 function formatCurrency(amount) {
@@ -2363,7 +2363,7 @@ function clearCurrentGame() {
   history.replaceState({}, "", window.location.pathname);
   refreshRecentGames();
   refreshGroups();
-  setConnection("Offline");
+  setConnection("");
 }
 
 async function submitSettlement(event) {
@@ -2921,5 +2921,5 @@ elements.currency.addEventListener("change", updateGameSettings);
 
 elements.defaultBuyIn.addEventListener("change", updateGameSettings);
 
-window.addEventListener("online", () => setConnection("Online"));
-window.addEventListener("offline", () => setConnection("Offline"));
+window.addEventListener("online", () => setConnection(""));
+window.addEventListener("offline", () => setConnection(""));

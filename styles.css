@@ -231,8 +231,11 @@ body.theme-light::after {
 
 .landing {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  grid-template-columns: minmax(0, 1fr) max-content;
   gap: 14px;
+  align-items: start;
+  width: min(1040px, 100%);
+  margin: 0 auto;
 }
 
 .sessions {
@@ -276,7 +279,7 @@ body.theme-light::after {
 }
 
 .lets-play {
-  justify-self: center;
+  justify-self: start;
   width: min(360px, 100%);
 }
 
@@ -1489,6 +1492,19 @@ body:not(.theme-light) .footer-toggle input {
 }
 
 @media (max-width: 720px) {
+  .landing {
+    grid-template-columns: 1fr;
+    justify-items: center;
+  }
+
+  .lets-play {
+    justify-self: center;
+  }
+
+  .group-card {
+    justify-self: center;
+  }
+
   .topbar {
     padding: 14px 16px;
     align-items: flex-start;
