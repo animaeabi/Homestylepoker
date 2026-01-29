@@ -239,7 +239,8 @@ body::before {
   gap: 6px;
   width: fit-content;
   max-width: 100%;
-  justify-self: start;
+  justify-self: end;
+  align-self: start;
 }
 
 .landing-card.compact h2 {
@@ -285,13 +286,14 @@ body::before {
 }
 
 .group-list {
-  display: grid;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
   gap: 6px;
   max-height: 240px;
   overflow-y: auto;
   padding-right: 4px;
-  width: fit-content;
-  justify-items: start;
+  width: 100%;
 }
 
 .group-item {
