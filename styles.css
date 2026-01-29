@@ -415,11 +415,6 @@ body.theme-light .brand-icon {
   justify-items: end;
 }
 
-.history-card {
-  width: max-content;
-  align-self: start;
-}
-
 .group-card {
   box-shadow: none;
   padding: 10px 12px;
@@ -1738,7 +1733,7 @@ body:not(.theme-light) .footer-toggle input {
     justify-items: center;
   }
 
-  .history-card,
+  .history-btn,
   .group-card {
     justify-self: center;
   }
