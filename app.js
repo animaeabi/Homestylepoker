@@ -15,7 +15,6 @@ const elements = {
   joinGame: $("#joinGame"),
   openSessions: $("#openSessions"),
   groupList: $("#groupList"),
-  groupName: $("#groupName"),
   createGroup: $("#createGroup"),
   groupModal: $("#groupModal"),
   groupModalTitle: $("#groupModalTitle"),
@@ -434,7 +433,8 @@ async function refreshGroups() {
 
 async function createGroup() {
   if (!supabase) return;
-  const name = safeTrim(elements.groupName?.value);
+  const promptName = window.prompt("Group name");
+  const name = safeTrim(promptName);
   if (!name) return;
 
   const { data, error } = await supabase.from("groups").insert({ name }).select().single();
@@ -443,7 +443,6 @@ async function createGroup() {
     return;
   }
 
-  elements.groupName.value = "";
   state.groups = [data, ...state.groups.filter((group) => group.id !== data.id)];
   renderGroupList();
   renderGroupSelects();
@@ -2304,15 +2303,6 @@ if (elements.groupPlayerForm) {
     state.groupPlayers = await fetchGroupPlayers(state.activeGroupId);
     renderGroupPlayers();
     setStatus("Player added");
-  });
-}
-
-if (elements.groupName) {
-  elements.groupName.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      createGroup();
-    }
   });
 }
 

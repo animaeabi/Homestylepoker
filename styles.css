@@ -227,6 +227,15 @@ body::before {
   gap: 12px;
 }
 
+.landing-card.compact {
+  padding: 14px;
+  gap: 10px;
+}
+
+.landing-card.compact h2 {
+  font-size: 1.05rem;
+}
+
 .landing-card h2 {
   font-family: "Fraunces", serif;
   font-size: 1.2rem;
