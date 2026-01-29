@@ -1099,7 +1099,7 @@ function applyHostMode() {
   if (elements.playerPanelHeading && elements.playerPanelSubtitle) {
     if (isGameSettled() && !state.isHost) {
       elements.playerPanelHeading.textContent = "Summary";
-      elements.playerPanelSubtitle.textContent = "Final results for this game.";
+      elements.playerPanelSubtitle.textContent = "";
     } else if (!state.isHost) {
       elements.playerPanelHeading.textContent = "Player";
       elements.playerPanelSubtitle.textContent = "";
@@ -1537,13 +1537,12 @@ function renderSettlementSummary() {
         <div class="summary-header">
           <div>
             <h2>${title}</h2>
-            <p>Money in, money out, and net per player.</p>
           </div>
           <button class="ghost" type="button" data-action="home">Home</button>
         </div>
       `;
     } else {
-      header.innerHTML = `<h2>${title}</h2><p>Money in, money out, and net per player.</p>`;
+      header.innerHTML = `<h2>${title}</h2>`;
     }
     node.appendChild(header);
 
