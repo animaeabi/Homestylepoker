@@ -409,6 +409,17 @@ body.theme-light .brand-icon {
   gap: 6px;
 }
 
+.landing-side {
+  display: grid;
+  gap: 12px;
+  justify-items: end;
+}
+
+.history-card {
+  width: max-content;
+  align-self: start;
+}
+
 .group-card {
   box-shadow: none;
   padding: 10px 12px;
@@ -1722,6 +1733,12 @@ body:not(.theme-light) .footer-toggle input {
     justify-self: center;
   }
 
+  .landing-side {
+    width: 100%;
+    justify-items: center;
+  }
+
+  .history-card,
   .group-card {
     justify-self: center;
   }
