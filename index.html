@@ -23,7 +23,10 @@
 
       <section id="landing" class="landing">
         <div class="landing-card lets-play">
-          <h2>Let’s play</h2>
+          <div class="card-header">
+            <h2>Let’s play</h2>
+            <button id="openSessions" class="primary history-btn" type="button">History</button>
+          </div>
           <label class="field">
             <span>Game name</span>
             <input id="newGameName" type="text" placeholder="Generating name..." />
@@ -45,11 +48,9 @@
           </label>
           <button id="createGame" class="primary">Host a game</button>
           <button id="joinPlayer" class="secondary" type="button">Join as player</button>
-          <p class="hint">You’ll be the host for this game (can’t be changed).</p>
         </div>
 
         <div class="landing-side">
-          <button id="openSessions" class="primary history-btn" type="button">History</button>
           <div class="landing-card compact group-card">
             <div class="group-header">
               <h2>Groups</h2>
