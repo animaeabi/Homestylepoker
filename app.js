@@ -192,6 +192,8 @@ const gameNameNouns = [
   "Saddle",
   "Night"
 ];
+const namePlaceholderLoading = "Generating name...";
+let nameSuggestionTimer = null;
 
 const safeTrim = (value) => (value || "").trim();
 
@@ -337,9 +339,16 @@ async function ensureUniqueGameName(seed) {
 async function initGameName() {
   if (!elements.newGameName) return;
   if (safeTrim(elements.newGameName.value)) return;
-  const suggestion = await ensureUniqueGameName(elements.newGameName.placeholder);
-  elements.newGameName.placeholder = suggestion;
-  elements.newGameName.dataset.suggested = suggestion;
+  elements.newGameName.placeholder = namePlaceholderLoading;
+  if (nameSuggestionTimer) {
+    clearTimeout(nameSuggestionTimer);
+  }
+  nameSuggestionTimer = setTimeout(async () => {
+    if (!elements.newGameName || safeTrim(elements.newGameName.value)) return;
+    const suggestion = await ensureUniqueGameName("");
+    elements.newGameName.placeholder = suggestion;
+    elements.newGameName.dataset.suggested = suggestion;
+  }, 7000);
 }
 
 function isDeletePinAuthorized() {
@@ -1948,7 +1957,9 @@ async function createGame(options = {}) {
   if (!hostName) return;
 
   const typedName = safeTrim(elements.newGameName.value);
-  const name = typedName || (await ensureUniqueGameName(elements.newGameName.placeholder));
+  const placeholder = elements.newGameName.placeholder;
+  const seed = placeholder === namePlaceholderLoading ? "" : placeholder;
+  const name = typedName || (await ensureUniqueGameName(seed));
   const currency = "$";
   const defaultBuyIn = Number(elements.newBuyIn.value) || 10;
   const groupId = safeTrim(elements.gameGroup?.value) || null;
