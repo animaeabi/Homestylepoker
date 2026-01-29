@@ -414,6 +414,7 @@ body.theme-light .brand-icon {
   display: grid;
   gap: 12px;
   justify-items: end;
+  width: min(360px, 100%);
 }
 
 .group-card {
@@ -422,7 +423,7 @@ body.theme-light .brand-icon {
   border-radius: 12px;
   gap: 6px;
   display: inline-grid;
-  width: max-content;
+  width: 100%;
   max-width: 100%;
   justify-self: end;
   align-self: start;
