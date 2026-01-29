@@ -1288,6 +1288,7 @@ async function loadGroupStats() {
   }
 
   const groupNameById = new Map((groupPlayersRes.data || []).map((row) => [row.id, row.name]));
+  const playerKeyById = new Map();
   const ledger = new Map();
   const gamesSet = new Set();
 
@@ -1295,6 +1296,7 @@ async function loadGroupStats() {
     gamesSet.add(player.game_id);
     const normalized = normalizeName(player.name.replace(/\s*\(Host\)$/i, ""));
     const key = player.group_player_id || normalized;
+    playerKeyById.set(player.id, key);
     if (!ledger.has(key)) {
       ledger.set(key, {
         name: groupNameById.get(player.group_player_id) || player.name.replace(/\s*\(Host\)$/i, ""),
@@ -1306,8 +1308,7 @@ async function loadGroupStats() {
   });
 
   (buyinsRes.data || []).forEach((buyin) => {
-    const key = (playersRes.data || []).find((p) => p.id === buyin.player_id)?.group_player_id ||
-      normalizeName((playersRes.data || []).find((p) => p.id === buyin.player_id)?.name || "");
+    const key = playerKeyById.get(buyin.player_id);
     if (!key || !ledger.has(key)) return;
     const entry = ledger.get(key);
     entry.buyinCount += 1;
@@ -1315,8 +1316,7 @@ async function loadGroupStats() {
   });
 
   (settlementsRes.data || []).forEach((settlement) => {
-    const key = (playersRes.data || []).find((p) => p.id === settlement.player_id)?.group_player_id ||
-      normalizeName((playersRes.data || []).find((p) => p.id === settlement.player_id)?.name || "");
+    const key = playerKeyById.get(settlement.player_id);
     if (!key || !ledger.has(key)) return;
     const entry = ledger.get(key);
     entry.cashout += Number(settlement.amount || 0);
