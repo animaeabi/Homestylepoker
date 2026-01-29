@@ -638,6 +638,12 @@ button:disabled {
   border: 1px solid var(--border);
 }
 
+.share-panel {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+
 .join-card h3 {
   font-family: "Fraunces", serif;
   font-size: 1.2rem;

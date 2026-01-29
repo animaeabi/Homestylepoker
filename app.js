@@ -363,6 +363,7 @@ async function copyText(value) {
   try {
     await navigator.clipboard.writeText(value);
     setStatus("Join link copied.");
+    return true;
   } catch (err) {
     const temp = document.createElement("textarea");
     temp.value = value;
@@ -371,6 +372,7 @@ async function copyText(value) {
     document.execCommand("copy");
     temp.remove();
     setStatus("Join link copied.");
+    return true;
   }
 }
 
@@ -1464,9 +1466,19 @@ if (elements.copyLink) {
 }
 
 if (elements.copyLinkInline) {
-  elements.copyLinkInline.addEventListener("click", () => {
+  elements.copyLinkInline.addEventListener("click", async () => {
     if (!state.game) return;
-    copyText(getJoinLink());
+    const button = elements.copyLinkInline;
+    const original = button.textContent;
+    const ok = await copyText(getJoinLink());
+    if (!ok) return;
+    button.textContent = "Copied!";
+    button.disabled = true;
+    clearTimeout(button._copyTimer);
+    button._copyTimer = setTimeout(() => {
+      button.textContent = original;
+      button.disabled = false;
+    }, 1600);
   });
 }
 
