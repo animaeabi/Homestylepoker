@@ -56,10 +56,13 @@ body.theme-light .danger-outline {
 body.theme-light .info-chip,
 body.theme-light .summary-card,
 body.theme-light .recent-item,
+body.theme-light .group-item,
 body.theme-light .recent-group,
 body.theme-light .table-row,
 body.theme-light .settle-row,
-body.theme-light .settlement-row {
+body.theme-light .settlement-row,
+body.theme-light .summary-row,
+body.theme-light .transfer-row {
   background: rgba(31, 111, 92, 0.06);
 }
 
@@ -220,6 +223,29 @@ body::before {
 .recent-games {
   display: grid;
   gap: 10px;
+}
+
+.group-list {
+  display: grid;
+  gap: 10px;
+}
+
+.group-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 0.85rem;
+}
+
+.group-item span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.78rem;
+  margin-top: 2px;
 }
 
 .recent-group {
@@ -703,6 +729,14 @@ button:disabled {
   box-shadow: var(--shadow);
 }
 
+.summary-panel {
+  position: relative;
+  z-index: 1;
+  width: min(92vw, 640px);
+  max-height: 85vh;
+  overflow: auto;
+}
+
 .muted {
   color: var(--muted);
   font-size: 0.85rem;
@@ -748,6 +782,47 @@ button:disabled {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 12px;
+}
+
+.summary-breakdown,
+.summary-transfers {
+  display: grid;
+  gap: 12px;
+}
+
+.summary-table {
+  display: grid;
+  gap: 8px;
+}
+
+.summary-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1fr 1fr;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  font-size: 0.85rem;
+}
+
+.summary-row.header {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.transfer-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 0.85rem;
 }
 
 .summary-card {
@@ -1136,6 +1211,11 @@ button:disabled {
     width: 100%;
     justify-content: flex-start;
     flex-wrap: wrap;
+  }
+
+  .summary-row {
+    grid-template-columns: 1fr;
+    align-items: flex-start;
   }
 
   .settle-row {

@@ -8,8 +8,24 @@ Real-time, multi-device poker buy-in tracking with Supabase. Host creates a game
 - Open the SQL editor and run this schema:
 
 ```sql
+create table if not exists groups (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  created_at timestamptz default now()
+);
+
+create table if not exists group_players (
+  id uuid primary key default gen_random_uuid(),
+  group_id uuid references groups(id) on delete cascade,
+  name text not null,
+  normalized_name text not null,
+  created_at timestamptz default now(),
+  unique (group_id, normalized_name)
+);
+
 create table if not exists games (
   id uuid primary key default gen_random_uuid(),
+  group_id uuid references groups(id) on delete set null,
   code text unique not null,
   name text not null,
   currency text default '$',
@@ -21,6 +37,7 @@ create table if not exists games (
 create table if not exists players (
   id uuid primary key default gen_random_uuid(),
   game_id uuid references games(id) on delete cascade,
+  group_player_id uuid references group_players(id) on delete set null,
   name text not null,
   created_at timestamptz default now()
 );
@@ -34,7 +51,10 @@ create table if not exists buyins (
 );
 
 create index if not exists idx_players_game_id on players(game_id);
+create index if not exists idx_players_group_player_id on players(group_player_id);
 create index if not exists idx_buyins_game_id on buyins(game_id);
+create index if not exists idx_games_group_id on games(group_id);
+create index if not exists idx_group_players_group_id on group_players(group_id);
 
 create table if not exists settlements (
   id uuid primary key default gen_random_uuid(),
@@ -52,7 +72,24 @@ create index if not exists idx_settlements_game_id on settlements(game_id);
 - If you created the tables earlier, run:
 
 ```sql
+create table if not exists groups (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  created_at timestamptz default now()
+);
+
+create table if not exists group_players (
+  id uuid primary key default gen_random_uuid(),
+  group_id uuid references groups(id) on delete cascade,
+  name text not null,
+  normalized_name text not null,
+  created_at timestamptz default now(),
+  unique (group_id, normalized_name)
+);
+
+alter table games add column if not exists group_id uuid references groups(id) on delete set null;
 alter table games add column if not exists ended_at timestamptz;
+alter table players add column if not exists group_player_id uuid references group_players(id) on delete set null;
 create table if not exists settlements (
   id uuid primary key default gen_random_uuid(),
   game_id uuid references games(id) on delete cascade,
@@ -61,6 +98,9 @@ create table if not exists settlements (
   created_at timestamptz default now()
 );
 create index if not exists idx_settlements_game_id on settlements(game_id);
+create index if not exists idx_players_group_player_id on players(group_player_id);
+create index if not exists idx_games_group_id on games(group_id);
+create index if not exists idx_group_players_group_id on group_players(group_id);
 ```
 
 ## 2) Add your keys

@@ -8,9 +8,16 @@ const elements = {
   landing: $("#landing"),
   newGameName: $("#newGameName"),
   newBuyIn: $("#newBuyIn"),
+  gameGroup: $("#gameGroup"),
   createGame: $("#createGame"),
   joinCode: $("#joinCode"),
   joinGame: $("#joinGame"),
+  groupList: $("#groupList"),
+  groupName: $("#groupName"),
+  createGroup: $("#createGroup"),
+  summaryGroup: $("#summaryGroup"),
+  summaryQuarter: $("#summaryQuarter"),
+  openSummary: $("#openSummary"),
   configNotice: $("#configNotice"),
   themeToggle: $("#themeToggle"),
   gamePanel: $("#gamePanel"),
@@ -39,6 +46,12 @@ const elements = {
   settleCancel: $("#settleCancel"),
   settleError: $("#settleError"),
   settlementSummary: $("#settlementSummary"),
+  summaryModal: $("#summaryModal"),
+  summaryClose: $("#summaryClose"),
+  summaryTitle: $("#summaryTitle"),
+  summarySubtitle: $("#summarySubtitle"),
+  summaryBreakdown: $("#summaryBreakdown"),
+  summaryTransfers: $("#summaryTransfers"),
   hostModeToggle: $("#hostModeToggle"),
   hostPanel: $("#hostPanel"),
   summary: $("#summary"),
@@ -73,6 +86,7 @@ const state = {
   buyins: [],
   settlements: [],
   settlementsAvailable: true,
+  groups: [],
   isHost: false,
   canHost: false,
   playerId: null,
@@ -93,6 +107,8 @@ if (configMissing) {
   elements.hostAddPlayer.disabled = true;
   if (elements.openSettle) elements.openSettle.disabled = true;
   if (elements.deleteAllGames) elements.deleteAllGames.disabled = true;
+  if (elements.createGroup) elements.createGroup.disabled = true;
+  if (elements.openSummary) elements.openSummary.disabled = true;
 }
 
 const supabase = configMissing ? null : createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -103,6 +119,7 @@ const recentGamesKey = "poker_recent_games";
 const themeKey = "poker_theme";
 const deletePinKey = "poker_delete_pin_ok";
 const deletePin = "2/7";
+const lastGroupKey = "poker_last_group";
 
 const safeTrim = (value) => (value || "").trim();
 
@@ -175,6 +192,18 @@ function isLocalHostForGame(code) {
   return localStorage.getItem(hostKey(code)) === "true";
 }
 
+function loadLastGroup() {
+  return localStorage.getItem(lastGroupKey) || "";
+}
+
+function saveLastGroup(value) {
+  if (!value) {
+    localStorage.removeItem(lastGroupKey);
+    return;
+  }
+  localStorage.setItem(lastGroupKey, value);
+}
+
 function isDeletePinAuthorized() {
   return localStorage.getItem(deletePinKey) === "true";
 }
@@ -209,6 +238,113 @@ async function refreshRecentGames() {
   }
 
   renderRecentGames(data || []);
+}
+
+function renderGroupList() {
+  if (!elements.groupList) return;
+  elements.groupList.innerHTML = "";
+
+  if (!state.groups.length) {
+    const empty = document.createElement("p");
+    empty.className = "muted";
+    empty.textContent = "No groups yet.";
+    elements.groupList.appendChild(empty);
+    return;
+  }
+
+  state.groups.forEach((group) => {
+    const row = document.createElement("div");
+    row.className = "group-item";
+    row.innerHTML = `
+      <div>
+        <strong>${group.name}</strong>
+        <span>Created ${formatShortDate(group.created_at)}</span>
+      </div>
+      <button class="ghost" data-action="use-group" data-id="${group.id}">Use</button>
+    `;
+    elements.groupList.appendChild(row);
+  });
+}
+
+function buildGroupOptions(selectEl, includeEmpty) {
+  if (!selectEl) return;
+  selectEl.innerHTML = "";
+  if (includeEmpty) {
+    const empty = document.createElement("option");
+    empty.value = "";
+    empty.textContent = "No group (one-off)";
+    selectEl.appendChild(empty);
+  } else {
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = state.groups.length ? "Select group" : "No groups yet";
+    selectEl.appendChild(placeholder);
+  }
+  state.groups.forEach((group) => {
+    const option = document.createElement("option");
+    option.value = group.id;
+    option.textContent = group.name;
+    selectEl.appendChild(option);
+  });
+}
+
+function renderGroupSelects() {
+  buildGroupOptions(elements.gameGroup, true);
+  buildGroupOptions(elements.summaryGroup, false);
+  const lastGroup = loadLastGroup();
+  if (lastGroup && elements.gameGroup) {
+    elements.gameGroup.value = lastGroup;
+  }
+  if (lastGroup && elements.summaryGroup) {
+    elements.summaryGroup.value = lastGroup;
+  }
+  if (elements.summaryGroup) {
+    elements.summaryGroup.disabled = state.groups.length === 0;
+  }
+  if (elements.openSummary) {
+    elements.openSummary.disabled = state.groups.length === 0;
+  }
+}
+
+async function refreshGroups() {
+  if (!supabase) return;
+  const { data, error } = await supabase.from("groups").select("*").order("created_at", {
+    ascending: false
+  });
+  if (error) {
+    state.groups = [];
+    renderGroupList();
+    renderGroupSelects();
+    return;
+  }
+  state.groups = data || [];
+  renderGroupList();
+  renderGroupSelects();
+}
+
+async function createGroup() {
+  if (!supabase) return;
+  const name = safeTrim(elements.groupName?.value);
+  if (!name) return;
+
+  const { data, error } = await supabase.from("groups").insert({ name }).select().single();
+  if (error) {
+    setStatus("Could not create group", "error");
+    return;
+  }
+
+  elements.groupName.value = "";
+  state.groups = [data, ...state.groups.filter((group) => group.id !== data.id)];
+  renderGroupList();
+  renderGroupSelects();
+  if (elements.gameGroup) {
+    elements.gameGroup.value = data.id;
+  }
+  if (elements.summaryGroup) {
+    elements.summaryGroup.value = data.id;
+  }
+  saveLastGroup(data.id);
+  setStatus("Group created");
 }
 
 function recordRecentGame(game) {
@@ -330,6 +466,43 @@ function formatShortDate(iso) {
     day: "numeric",
     year: "numeric"
   });
+}
+
+function buildQuarterOptions() {
+  if (!elements.summaryQuarter) return;
+  const now = new Date();
+  const currentQuarterStart = new Date(Date.UTC(now.getUTCFullYear(), Math.floor(now.getUTCMonth() / 3) * 3, 1));
+  const options = [];
+  for (let i = 0; i < 8; i += 1) {
+    const date = new Date(currentQuarterStart);
+    date.setUTCMonth(date.getUTCMonth() - i * 3);
+    const year = date.getUTCFullYear();
+    const quarter = Math.floor(date.getUTCMonth() / 3) + 1;
+    const value = `${year}-Q${quarter}`;
+    const label = `Q${quarter} ${year}`;
+    options.push({ value, label });
+  }
+
+  elements.summaryQuarter.innerHTML = "";
+  options.forEach((option) => {
+    const node = document.createElement("option");
+    node.value = option.value;
+    node.textContent = option.label;
+    elements.summaryQuarter.appendChild(node);
+  });
+}
+
+function parseQuarterValue(value) {
+  const match = /^(\d{4})-Q([1-4])$/.exec(value || "");
+  if (!match) return null;
+  return { year: Number(match[1]), quarter: Number(match[2]) };
+}
+
+function getQuarterRange(year, quarter) {
+  const startMonth = (quarter - 1) * 3;
+  const start = new Date(Date.UTC(year, startMonth, 1));
+  const end = new Date(Date.UTC(year, startMonth + 3, 1));
+  return { start, end };
 }
 
 function isGameSettled() {
@@ -878,6 +1051,212 @@ function renderSettlementSummary() {
   });
 }
 
+function renderQuarterSummary({ groupName, label, rows, transfers }) {
+  if (!elements.summaryBreakdown || !elements.summaryTransfers) return;
+  elements.summaryTitle.textContent = "Quarterly Summary";
+  elements.summarySubtitle.textContent = `${groupName} · ${label}`;
+
+  elements.summaryBreakdown.innerHTML = "";
+  elements.summaryTransfers.innerHTML = "";
+
+  if (!rows.length) {
+    const empty = document.createElement("p");
+    empty.className = "muted";
+    empty.textContent = "No settled games in this quarter.";
+    elements.summaryBreakdown.appendChild(empty);
+    return;
+  }
+
+  const table = document.createElement("div");
+  table.className = "summary-table";
+  table.innerHTML = `
+    <div class="summary-row header">
+      <div>Player</div>
+      <div>Games</div>
+      <div>Buy-ins</div>
+      <div>Cash-out</div>
+      <div>Net</div>
+    </div>
+  `;
+
+  rows.forEach((row) => {
+    const node = document.createElement("div");
+    node.className = "summary-row";
+    node.innerHTML = `
+      <div>${row.name}</div>
+      <div>${row.games}</div>
+      <div>${formatCurrency(row.buyins)}</div>
+      <div>${formatCurrency(row.cashout)}</div>
+      <div>${formatCurrency(row.net)}</div>
+    `;
+    table.appendChild(node);
+  });
+
+  elements.summaryBreakdown.appendChild(table);
+
+  const transfersHeader = document.createElement("div");
+  transfersHeader.className = "panel-title";
+  transfersHeader.innerHTML = "<h3>Who pays who</h3><p>Direct transfers to settle up.</p>";
+  elements.summaryTransfers.appendChild(transfersHeader);
+
+  if (!transfers.length) {
+    const empty = document.createElement("p");
+    empty.className = "muted";
+    empty.textContent = "Everyone is settled.";
+    elements.summaryTransfers.appendChild(empty);
+    return;
+  }
+
+  transfers.forEach((transfer) => {
+    const row = document.createElement("div");
+    row.className = "transfer-row";
+    row.innerHTML = `
+      <span>${transfer.from} → ${transfer.to}</span>
+      <strong>${formatCurrency(transfer.amount)}</strong>
+    `;
+    elements.summaryTransfers.appendChild(row);
+  });
+}
+
+function computeTransfers(rows) {
+  const winners = rows
+    .filter((row) => row.net > 0.01)
+    .map((row) => ({ ...row }))
+    .sort((a, b) => b.net - a.net);
+  const losers = rows
+    .filter((row) => row.net < -0.01)
+    .map((row) => ({ ...row }))
+    .sort((a, b) => a.net - b.net);
+
+  const transfers = [];
+  let i = 0;
+  let j = 0;
+  while (i < winners.length && j < losers.length) {
+    const winner = winners[i];
+    const loser = losers[j];
+    const amount = Math.min(winner.net, Math.abs(loser.net));
+    if (amount <= 0.01) break;
+    transfers.push({ from: loser.name, to: winner.name, amount });
+    winner.net -= amount;
+    loser.net += amount;
+    if (winner.net <= 0.01) i += 1;
+    if (loser.net >= -0.01) j += 1;
+  }
+  return transfers;
+}
+
+async function loadQuarterSummary() {
+  if (!supabase) return;
+  const groupId = safeTrim(elements.summaryGroup?.value);
+  if (!groupId) {
+    setStatus("Select a group for summary.", "error");
+    return;
+  }
+
+  const quarterValue = safeTrim(elements.summaryQuarter?.value);
+  const parsed = parseQuarterValue(quarterValue);
+  if (!parsed) return;
+
+  const group = state.groups.find((item) => item.id === groupId);
+  const groupName = group?.name || "Group";
+  const { start, end } = getQuarterRange(parsed.year, parsed.quarter);
+  const label = `Q${parsed.quarter} ${parsed.year}`;
+
+  const { data: games, error: gameError } = await supabase
+    .from("games")
+    .select("id,ended_at")
+    .eq("group_id", groupId)
+    .not("ended_at", "is", null)
+    .gte("ended_at", start.toISOString())
+    .lt("ended_at", end.toISOString());
+
+  if (gameError) {
+    setStatus("Could not load summary", "error");
+    return;
+  }
+
+  if (!games || games.length === 0) {
+    renderQuarterSummary({ groupName, label, rows: [], transfers: [] });
+    return;
+  }
+
+  const gameIds = games.map((game) => game.id);
+
+  const [playersRes, buyinsRes, settlementsRes, groupPlayersRes] = await Promise.all([
+    supabase.from("players").select("id,name,game_id,group_player_id").in("game_id", gameIds),
+    supabase.from("buyins").select("game_id,player_id,amount").in("game_id", gameIds),
+    supabase.from("settlements").select("game_id,player_id,amount").in("game_id", gameIds),
+    supabase.from("group_players").select("id,name").eq("group_id", groupId)
+  ]);
+
+  if (settlementsRes.error && settlementsRes.error.code === "42P01") {
+    setStatus("Settlement table missing. Run the README SQL.", "error");
+    renderQuarterSummary({ groupName, label, rows: [], transfers: [] });
+    return;
+  }
+
+  if (playersRes.error || buyinsRes.error || settlementsRes.error || groupPlayersRes.error) {
+    setStatus("Could not load summary", "error");
+    return;
+  }
+
+  const groupPlayerMap = new Map(
+    (groupPlayersRes.data || []).map((player) => [player.id, player.name])
+  );
+  const playerById = new Map((playersRes.data || []).map((player) => [player.id, player]));
+
+  const ledger = new Map();
+  const gamesByKey = new Map();
+
+  function getKey(player) {
+    if (player.group_player_id && groupPlayerMap.has(player.group_player_id)) {
+      return {
+        key: `gp:${player.group_player_id}`,
+        name: groupPlayerMap.get(player.group_player_id)
+      };
+    }
+    const normalized = normalizeName(player.name || "Player");
+    return { key: `name:${normalized}`, name: player.name || "Player" };
+  }
+
+  function ensureEntry(key, name) {
+    if (!ledger.has(key)) {
+      ledger.set(key, { name, buyins: 0, cashout: 0, games: 0, net: 0 });
+    }
+    if (!gamesByKey.has(key)) {
+      gamesByKey.set(key, new Set());
+    }
+  }
+
+  (buyinsRes.data || []).forEach((buyin) => {
+    const player = playerById.get(buyin.player_id);
+    if (!player) return;
+    const { key, name } = getKey(player);
+    ensureEntry(key, name);
+    ledger.get(key).buyins += Number(buyin.amount || 0);
+    gamesByKey.get(key).add(player.game_id);
+  });
+
+  (settlementsRes.data || []).forEach((settlement) => {
+    const player = playerById.get(settlement.player_id);
+    if (!player) return;
+    const { key, name } = getKey(player);
+    ensureEntry(key, name);
+    ledger.get(key).cashout += Number(settlement.amount || 0);
+    gamesByKey.get(key).add(player.game_id);
+  });
+
+  ledger.forEach((entry, key) => {
+    const gamesPlayed = gamesByKey.get(key);
+    entry.games = gamesPlayed ? gamesPlayed.size : 0;
+    entry.net = entry.cashout - entry.buyins;
+  });
+
+  const rows = Array.from(ledger.values()).sort((a, b) => b.net - a.net);
+  const transfers = computeTransfers(rows);
+  renderQuarterSummary({ groupName, label, rows, transfers });
+}
+
 async function deleteGameByCode(code) {
   if (!code) return;
   if (!isLocalHostForGame(code)) {
@@ -1060,6 +1439,7 @@ async function loadGameByCode(code) {
   state.playerId = storedPlayer?.id || null;
   state.canHost = storedHost;
   state.isHost = state.canHost;
+  saveLastGroup(state.game.group_id || "");
   history.replaceState({}, "", state.isHost ? getHostLink() : getJoinLink());
   if (!state.isHost && storedPlayer?.name) {
     elements.playerName.value = storedPlayer.name;
@@ -1079,11 +1459,12 @@ async function createGame() {
   const name = safeTrim(elements.newGameName.value) || "Home Game";
   const currency = "$";
   const defaultBuyIn = Number(elements.newBuyIn.value) || 10;
+  const groupId = safeTrim(elements.gameGroup?.value) || null;
   let code = generateCode();
 
   let result = await supabase
     .from("games")
-    .insert({ code, name, currency, default_buyin: defaultBuyIn })
+    .insert({ code, name, currency, default_buyin: defaultBuyIn, group_id: groupId })
     .select()
     .single();
 
@@ -1091,7 +1472,7 @@ async function createGame() {
     code = generateCode();
     result = await supabase
       .from("games")
-      .insert({ code, name, currency, default_buyin: defaultBuyIn })
+      .insert({ code, name, currency, default_buyin: defaultBuyIn, group_id: groupId })
       .select()
       .single();
   }
@@ -1107,10 +1488,17 @@ async function createGame() {
   localStorage.setItem(hostKey(state.game.code), "true");
   history.replaceState({}, "", getHostLink());
   recordRecentGame(state.game);
+  saveLastGroup(state.game.group_id || "");
+
+  let groupPlayerId = null;
+  if (state.game.group_id) {
+    const groupPlayer = await getOrCreateGroupPlayer(state.game.group_id, "You (Host)");
+    groupPlayerId = groupPlayer?.id || null;
+  }
 
   const { data: hostPlayer, error: hostError } = await supabase
     .from("players")
-    .insert({ game_id: state.game.id, name: "You (Host)" })
+    .insert({ game_id: state.game.id, name: "You (Host)", group_player_id: groupPlayerId })
     .select()
     .single();
 
@@ -1138,6 +1526,7 @@ async function joinAsPlayer() {
   const matches = state.players.filter((player) => normalizeName(player.name) === normalized);
   if (matches.length === 1) {
     state.playerId = matches[0].id;
+    await ensurePlayerLinked(matches[0]);
     saveStoredPlayer(state.game.code, { id: matches[0].id, name: matches[0].name });
     elements.playerName.value = "";
     if (elements.playerMatchList) {
@@ -1165,9 +1554,15 @@ async function joinAsPlayer() {
     return;
   }
 
+  let groupPlayerId = null;
+  if (state.game.group_id) {
+    const groupPlayer = await getOrCreateGroupPlayer(state.game.group_id, name);
+    groupPlayerId = groupPlayer?.id || null;
+  }
+
   const { data, error } = await supabase
     .from("players")
-    .insert({ game_id: state.game.id, name })
+    .insert({ game_id: state.game.id, name, group_player_id: groupPlayerId })
     .select()
     .single();
 
@@ -1182,6 +1577,46 @@ async function joinAsPlayer() {
   await refreshData();
 }
 
+async function getOrCreateGroupPlayer(groupId, name) {
+  if (!supabase || !groupId) return null;
+  const normalized = normalizeName(name);
+  if (!normalized) return null;
+
+  const { data: existing, error } = await supabase
+    .from("group_players")
+    .select("id,name,normalized_name")
+    .eq("group_id", groupId)
+    .eq("normalized_name", normalized)
+    .maybeSingle();
+
+  if (error) {
+    setStatus("Could not load group players", "error");
+    return null;
+  }
+
+  if (existing) return existing;
+
+  const { data, error: insertError } = await supabase
+    .from("group_players")
+    .insert({ group_id: groupId, name, normalized_name: normalized })
+    .select()
+    .single();
+
+  if (insertError) {
+    setStatus("Could not save player directory", "error");
+    return null;
+  }
+
+  return data;
+}
+
+async function ensurePlayerLinked(player) {
+  if (!supabase || !state.game?.group_id || player.group_player_id) return;
+  const groupPlayer = await getOrCreateGroupPlayer(state.game.group_id, player.name);
+  if (!groupPlayer?.id) return;
+  await supabase.from("players").update({ group_player_id: groupPlayer.id }).eq("id", player.id);
+}
+
 async function addPlayerByName(name) {
   if (!supabase || !state.game) return;
   if (isGameSettled()) {
@@ -1191,7 +1626,15 @@ async function addPlayerByName(name) {
   const trimmed = safeTrim(name);
   if (!trimmed) return;
 
-  const { error } = await supabase.from("players").insert({ game_id: state.game.id, name: trimmed });
+  let groupPlayerId = null;
+  if (state.game.group_id) {
+    const groupPlayer = await getOrCreateGroupPlayer(state.game.group_id, trimmed);
+    groupPlayerId = groupPlayer?.id || null;
+  }
+
+  const { error } = await supabase
+    .from("players")
+    .insert({ game_id: state.game.id, name: trimmed, group_player_id: groupPlayerId });
 
   if (error) {
     setStatus("Could not add player", "error");
@@ -1334,6 +1777,22 @@ function closeSettlePanel() {
   setSettleError("");
 }
 
+function openSummaryModal() {
+  if (!elements.summaryModal) return;
+  const groupId = safeTrim(elements.summaryGroup?.value);
+  if (!groupId) {
+    setStatus("Select a group for summary.", "error");
+    return;
+  }
+  elements.summaryModal.classList.remove("hidden");
+  loadQuarterSummary();
+}
+
+function closeSummaryModal() {
+  if (!elements.summaryModal) return;
+  elements.summaryModal.classList.add("hidden");
+}
+
 function clearCurrentGame() {
   if (supabase && state.channel) {
     supabase.removeChannel(state.channel);
@@ -1358,6 +1817,7 @@ function clearCurrentGame() {
   elements.landing.classList.remove("hidden");
   history.replaceState({}, "", window.location.pathname);
   refreshRecentGames();
+  refreshGroups();
   setConnection("Offline");
 }
 
@@ -1428,11 +1888,13 @@ async function submitSettlement(event) {
       loadGameByCode(incomingCode);
     } else {
       refreshRecentGames();
+      refreshGroups();
     }
   } else {
     renderRecentGames();
   }
 
+buildQuarterOptions();
 initTheme();
 
 // Event listeners
@@ -1456,6 +1918,56 @@ elements.joinGame.addEventListener("click", () => {
   loadGameByCode(elements.joinCode.value);
 });
 
+if (elements.groupList) {
+  elements.groupList.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-action='use-group']");
+    if (!button) return;
+    const groupId = button.dataset.id;
+    if (elements.gameGroup) elements.gameGroup.value = groupId;
+    if (elements.summaryGroup) elements.summaryGroup.value = groupId;
+    saveLastGroup(groupId);
+  });
+}
+
+if (elements.createGroup) {
+  elements.createGroup.addEventListener("click", () => {
+    if (configMissing) return;
+    createGroup();
+  });
+}
+
+if (elements.groupName) {
+  elements.groupName.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      createGroup();
+    }
+  });
+}
+
+if (elements.gameGroup) {
+  elements.gameGroup.addEventListener("change", () => {
+    saveLastGroup(elements.gameGroup.value);
+  });
+}
+
+if (elements.summaryGroup) {
+  elements.summaryGroup.addEventListener("change", () => {
+    saveLastGroup(elements.summaryGroup.value);
+    if (elements.summaryModal && !elements.summaryModal.classList.contains("hidden")) {
+      loadQuarterSummary();
+    }
+  });
+}
+
+if (elements.summaryQuarter) {
+  elements.summaryQuarter.addEventListener("change", () => {
+    if (elements.summaryModal && !elements.summaryModal.classList.contains("hidden")) {
+      loadQuarterSummary();
+    }
+  });
+}
+
 if (elements.recentGames) {
   elements.recentGames.addEventListener("click", (event) => {
     const button = event.target.closest("button[data-action]");
@@ -1475,6 +1987,25 @@ if (elements.deleteAllGames) {
   elements.deleteAllGames.addEventListener("click", () => {
     if (configMissing) return;
     deleteAllGames();
+  });
+}
+
+if (elements.openSummary) {
+  elements.openSummary.addEventListener("click", () => {
+    if (configMissing) return;
+    openSummaryModal();
+  });
+}
+
+if (elements.summaryClose) {
+  elements.summaryClose.addEventListener("click", closeSummaryModal);
+}
+
+if (elements.summaryModal) {
+  elements.summaryModal.addEventListener("click", (event) => {
+    if (event.target.dataset.action === "close") {
+      closeSummaryModal();
+    }
   });
 }
 
@@ -1537,8 +2068,12 @@ if (elements.settleModal) {
 }
 
 window.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && elements.settleModal && !elements.settleModal.classList.contains("hidden")) {
+  if (event.key !== "Escape") return;
+  if (elements.settleModal && !elements.settleModal.classList.contains("hidden")) {
     closeSettlePanel();
+  }
+  if (elements.summaryModal && !elements.summaryModal.classList.contains("hidden")) {
+    closeSummaryModal();
   }
 });
 
@@ -1618,6 +2153,7 @@ if (elements.playerMatchList) {
     const player = state.players.find((item) => item.id === playerId);
     if (!player || !state.game) return;
     state.playerId = player.id;
+    await ensurePlayerLinked(player);
     saveStoredPlayer(state.game.code, { id: player.id, name: player.name });
     elements.playerMatchList.classList.add("hidden");
     elements.playerMatchList.innerHTML = "";

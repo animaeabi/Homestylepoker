@@ -37,6 +37,12 @@
             <small>Used for every buy-in</small>
             <input id="newBuyIn" type="number" min="1" step="1" placeholder="10" value="10" />
           </label>
+          <label class="field">
+            <span>Group (optional)</span>
+            <select id="gameGroup">
+              <option value="">No group (one-off)</option>
+            </select>
+          </label>
           <button id="createGame" class="primary">Host a game</button>
           <p class="hint">You’ll be the host for this game (can’t be changed).</p>
         </div>
@@ -59,6 +65,31 @@
             <button id="deleteAllGames" class="danger-outline small" type="button">Delete all</button>
           </div>
           <div id="recentGames" class="recent-games"></div>
+        </div>
+
+        <div class="landing-card">
+          <h2>Groups</h2>
+          <p class="muted">Keep a directory for a recurring home game.</p>
+          <div id="groupList" class="group-list"></div>
+          <label class="field">
+            <span>New group name</span>
+            <input id="groupName" type="text" placeholder="Friday Crew" />
+          </label>
+          <button id="createGroup" class="ghost">Create group</button>
+        </div>
+
+        <div class="landing-card">
+          <h2>Quarterly Summary</h2>
+          <p class="muted">Settled games only.</p>
+          <label class="field">
+            <span>Group</span>
+            <select id="summaryGroup"></select>
+          </label>
+          <label class="field">
+            <span>Quarter</span>
+            <select id="summaryQuarter"></select>
+          </label>
+          <button id="openSummary" class="ghost">View summary</button>
         </div>
       </section>
 
@@ -202,6 +233,21 @@
               <button type="submit" class="primary">Save settlement</button>
             </div>
           </form>
+        </section>
+      </div>
+
+      <div id="summaryModal" class="modal hidden" role="dialog" aria-modal="true">
+        <div class="modal-backdrop" data-action="close"></div>
+        <section class="panel summary-panel">
+          <div class="panel-title summary-header">
+            <div>
+              <h2 id="summaryTitle">Quarterly Summary</h2>
+              <p id="summarySubtitle" class="muted"></p>
+            </div>
+            <button id="summaryClose" class="ghost" type="button">Close</button>
+          </div>
+          <div id="summaryBreakdown" class="summary-breakdown"></div>
+          <div id="summaryTransfers" class="summary-transfers"></div>
         </section>
       </div>
 
