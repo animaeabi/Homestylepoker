@@ -1380,6 +1380,11 @@ button:disabled {
 .footer-toggle input {
   width: 44px;
   height: 24px;
+  border: 1px solid transparent;
+}
+
+body:not(.theme-light) .footer-toggle input {
+  border-color: rgba(210, 166, 78, 0.5);
 }
 
 .footer-toggle input::after {
