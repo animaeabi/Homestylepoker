@@ -23,6 +23,7 @@
         <div class="top-actions">
           <button id="openSessions" class="primary">Recent Session</button>
           <button id="themeToggle" class="ghost theme-toggle" type="button">Dark mode</button>
+          <button id="openGuide" class="ghost small" type="button">Guide</button>
         </div>
       </header>
 
@@ -308,6 +309,61 @@
               <button id="createGroupSubmit" class="primary" type="submit">Create group</button>
             </div>
           </form>
+        </section>
+      </div>
+
+      <div id="guideModal" class="modal hidden" role="dialog" aria-modal="true">
+        <div class="modal-backdrop" data-action="close"></div>
+        <section class="panel guide-panel">
+          <div class="panel-title summary-header">
+            <div>
+              <h2>Guide</h2>
+              <p class="muted">How this works, plus what’s next.</p>
+            </div>
+            <button id="guideClose" class="ghost" type="button">Close</button>
+          </div>
+          <div class="guide-content">
+            <h3>Quick start</h3>
+            <ol>
+              <li>Enter host name, pick optional group, and hit <strong>Host a game</strong>.</li>
+              <li>Share the link/QR for players to join on their phones.</li>
+              <li>Players tap <strong>Add buy-in</strong>. Host sees totals update live.</li>
+              <li>When done, hit <strong>Settle game</strong> and enter final chips.</li>
+            </ol>
+
+            <h3>Groups</h3>
+            <ul>
+              <li>Groups are optional. Use them for recurring home games and quarterly summaries.</li>
+              <li>Click a group name to manage players or lock the group with a phrase.</li>
+              <li>Locked groups require the phrase to open or use.</li>
+            </ul>
+
+            <h3>Player flow</h3>
+            <ul>
+              <li>On first join, players enter their name once and are remembered on that device.</li>
+              <li>After joining they see only: buy-ins, total, and a big <strong>Add buy-in</strong>.</li>
+            </ul>
+
+            <h3>Sessions &amp; summaries</h3>
+            <ul>
+              <li><strong>Recent Session</strong> shows past games grouped by group.</li>
+              <li><strong>Quarterly Summary</strong> includes settled games only and shows who‑pays‑who.</li>
+            </ul>
+
+            <h3>Data &amp; privacy</h3>
+            <ul>
+              <li>This is a Supabase‑backed app. Anyone with the join link can access that game.</li>
+              <li>Groups can be locked with a phrase, but there is no full login system yet.</li>
+            </ul>
+
+            <h3>Planned / optional upgrades</h3>
+            <ul>
+              <li>CSV export and receipts.</li>
+              <li>Host/admin PIN and stricter access control.</li>
+              <li>Per‑player notes and settlements history.</li>
+              <li>Private accounts with Supabase Auth (if you want).</li>
+            </ul>
+          </div>
         </section>
       </div>
 

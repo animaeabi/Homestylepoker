@@ -864,6 +864,37 @@ button:disabled {
   overflow: auto;
 }
 
+.guide-panel {
+  position: relative;
+  z-index: 1;
+  width: min(92vw, 720px);
+  max-height: 85vh;
+  overflow: auto;
+}
+
+.guide-content {
+  display: grid;
+  gap: 14px;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.guide-content h3 {
+  font-family: "Fraunces", serif;
+  font-size: 1.05rem;
+}
+
+.guide-content ul,
+.guide-content ol {
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+}
+
+.guide-content li strong {
+  color: var(--accent);
+}
+
 .group-player-list,
 .roster-list {
   display: grid;

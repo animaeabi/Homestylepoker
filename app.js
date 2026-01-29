@@ -80,6 +80,9 @@ const elements = {
   summaryBreakdown: $("#summaryBreakdown"),
   summaryTransfers: $("#summaryTransfers"),
   hostModeToggle: $("#hostModeToggle"),
+  openGuide: $("#openGuide"),
+  guideModal: $("#guideModal"),
+  guideClose: $("#guideClose"),
   hostPanel: $("#hostPanel"),
   summary: $("#summary"),
   hostPlayerName: $("#hostPlayerName"),
@@ -2612,6 +2615,18 @@ if (elements.openSummary) {
   });
 }
 
+if (elements.openGuide) {
+  elements.openGuide.addEventListener("click", () => {
+    if (elements.guideModal) elements.guideModal.classList.remove("hidden");
+  });
+}
+
+if (elements.guideClose) {
+  elements.guideClose.addEventListener("click", () => {
+    if (elements.guideModal) elements.guideModal.classList.add("hidden");
+  });
+}
+
 if (elements.summaryClose) {
   elements.summaryClose.addEventListener("click", closeSummaryModal);
 }
@@ -2620,6 +2635,14 @@ if (elements.summaryModal) {
   elements.summaryModal.addEventListener("click", (event) => {
     if (event.target.dataset.action === "close") {
       closeSummaryModal();
+    }
+  });
+}
+
+if (elements.guideModal) {
+  elements.guideModal.addEventListener("click", (event) => {
+    if (event.target.dataset.action === "close") {
+      elements.guideModal.classList.add("hidden");
     }
   });
 }
@@ -2765,6 +2788,9 @@ window.addEventListener("keydown", (event) => {
   }
   if (elements.createGroupModal && !elements.createGroupModal.classList.contains("hidden")) {
     closeCreateGroupModal();
+  }
+  if (elements.guideModal && !elements.guideModal.classList.contains("hidden")) {
+    elements.guideModal.classList.add("hidden");
   }
   if (elements.rosterModal && !elements.rosterModal.classList.contains("hidden")) {
     closeRosterModal();
