@@ -348,8 +348,8 @@
         <section class="panel guide-panel">
           <div class="panel-title summary-header">
             <div>
-              <h2>Guide</h2>
-              <p class="muted">How this works, plus what’s next.</p>
+              <h2>Readme</h2>
+              <p class="muted">How to use Poker Nights.</p>
             </div>
             <button id="guideClose" class="ghost" type="button">Close</button>
           </div>
@@ -357,52 +357,56 @@
             <h3>Quick start</h3>
             <ol>
               <li>Enter host name, pick optional group, and hit <strong>Host a game</strong>.</li>
-              <li>Share the link/QR for players to join on their phones.</li>
-              <li>Players tap <strong>Add buy-in</strong>. Host sees totals update live.</li>
-              <li>When done, hit <strong>Settle game</strong> and enter final chips.</li>
-              <li>Settled games show a detailed settlement summary (in/out/net).</li>
+              <li>Players join on their phones and tap <strong>Add buy‑in</strong>.</li>
+              <li>When done, host clicks <strong>Settle</strong> to start chip entry.</li>
+              <li>Players submit remaining chips on their own screen.</li>
+              <li>Host reviews totals and saves settlement.</li>
             </ol>
 
             <h3>Groups</h3>
             <ul>
-              <li>Groups are optional. Use them for recurring home games and quarterly summaries.</li>
-              <li>Click a group name to manage players or lock the group with a phrase.</li>
-              <li>Locked groups require the phrase to open or use.</li>
+              <li>Groups are optional. Use them for recurring tables and summaries.</li>
+              <li>Click a group name to manage players, rename, or delete.</li>
+              <li>Lock a group with a phrase; opening it requires the phrase.</li>
             </ul>
 
             <h3>Player flow</h3>
             <ul>
-              <li>On first join, players enter their name once and are remembered on that device.</li>
-              <li>After joining they see only: buy-ins, total, and a big <strong>Add buy-in</strong>.</li>
-              <li>Settled games show a summary card and disable new buy-ins.</li>
+              <li>Players are remembered per device and game.</li>
+              <li>During live play they see: buy‑ins, total, and <strong>Add buy‑in</strong>.</li>
+              <li>When settling starts, buy‑ins lock and <strong>Submit chips</strong> appears.</li>
+              <li>Settled games show a summary card and lock changes.</li>
             </ul>
 
             <h3>Join as player (Smart Join)</h3>
             <ul>
               <li>Use <strong>Join as player</strong> on the landing page.</li>
-              <li>Enter your name to auto-find any active group game you belong to.</li>
-              <li>If multiple active games exist, you’ll pick one.</li>
-              <li>No active group game? You can always join by code.</li>
+              <li>Enter your name to auto‑find active games in your group.</li>
+              <li>If multiple games are live, you’ll pick one.</li>
+              <li>No active group game? Join by code.</li>
             </ul>
 
-            <h3>Sessions &amp; summaries</h3>
+            <h3>History &amp; stats</h3>
             <ul>
-              <li><strong>Recent Sessions</strong> shows past games grouped by group.</li>
+              <li><strong>History</strong> shows past games grouped by group.</li>
               <li><strong>Quarterly Summary</strong> includes settled games only and shows who‑pays‑who.</li>
+              <li><strong>Stats</strong> ranks players by net profit with a skill score.</li>
             </ul>
 
             <h3>Data &amp; privacy</h3>
             <ul>
               <li>This is a Supabase‑backed app. Anyone with the join link can access that game.</li>
               <li>Groups can be locked with a phrase, but there is no full login system yet.</li>
+              <li>Host is permanent for a game (stored locally on the host device).</li>
             </ul>
 
             <h3>Planned / optional upgrades</h3>
             <ul>
+              <li>PWA install (add to home screen).</li>
               <li>CSV export and receipts.</li>
               <li>Host/admin PIN and stricter access control.</li>
-              <li>Per‑player notes and settlements history.</li>
-              <li>Private accounts with Supabase Auth (if you want).</li>
+              <li>Per‑player notes and settlement history.</li>
+              <li>Private accounts with Supabase Auth (optional).</li>
             </ul>
           </div>
         </section>
@@ -493,7 +497,7 @@
         <span id="connectionStatus"></span>
         <span id="saveStatus"></span>
         <div class="footer-actions">
-          <button id="openGuide" class="ghost small" type="button">Guide</button>
+          <button id="openGuide" class="ghost small" type="button">Readme</button>
           <label class="toggle footer-toggle">
             <input type="checkbox" id="themeToggle" />
             <span class="sr-only">Toggle theme</span>
