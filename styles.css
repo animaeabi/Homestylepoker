@@ -1327,6 +1327,8 @@ button:disabled {
 .summary-table {
   display: grid;
   gap: 8px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .summary-row {
@@ -1339,6 +1341,7 @@ button:disabled {
   border: 1px solid var(--row-border);
   border-radius: 12px;
   font-size: 0.85rem;
+  min-width: 520px;
 }
 
 .summary-row.header {
@@ -1961,8 +1964,9 @@ body:not(.theme-light) .footer-toggle input {
   }
 
   .summary-row {
-    grid-template-columns: 1fr;
-    align-items: flex-start;
+    grid-template-columns: 2fr 1fr 1fr 1fr 1fr;
+    align-items: center;
+    min-width: 520px;
   }
 
   .settle-row {
