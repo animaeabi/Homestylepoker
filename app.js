@@ -2331,6 +2331,9 @@ function renderAll() {
   renderPlayerSeat();
   renderLog();
   renderSettlementSummary();
+  if (elements.settleModal && !elements.settleModal.classList.contains("hidden")) {
+    renderSettleList();
+  }
 }
 
 async function refreshData() {
