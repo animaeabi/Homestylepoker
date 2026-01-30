@@ -1113,7 +1113,7 @@ function renderRecentGames(list = loadRecentGames()) {
       row.innerHTML = `
         <div>
           <strong>${game.name || "Home Game"}</strong>
-          <span>${dateLabel} · ${game.code}</span>
+          <span>${dateLabel}</span>
         </div>
         <div class="recent-actions">
           <button class="ghost" data-action="open" data-code="${game.code}" data-group-id="${game.group_id || ""}">Open</button>
