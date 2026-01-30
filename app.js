@@ -130,6 +130,10 @@ const elements = {
   playerSeat: $("#playerSeat"),
   playerCard: $("#playerCard"),
   playerAddDefault: $("#playerAddDefault"),
+  playerSettle: $("#playerSettle"),
+  playerSettleAmount: $("#playerSettleAmount"),
+  playerSubmitChips: $("#playerSubmitChips"),
+  playerSettleStatus: $("#playerSettleStatus"),
   playerBuyins: $("#playerBuyins"),
   playerSettledSummary: $("#playerSettledSummary"),
   playerNotice: $("#playerNotice"),
@@ -176,6 +180,7 @@ if (configMissing) {
   elements.joinAsPlayer.disabled = true;
   elements.hostAddPlayer.disabled = true;
   if (elements.openSettle) elements.openSettle.disabled = true;
+  if (elements.playerSubmitChips) elements.playerSubmitChips.disabled = true;
   if (elements.deleteAllGames) elements.deleteAllGames.disabled = true;
   if (elements.createGroup) elements.createGroup.disabled = true;
   if (elements.openSummary) elements.openSummary.disabled = true;
@@ -1420,6 +1425,10 @@ function isGameSettled() {
   return Boolean(state.game?.ended_at);
 }
 
+function isSettleOpen() {
+  return Boolean(state.game?.settle_open);
+}
+
 function generateCode() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let code = "";
@@ -1513,10 +1522,11 @@ function applyGameStatus() {
   if (!state.game) return;
   const settledAt = state.game.ended_at;
   const settled = Boolean(settledAt);
+  const settling = !settled && isSettleOpen();
 
   if (elements.gameStatusChip) {
-    elements.gameStatusChip.textContent = settled ? "Settled" : "Live";
-    elements.gameStatusChip.dataset.state = settled ? "settled" : "live";
+    elements.gameStatusChip.textContent = settled ? "Settled" : settling ? "Settling" : "Live";
+    elements.gameStatusChip.dataset.state = settled ? "settled" : settling ? "settling" : "live";
   }
 
   elements.settledNotice.classList.toggle("hidden", !settled);
@@ -1528,14 +1538,14 @@ function applyGameStatus() {
     elements.openSettle.classList.toggle("hidden", !state.isHost || settled);
   }
 
-  const disableBuyins = settled;
+  const disableBuyins = settled || settling;
   elements.playerAddDefault.disabled = disableBuyins;
   elements.playerName.disabled = disableBuyins;
   elements.joinAsPlayer.disabled = disableBuyins;
   elements.playerNotice.classList.toggle("hidden", !settled);
   elements.playerJoinNotice.classList.toggle("hidden", !settled);
-  elements.hostPlayerName.disabled = !state.isHost || settled;
-  elements.hostAddPlayer.disabled = !state.isHost || settled;
+  elements.hostPlayerName.disabled = !state.isHost || settled || settling;
+  elements.hostAddPlayer.disabled = !state.isHost || settled || settling;
   if (elements.settleModal && settled) {
     elements.settleModal.classList.add("hidden");
   }
@@ -1661,7 +1671,7 @@ async function setPlayerBuyinCount(playerId, targetCount) {
 }
 
 function handleEditCommit(event) {
-  if (!state.isHost || isGameSettled()) return;
+  if (!state.isHost || isGameSettled() || isSettleOpen()) return;
   const role = event.target.dataset.role;
   if (!["edit-count", "edit-total"].includes(role)) return;
   const tile = event.target.closest(".player-tile");
@@ -1736,7 +1746,7 @@ function renderSummary() {
 
 function renderPlayers() {
   const buyinMap = buildBuyinMap();
-  const buyinLocked = isGameSettled();
+  const buyinLocked = isGameSettled() || isSettleOpen();
   elements.players.innerHTML = "";
 
   if (state.players.length === 0) {
@@ -1804,6 +1814,7 @@ function renderPlayerSeat() {
     }
     return;
   }
+  const settling = isSettleOpen();
   const player = state.players.find((item) => item.id === state.playerId);
   if (!player) {
     if (state.playerId && state.game) {
@@ -1817,6 +1828,9 @@ function renderPlayerSeat() {
     elements.playerJoin.classList.remove("hidden");
     elements.playerSeat.classList.add("hidden");
     elements.playerBuyins.classList.add("hidden");
+    if (elements.playerSettle) {
+      elements.playerSettle.classList.add("hidden");
+    }
     if (elements.playerSettledSummary) {
       elements.playerSettledSummary.classList.add("hidden");
     }
@@ -1829,6 +1843,9 @@ function renderPlayerSeat() {
   elements.playerJoin.classList.add("hidden");
   elements.playerSeat.classList.remove("hidden");
   elements.playerBuyins.classList.add("hidden");
+  if (elements.playerSettle) {
+    elements.playerSettle.classList.toggle("hidden", !settling);
+  }
   if (elements.playerSettledSummary) {
     elements.playerSettledSummary.classList.add("hidden");
   }
@@ -1849,6 +1866,23 @@ function renderPlayerSeat() {
   elements.playerAddDefault.textContent = `Add buy-in (${formatCurrency(
     state.game?.default_buyin || 0
   )})`;
+
+  if (elements.playerSettleAmount && elements.playerSettleStatus) {
+    const currentValue = elements.playerSettleAmount.value;
+    const settledTotal = state.settlements
+      .filter((settlement) => settlement.player_id === player.id)
+      .reduce((sum, settlement) => sum + Number(settlement.amount || 0), 0);
+    if (settling && settledTotal > 0) {
+      elements.playerSettleAmount.value = formatNumberValue(settledTotal);
+      elements.playerSettleStatus.textContent = "Submitted — waiting for host to finalize.";
+    } else if (settling) {
+      elements.playerSettleAmount.value = currentValue || "";
+      elements.playerSettleStatus.textContent = "Enter your remaining chips.";
+    } else {
+      elements.playerSettleAmount.value = "";
+      elements.playerSettleStatus.textContent = "";
+    }
+  }
 }
 
 function renderLog() {
@@ -2532,6 +2566,10 @@ async function joinAsPlayer() {
     setStatus("Game settled. New players are closed.", "error");
     return;
   }
+  if (isSettleOpen()) {
+    setStatus("Settlement in progress. New players are closed.", "error");
+    return;
+  }
   const name = safeTrim(elements.playerName.value);
   if (!name) return;
 
@@ -2636,6 +2674,10 @@ async function addPlayerByName(name) {
     setStatus("Game settled. New players are closed.", "error");
     return;
   }
+  if (isSettleOpen()) {
+    setStatus("Settlement in progress. New players are closed.", "error");
+    return;
+  }
   const trimmed = safeTrim(name);
   if (!trimmed) return;
 
@@ -2663,6 +2705,10 @@ async function addBuyin(playerId, amount) {
     setStatus("Game settled. Buy-ins are locked.", "error");
     return;
   }
+  if (isSettleOpen()) {
+    setStatus("Settlement in progress. Buy-ins are locked.", "error");
+    return;
+  }
   const numeric = Number(amount);
   if (!Number.isFinite(numeric) || numeric <= 0) return;
 
@@ -2676,6 +2722,50 @@ async function addBuyin(playerId, amount) {
   }
 
   await refreshData();
+}
+
+async function saveSettlementForPlayer(playerId, amount) {
+  if (!supabase || !state.game) return false;
+  const { error: deleteError } = await supabase
+    .from("settlements")
+    .delete()
+    .eq("game_id", state.game.id)
+    .eq("player_id", playerId);
+  if (deleteError) {
+    setStatus("Could not update chips", "error");
+    return false;
+  }
+  const { error } = await supabase
+    .from("settlements")
+    .insert({ game_id: state.game.id, player_id: playerId, amount });
+  if (error) {
+    setStatus("Could not update chips", "error");
+    return false;
+  }
+  await refreshData();
+  return true;
+}
+
+async function submitPlayerChips() {
+  if (!supabase || !state.game || !state.playerId) return;
+  if (isGameSettled()) {
+    setStatus("Game settled. Chips are locked.", "error");
+    return;
+  }
+  if (!isSettleOpen()) {
+    setStatus("Settlement has not started yet.", "error");
+    return;
+  }
+  const amount = Number(elements.playerSettleAmount?.value);
+  if (!Number.isFinite(amount) || amount < 0) {
+    setStatus("Enter a valid chip total.", "error");
+    return;
+  }
+  const ok = await saveSettlementForPlayer(state.playerId, amount);
+  if (ok && elements.playerSettleStatus) {
+    elements.playerSettleStatus.textContent = "Submitted — waiting for host to finalize.";
+  }
+  if (ok) setStatus("Chips submitted");
 }
 
 
@@ -2720,6 +2810,17 @@ async function updateGameSettings() {
 
 function renderSettleList() {
   if (!elements.settleList) return;
+  const existingValues = new Map();
+  if (elements.settleModal && !elements.settleModal.classList.contains("hidden")) {
+    elements.settleList.querySelectorAll(".settle-row").forEach((row) => {
+      const input = row.querySelector("input");
+      const value = input?.value;
+      if (value !== undefined && value !== "") {
+        existingValues.set(row.dataset.playerId, value);
+      }
+    });
+  }
+
   elements.settleList.innerHTML = "";
 
   if (state.players.length === 0) {
@@ -2731,11 +2832,19 @@ function renderSettleList() {
   }
 
   const totals = buildBuyinTotals();
+  const settlementTotals = new Map();
+  state.settlements.forEach((settlement) => {
+    const current = settlementTotals.get(settlement.player_id) || 0;
+    settlementTotals.set(settlement.player_id, current + Number(settlement.amount || 0));
+  });
   state.players.forEach((player) => {
     const row = document.createElement("div");
     row.className = "settle-row";
     row.dataset.playerId = player.id;
     const buyinTotal = totals.get(player.id) || 0;
+    const preset =
+      existingValues.get(player.id) ??
+      (settlementTotals.has(player.id) ? formatNumberValue(settlementTotals.get(player.id)) : "");
     row.innerHTML = `
       <div>
         <strong>${player.name}</strong>
@@ -2743,6 +2852,10 @@ function renderSettleList() {
       </div>
       <input type="number" min="0" step="1" placeholder="Chips remaining" />
     `;
+    const input = row.querySelector("input");
+    if (input && preset !== "") {
+      input.value = preset;
+    }
     elements.settleList.appendChild(row);
   });
 }
@@ -2759,7 +2872,26 @@ function setSettleError(message = "") {
   elements.settleError.classList.remove("hidden");
 }
 
-function openSettlePanel() {
+async function setSettleOpen(next) {
+  if (!supabase || !state.game || !state.isHost) return false;
+  if (!("settle_open" in state.game)) {
+    setStatus("Add settle_open column in Supabase to enable settle flow.", "error");
+    return false;
+  }
+  const { error } = await supabase
+    .from("games")
+    .update({ settle_open: next })
+    .eq("id", state.game.id);
+  if (error) {
+    setStatus("Could not update settle status", "error");
+    return false;
+  }
+  state.game.settle_open = next;
+  renderAll();
+  return true;
+}
+
+async function openSettlePanel() {
   if (!state.isHost || !state.game) {
     setStatus("Enable host mode to settle.", "error");
     return;
@@ -2776,6 +2908,7 @@ function openSettlePanel() {
     setStatus("Add players before settling.", "error");
     return;
   }
+  await setSettleOpen(true);
   setSettleError("");
   if (elements.settleModal) {
     elements.settleModal.classList.remove("hidden");
@@ -2783,7 +2916,10 @@ function openSettlePanel() {
   renderSettleList();
 }
 
-function closeSettlePanel() {
+async function closeSettlePanel() {
+  if (!isGameSettled()) {
+    await setSettleOpen(false);
+  }
   if (elements.settleModal) {
     elements.settleModal.classList.add("hidden");
   }
@@ -2895,6 +3031,16 @@ async function submitSettlement(event) {
     return;
   }
 
+  const { error: clearError } = await supabase
+    .from("settlements")
+    .delete()
+    .eq("game_id", state.game.id);
+  if (clearError) {
+    setSettleError("Settlement failed. Please try again.");
+    setStatus("Settlement failed", "error");
+    return;
+  }
+
   const { error: settlementError } = await supabase.from("settlements").insert(entries);
   if (settlementError) {
     setSettleError("Settlement failed. Please try again.");
@@ -2903,10 +3049,11 @@ async function submitSettlement(event) {
   }
 
   const settledAt = new Date().toISOString();
-  const { error: gameError } = await supabase
-    .from("games")
-    .update({ ended_at: settledAt })
-    .eq("id", state.game.id);
+  const updatePayload = { ended_at: settledAt };
+  if ("settle_open" in state.game) {
+    updatePayload.settle_open = false;
+  }
+  const { error: gameError } = await supabase.from("games").update(updatePayload).eq("id", state.game.id);
 
   if (gameError) {
     setStatus("Could not close game", "error");
@@ -2916,7 +3063,7 @@ async function submitSettlement(event) {
   state.game.ended_at = settledAt;
   recordRecentGame(state.game);
   setStatus("Settlement saved");
-  closeSettlePanel();
+  await closeSettlePanel();
   clearCurrentGame();
 }
 
@@ -3403,10 +3550,14 @@ if (elements.leaveGame) {
 }
 
 if (elements.openSettle) {
-  elements.openSettle.addEventListener("click", openSettlePanel);
+  elements.openSettle.addEventListener("click", () => {
+    void openSettlePanel();
+  });
 }
 if (elements.settleCancel) {
-  elements.settleCancel.addEventListener("click", closeSettlePanel);
+  elements.settleCancel.addEventListener("click", () => {
+    void closeSettlePanel();
+  });
 }
 if (elements.settleForm) {
   elements.settleForm.addEventListener("submit", submitSettlement);
@@ -3415,7 +3566,7 @@ if (elements.settleForm) {
 if (elements.settleModal) {
   elements.settleModal.addEventListener("click", (event) => {
     if (event.target.dataset.action === "close") {
-      closeSettlePanel();
+      void closeSettlePanel();
     }
   });
 }
@@ -3423,7 +3574,7 @@ if (elements.settleModal) {
 window.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
   if (elements.settleModal && !elements.settleModal.classList.contains("hidden")) {
-    closeSettlePanel();
+    void closeSettlePanel();
   }
   if (elements.summaryModal && !elements.summaryModal.classList.contains("hidden")) {
     closeSummaryModal();
@@ -3480,7 +3631,7 @@ elements.hostPlayerName.addEventListener("keydown", (event) => {
 
 elements.players.addEventListener("click", (event) => {
   if (!state.isHost) return;
-  if (isGameSettled()) return;
+  if (isGameSettled() || isSettleOpen()) return;
   const action = event.target.dataset.action;
   if (!action) return;
   const tile = event.target.closest(".player-tile");
@@ -3510,7 +3661,7 @@ elements.players.addEventListener("blur", handleEditCommit, true);
 
 elements.players.addEventListener("keydown", (event) => {
   if (!state.isHost) return;
-  if (isGameSettled()) return;
+  if (isGameSettled() || isSettleOpen()) return;
   if (event.key !== "Enter") return;
   if (!["edit-count", "edit-total"].includes(event.target.dataset.role)) return;
   event.preventDefault();
@@ -3585,6 +3736,21 @@ elements.playerAddDefault.addEventListener("click", () => {
   if (!state.playerId) return;
   addBuyin(state.playerId, state.game?.default_buyin || 0);
 });
+
+if (elements.playerSubmitChips) {
+  elements.playerSubmitChips.addEventListener("click", () => {
+    submitPlayerChips();
+  });
+}
+
+if (elements.playerSettleAmount) {
+  elements.playerSettleAmount.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      submitPlayerChips();
+    }
+  });
+}
 
 elements.gameName.addEventListener("change", updateGameSettings);
 

@@ -178,6 +178,14 @@
               <div class="player-actions">
                 <button id="playerAddDefault" class="primary">Add buy-in</button>
               </div>
+              <div id="playerSettle" class="player-settle hidden">
+                <label class="field">
+                  <span>Chips remaining</span>
+                  <input id="playerSettleAmount" type="number" min="0" step="1" placeholder="Enter chips" />
+                </label>
+                <button id="playerSubmitChips" class="primary">Submit chips</button>
+                <p id="playerSettleStatus" class="muted"></p>
+              </div>
               <p id="playerNotice" class="muted hidden">Game settled — buy-ins are locked.</p>
               <div id="playerBuyins" class="player-buyins"></div>
             </div>

@@ -31,6 +31,7 @@ create table if not exists games (
   name text not null,
   currency text default '$',
   default_buyin numeric default 20,
+  settle_open boolean default false,
   ended_at timestamptz,
   created_at timestamptz default now()
 );
@@ -91,6 +92,7 @@ create table if not exists group_players (
 
 alter table games add column if not exists group_id uuid references groups(id) on delete set null;
 alter table groups add column if not exists lock_phrase_hash text;
+alter table games add column if not exists settle_open boolean default false;
 alter table games add column if not exists ended_at timestamptz;
 alter table players add column if not exists group_player_id uuid references group_players(id) on delete set null;
 create table if not exists settlements (
