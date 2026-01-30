@@ -3072,7 +3072,7 @@ async function submitSettlement(event) {
   recordRecentGame(state.game);
   setStatus("Settlement saved");
   await closeSettlePanel();
-  clearCurrentGame();
+  await refreshData();
 }
 
   if (!configMissing) {
