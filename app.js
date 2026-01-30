@@ -2176,7 +2176,7 @@ async function loadQuarterSummary() {
     supabase.from("players").select("id,name,game_id,group_player_id").in("game_id", gameIds),
     supabase.from("buyins").select("game_id,player_id,amount").in("game_id", gameIds),
     supabase.from("settlements").select("game_id,player_id,amount").in("game_id", gameIds),
-    supabase.from("group_players").select("id,name").eq("group_id", groupId)
+    supabase.from("group_players").select("id,name,normalized_name").eq("group_id", groupId)
   ]);
 
   if (settlementsRes.error && settlementsRes.error.code === "42P01") {
@@ -2190,8 +2190,10 @@ async function loadQuarterSummary() {
     return;
   }
 
-  const groupPlayerMap = new Map(
-    (groupPlayersRes.data || []).map((player) => [player.id, player.name])
+  const groupPlayers = groupPlayersRes.data || [];
+  const groupPlayerMap = new Map(groupPlayers.map((player) => [player.id, player.name]));
+  const groupIdByNormalized = new Map(
+    groupPlayers.map((player) => [player.normalized_name, player.id])
   );
   const playerById = new Map((playersRes.data || []).map((player) => [player.id, player]));
 
@@ -2199,14 +2201,17 @@ async function loadQuarterSummary() {
   const gamesByKey = new Map();
 
   function getKey(player) {
-    if (player.group_player_id && groupPlayerMap.has(player.group_player_id)) {
+    const cleanedName = (player.name || "Player").replace(/\s*\(Host\)$/i, "");
+    const normalized = normalizeName(cleanedName);
+    const mappedGroupId = groupIdByNormalized.get(normalized) || null;
+    const resolvedGroupId = player.group_player_id || mappedGroupId;
+    if (resolvedGroupId && groupPlayerMap.has(resolvedGroupId)) {
       return {
-        key: `gp:${player.group_player_id}`,
-        name: groupPlayerMap.get(player.group_player_id)
+        key: `gp:${resolvedGroupId}`,
+        name: groupPlayerMap.get(resolvedGroupId)
       };
     }
-    const normalized = normalizeName(player.name || "Player");
-    return { key: `name:${normalized}`, name: player.name || "Player" };
+    return { key: `name:${normalized}`, name: cleanedName };
   }
 
   function ensureEntry(key, name) {
