@@ -748,6 +748,16 @@ h1 {
   opacity: 1;
 }
 
+#newGameName::placeholder,
+#newHostName::placeholder {
+  color: rgba(246, 241, 233, 0.72);
+}
+
+body.theme-light #newGameName::placeholder,
+body.theme-light #newHostName::placeholder {
+  color: rgba(27, 26, 23, 0.5);
+}
+
 .field select {
   appearance: none;
   background-image:
