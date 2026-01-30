@@ -349,7 +349,7 @@ async function getGroupNameMap(groupIds) {
 }
 
 async function joinGameByCodeWithName(code, name) {
-  const loaded = await loadGameByCode(code);
+  const loaded = await loadGameByCode(code, { allowSettled: false });
   if (!loaded) return false;
   elements.playerName.value = name;
   await joinAsPlayer();
@@ -2421,14 +2421,19 @@ async function startRealtime() {
   });
 }
 
-async function loadGameByCode(code) {
+async function loadGameByCode(code, options = {}) {
   if (!supabase) return;
   const trimmed = safeTrim(code).toUpperCase();
   if (!trimmed) return;
+  const { allowSettled = false } = options;
 
   const { data, error } = await supabase.from("games").select("*").eq("code", trimmed).single();
   if (error || !data) {
     setStatus("Game not found", "error");
+    return null;
+  }
+  if (data.ended_at && !allowSettled && !isLocalHostForGame(trimmed)) {
+    setStatus("Game settled. Only live games can be joined by code.", "error");
     return null;
   }
 
@@ -3079,7 +3084,7 @@ async function submitSettlement(event) {
     const params = new URLSearchParams(window.location.search);
     const incomingCode = safeTrim(params.get("code"));
     if (incomingCode) {
-      loadGameByCode(incomingCode);
+      loadGameByCode(incomingCode, { allowSettled: isLocalHostForGame(incomingCode) });
     } else {
       refreshRecentGames();
       refreshGroups();
@@ -3115,7 +3120,7 @@ elements.createGame.addEventListener("click", () => {
 if (elements.joinGame) {
   elements.joinGame.addEventListener("click", () => {
     if (configMissing) return;
-    loadGameByCode(elements.joinCode.value);
+    loadGameByCode(elements.joinCode.value, { allowSettled: false });
   });
 }
 
@@ -3251,7 +3256,7 @@ if (elements.recentGames) {
           const unlocked = await ensureGroupUnlocked(groupId);
           if (!unlocked) return;
         }
-        loadGameByCode(code);
+        loadGameByCode(code, { allowSettled: true });
       };
       open();
       return;
