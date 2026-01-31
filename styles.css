@@ -353,7 +353,7 @@ body.theme-light .brand-icon {
 
 .sessions-bar {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   justify-content: space-between;
   gap: 12px;
   align-items: center;
@@ -368,6 +368,39 @@ body.theme-light .brand-icon {
   display: flex;
   align-items: center;
   gap: 10px;
+  margin-left: auto;
+}
+
+.gear-icon {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
+.settings-button {
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+  box-shadow: none;
+}
+
+.settings-button:hover {
+  background: rgba(210, 166, 78, 0.14);
+  border-color: rgba(210, 166, 78, 0.25);
+  color: var(--ink);
+  box-shadow: none;
+}
+
+body.theme-light .settings-button {
+  background: transparent;
+  border-color: transparent;
+  color: #6f6a5f;
+}
+
+body.theme-light .settings-button:hover {
+  background: rgba(212, 164, 68, 0.16);
+  border-color: rgba(212, 164, 68, 0.3);
+  color: #1a2a25;
 }
 
 .sessions-grid {
@@ -586,6 +619,22 @@ body.theme-light .brand-icon {
   display: none;
 }
 
+.recent-summary::after {
+  content: "▾";
+  font-size: 0.8rem;
+  color: #23160a;
+  margin-left: 8px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.recent-group[open] > .recent-summary::after {
+  transform: rotate(180deg);
+}
+
 .recent-summary strong {
   background: rgba(210, 166, 78, 0.2);
   color: var(--ink);
@@ -598,6 +647,13 @@ body.theme-light .brand-icon {
   display: grid;
   gap: 8px;
   margin-top: 8px;
+}
+
+.recent-group-list.scrollable {
+  max-height: calc(3 * 56px + 2 * 8px);
+  overflow-y: auto;
+  padding-right: 4px;
+  scrollbar-gutter: stable;
 }
 
 .recent-item {
@@ -1448,7 +1504,27 @@ button:disabled {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  margin-left: auto;
+  justify-content: flex-end;
 }
+
+.stats-btn {
+  background: rgba(210, 166, 78, 0.18);
+  border-color: rgba(210, 166, 78, 0.35);
+  color: var(--ink);
+}
+
+body.theme-light .stats-btn {
+  background: rgba(212, 164, 68, 0.18);
+  border-color: rgba(212, 164, 68, 0.35);
+  color: #1a2a25;
+}
+
+.settings-actions {
+  display: grid;
+  gap: 10px;
+}
+
 
 .host-actions {
   display: grid;
@@ -1894,13 +1970,13 @@ body:not(.theme-light) .footer-toggle input {
   }
 
   .sessions-bar {
-    flex-direction: column;
-    align-items: flex-start;
+    flex-direction: row;
+    align-items: center;
   }
 
   .sessions-actions {
-    width: 100%;
-    justify-content: flex-start;
+    width: auto;
+    justify-content: flex-end;
     flex-wrap: wrap;
   }
 

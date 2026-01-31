@@ -119,6 +119,9 @@ const elements = {
   players: $("#players"),
   recentGames: $("#recentGames"),
   deleteAllGames: $("#deleteAllGames"),
+  sessionsSettings: $("#sessionsSettings"),
+  settingsModal: $("#settingsModal"),
+  settingsClose: $("#settingsClose"),
   playerPanel: $("#playerPanel"),
   playerPanelTitle: $("#playerPanelTitle"),
   playerPanelHeading: $("#playerPanelHeading"),
@@ -559,15 +562,7 @@ function isDeletePinAuthorized() {
 }
 
 async function ensureDeletePin() {
-  if (isDeletePinAuthorized()) return true;
-  const input = window.prompt("Enter delete PIN");
-  if (input === null) return false;
-  if (safeTrim(input) === deletePin) {
-    localStorage.setItem(deletePinKey, "true");
-    return true;
-  }
-  setStatus("Incorrect PIN.", "error");
-  return false;
+  return true;
 }
 
 async function refreshRecentGames() {
@@ -1089,27 +1084,27 @@ function renderRecentGames(list = loadRecentGames()) {
   groupEntries.forEach(([key, group], index) => {
     const details = document.createElement("details");
     details.className = "recent-group";
-    if (index === 0) details.open = true;
 
     const summary = document.createElement("summary");
     summary.className = "recent-summary";
     summary.innerHTML = `
       <span>${group.label}</span>
       <span class="recent-summary-actions">
-        ${key !== "ungrouped" ? `<button class="ghost small" data-action="stats" data-group-id="${key}">Stats</button>` : ""}
-        <strong>${group.games.length}</strong>
+        ${key !== "ungrouped" ? `<button class="ghost small stats-btn" data-action="stats" data-group-id="${key}">Stats</button>` : ""}
       </span>
     `;
     details.appendChild(summary);
 
     const listWrap = document.createElement("div");
     listWrap.className = "recent-group-list";
+    if (group.games.length > 3) {
+      listWrap.classList.add("scrollable");
+    }
 
     group.games.forEach((game) => {
       const row = document.createElement("div");
       row.className = "recent-item";
       const dateLabel = formatShortDate(game.ended_at || game.created_at);
-      const canDelete = isLocalHostForGame(game.code);
       row.innerHTML = `
         <div>
           <strong>${game.name || "Home Game"}</strong>
@@ -1117,7 +1112,7 @@ function renderRecentGames(list = loadRecentGames()) {
         </div>
         <div class="recent-actions">
           <button class="ghost" data-action="open" data-code="${game.code}" data-group-id="${game.group_id || ""}">Open</button>
-          ${canDelete ? `<button class="danger-outline" data-action="delete" data-code="${game.code}">Delete</button>` : ""}
+          <button class="danger-outline" data-action="delete" data-code="${game.code}" data-group-id="${game.group_id || ""}">Delete</button>
         </div>
       `;
       listWrap.appendChild(row);
@@ -2255,8 +2250,8 @@ async function loadQuarterSummary() {
 async function deleteGameByCode(code) {
   if (!code) return;
   if (!isLocalHostForGame(code)) {
-    setStatus("Only the host can delete this game.", "error");
-    return;
+    const authorized = await ensureDeletePin();
+    if (!authorized) return;
   }
 
   const localList = loadRecentGames();
@@ -2321,6 +2316,7 @@ async function deleteAllGames() {
 
   await refreshRecentGames();
   setStatus("All games deleted");
+  closeSettingsModal();
 }
 
 function renderAll() {
@@ -2963,6 +2959,16 @@ function closeSummaryModal() {
   }
 }
 
+function openSettingsModal() {
+  if (!elements.settingsModal) return;
+  elements.settingsModal.classList.remove("hidden");
+}
+
+function closeSettingsModal() {
+  if (!elements.settingsModal) return;
+  elements.settingsModal.classList.add("hidden");
+}
+
 function openSessionsPage() {
   if (!elements.sessionsPanel) return;
   elements.landing.classList.add("hidden");
@@ -3275,7 +3281,14 @@ if (elements.recentGames) {
       return;
     }
     if (action === "delete") {
-      deleteGameByCode(code);
+      const run = async () => {
+        if (groupId) {
+          const unlocked = await ensureGroupUnlocked(groupId);
+          if (!unlocked) return;
+        }
+        await deleteGameByCode(code);
+      };
+      run();
     }
   });
 }
@@ -3440,6 +3453,22 @@ if (elements.statsRange) {
   elements.statsRange.addEventListener("change", () => {
     if (elements.statsModal && !elements.statsModal.classList.contains("hidden")) {
       loadGroupStats();
+    }
+  });
+}
+
+if (elements.sessionsSettings) {
+  elements.sessionsSettings.addEventListener("click", openSettingsModal);
+}
+
+if (elements.settingsClose) {
+  elements.settingsClose.addEventListener("click", closeSettingsModal);
+}
+
+if (elements.settingsModal) {
+  elements.settingsModal.addEventListener("click", (event) => {
+    if (event.target.dataset.action === "close") {
+      closeSettingsModal();
     }
   });
 }

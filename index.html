@@ -197,11 +197,21 @@
         <div class="sessions-bar">
           <div>
             <h2>Sessions</h2>
-            <p class="muted">Grouped by table.</p>
           </div>
           <div class="sessions-actions">
-            <button id="sessionsBack" class="ghost">Back</button>
-            <button id="deleteAllGames" class="danger-outline small" type="button">Delete all</button>
+            <button id="sessionsBack" class="ghost small stats-btn">Back</button>
+            <button id="sessionsSettings" class="ghost small icon-button settings-button" type="button" aria-label="Settings">
+              <svg class="gear-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M12 8.6a3.4 3.4 0 1 1 0 6.8 3.4 3.4 0 0 1 0-6.8Zm8.2 3.4c0-.4 0-.9-.1-1.3l-2-.3a6.9 6.9 0 0 0-.7-1.7l1.2-1.6c-.5-.6-1-1.1-1.6-1.6l-1.6 1.2c-.5-.3-1.1-.6-1.7-.7l-.3-2c-.4 0-.9-.1-1.3-.1s-.9 0-1.3.1l-.3 2c-.6.1-1.2.4-1.7.7L7 5.4c-.6.5-1.1 1-1.6 1.6l1.2 1.6c-.3.5-.6 1.1-.7 1.7l-2 .3c0 .4-.1.9-.1 1.3s0 .9.1 1.3l2 .3c.1.6.4 1.2.7 1.7l-1.2 1.6c.5.6 1 1.1 1.6 1.6l1.6-1.2c.5.3 1.1.6 1.7.7l.3 2c.4 0 .9.1 1.3.1s.9 0 1.3-.1l.3-2c.6-.1 1.2-.4 1.7-.7l1.6 1.2c.6-.5 1.1-1 1.6-1.6l-1.2-1.6c.3-.5.6-1.1.7-1.7l2-.3c.1-.4.1-.9.1-1.3Z"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.6"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </button>
           </div>
         </div>
 
@@ -213,7 +223,6 @@
 
           <div class="landing-card">
             <h2>Quarterly Summary</h2>
-            <p class="muted">Settled games only.</p>
             <label class="field">
               <span>Group</span>
               <select id="summaryGroup"></select>
@@ -222,7 +231,7 @@
               <span>Quarter</span>
               <select id="summaryQuarter"></select>
             </label>
-            <button id="openSummary" class="ghost">View summary</button>
+            <button id="openSummary" class="primary">View summary</button>
           </div>
         </div>
       </section>
@@ -280,6 +289,22 @@
           <div class="stats-section">
             <h3>Leaderboard</h3>
             <div id="statsLeaderboard" class="stats-table"></div>
+          </div>
+        </section>
+      </div>
+
+      <div id="settingsModal" class="modal hidden" role="dialog" aria-modal="true">
+        <div class="modal-backdrop" data-action="close"></div>
+        <section class="panel settings-panel">
+          <div class="panel-title summary-header">
+            <div>
+              <h2>Settings</h2>
+            </div>
+            <button id="settingsClose" class="ghost" type="button">Close</button>
+          </div>
+          <div class="settings-actions">
+            <button id="deleteAllGames" class="danger-outline" type="button">Erase all Data</button>
+            <p class="muted">Deletes all games and history, use with caution.</p>
           </div>
         </section>
       </div>
