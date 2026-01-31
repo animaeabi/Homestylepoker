@@ -364,6 +364,14 @@ body.theme-light .brand-icon {
   border: 1px solid var(--surface-border);
 }
 
+.sessions-bar h2 {
+  margin: 0;
+  font-family: "Cinzel", "Fraunces", serif;
+  font-size: 1.05rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
 .sessions-actions {
   display: flex;
   align-items: center;
@@ -471,7 +479,9 @@ body.theme-light .settings-button:hover {
   justify-self: end;
 }
 
-.landing-card.compact h2 {
+.landing-card.compact h2,
+.landing-card.compact h3,
+.landing-card.compact h5 {
   font-size: 1.02rem;
 }
 
@@ -486,9 +496,11 @@ body.theme-light .settings-button:hover {
   margin: 0;
 }
 
-.landing-card h2 {
+.landing-card h2,
+.landing-card h3,
+.landing-card h5 {
   font-family: "Cinzel", "Fraunces", serif;
-  font-size: 1.05rem;
+  font-size: 0.95rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
