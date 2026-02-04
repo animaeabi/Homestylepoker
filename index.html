@@ -22,40 +22,63 @@
       </header>
 
       <section id="landing" class="landing">
-        <div class="landing-card lets-play">
-          <div class="card-header">
-            <h2>Let’s deal</h2>
-            <button id="openSessions" class="primary history-btn" type="button">History</button>
+        <div class="landing-card lets-play" id="letsDealCard">
+          <button
+            id="letsDealToggle"
+            class="lets-deal-toggle"
+            type="button"
+            aria-expanded="false"
+            aria-controls="letsDealBody"
+          >
+            <span class="lets-deal-title">Host</span>
+            <span class="lets-deal-chevron" aria-hidden="true"></span>
+          </button>
+          <div id="letsDealBody" class="lets-deal-body hidden">
+            <label class="field">
+              <span>Game name</span>
+              <input id="newGameName" type="text" placeholder="Generating name..." />
+            </label>
+            <label class="field">
+              <span>Buy-in amount</span>
+              <input id="newBuyIn" type="number" min="1" step="1" placeholder="10" value="10" />
+            </label>
+            <label class="field">
+              <span>Host name</span>
+              <input id="newHostName" type="text" placeholder="Your name" required />
+            </label>
+            <label class="field">
+              <span>Group (optional)</span>
+              <select id="gameGroup">
+                <option value="">No group (one-off)</option>
+              </select>
+            </label>
+            <button id="createGame" class="primary">Start game</button>
           </div>
-          <label class="field">
-            <span>Game name</span>
-            <input id="newGameName" type="text" placeholder="Generating name..." />
-          </label>
-          <label class="field">
-            <span>Buy-in amount</span>
-            <input id="newBuyIn" type="number" min="1" step="1" placeholder="10" value="10" />
-          </label>
-          <label class="field">
-            <span>Host name</span>
-            <input id="newHostName" type="text" placeholder="Your name" required />
-          </label>
-          <label class="field">
-            <span>Group (optional)</span>
-            <select id="gameGroup">
-              <option value="">No group (one-off)</option>
-            </select>
-          </label>
-          <button id="createGame" class="primary">Host a game</button>
-          <button id="joinPlayer" class="secondary" type="button">Join as player</button>
         </div>
 
         <div class="landing-side">
-          <div class="landing-card compact group-card">
-            <div class="group-header">
-              <h2>Groups</h2>
-              <button id="createGroup" class="primary add-group-btn" type="button">+</button>
+          <button id="joinPlayer" class="deal-button deal-mid join-standalone" type="button">Sit at table</button>
+          <div class="landing-card compact action-card">
+            <div class="landing-actions">
+              <button id="openSessions" class="deal-button deal-secondary" type="button">History</button>
+              <button
+                id="toggleGroups"
+                class="deal-button deal-secondary has-chevron"
+                type="button"
+                aria-expanded="false"
+                aria-controls="groupsPanel"
+              >
+                Groups
+                <span class="groups-chevron" aria-hidden="true"></span>
+              </button>
             </div>
-            <div id="groupList" class="group-list"></div>
+            <div id="groupsPanel" class="groups-panel hidden">
+              <div class="groups-panel-header">
+                <span>Groups</span>
+                <button id="createGroup" class="primary add-group-btn" type="button">+</button>
+              </div>
+              <div id="groupList" class="group-list"></div>
+            </div>
           </div>
         </div>
       </section>

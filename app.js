@@ -6,6 +6,11 @@ const $ = (selector) => document.querySelector(selector);
 
 const elements = {
   landing: $("#landing"),
+  letsDealCard: $("#letsDealCard"),
+  letsDealToggle: $("#letsDealToggle"),
+  letsDealBody: $("#letsDealBody"),
+  toggleGroups: $("#toggleGroups"),
+  groupsPanel: $("#groupsPanel"),
   newGameName: $("#newGameName"),
   newBuyIn: $("#newBuyIn"),
   newHostName: $("#newHostName"),
@@ -2986,6 +2991,26 @@ function closeSessionsPage() {
   history.replaceState({}, "", window.location.pathname);
 }
 
+function setLetsDealOpen(open) {
+  if (!elements.letsDealBody || !elements.letsDealToggle) return;
+  elements.letsDealBody.classList.toggle("hidden", !open);
+  elements.letsDealToggle.setAttribute("aria-expanded", open ? "true" : "false");
+  elements.letsDealCard?.classList.toggle("is-open", open);
+  const shouldDisable = open || configMissing;
+  if (elements.joinPlayer) elements.joinPlayer.disabled = shouldDisable;
+  if (elements.openSessions) elements.openSessions.disabled = shouldDisable;
+  if (elements.toggleGroups) elements.toggleGroups.disabled = shouldDisable;
+  if (open) {
+    setGroupsOpen(false);
+  }
+}
+
+function setGroupsOpen(open) {
+  if (!elements.groupsPanel || !elements.toggleGroups) return;
+  elements.groupsPanel.classList.toggle("hidden", !open);
+  elements.toggleGroups.setAttribute("aria-expanded", open ? "true" : "false");
+}
+
 function clearCurrentGame() {
   if (supabase && state.channel) {
     supabase.removeChannel(state.channel);
@@ -3136,6 +3161,22 @@ if (elements.openSessions) {
     openSessionsPage();
   });
 }
+
+if (elements.letsDealToggle) {
+  elements.letsDealToggle.addEventListener("click", () => {
+    const isOpen = !elements.letsDealBody?.classList.contains("hidden");
+    setLetsDealOpen(!isOpen);
+  });
+}
+
+if (elements.toggleGroups) {
+  elements.toggleGroups.addEventListener("click", () => {
+    const isOpen = !elements.groupsPanel?.classList.contains("hidden");
+    setGroupsOpen(!isOpen);
+  });
+}
+
+setLetsDealOpen(false);
 
 if (elements.sessionsBack) {
   elements.sessionsBack.addEventListener("click", () => {
