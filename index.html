@@ -22,55 +22,11 @@
       </header>
 
       <section id="landing" class="landing">
-        <div class="landing-nav">
-          <button id="navLetsDeal" class="nav-card nav-card--deal" type="button">
-            <span class="nav-icon" aria-hidden="true">
-              <svg viewBox="0 0 48 48" aria-hidden="true">
-                <circle cx="24" cy="16" r="9" stroke="currentColor" stroke-width="2" fill="none" />
-                <circle cx="14" cy="30" r="9" stroke="currentColor" stroke-width="2" fill="none" />
-                <circle cx="34" cy="30" r="9" stroke="currentColor" stroke-width="2" fill="none" />
-                <path d="M24 7v4M24 21v4M15 30h4M29 30h4" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-              </svg>
-            </span>
-            <div class="nav-copy">
-              <h3>Let’s deal</h3>
-              <p class="muted">Start a live table.</p>
-            </div>
-          </button>
-          <button id="openSessions" class="nav-card nav-card--history" type="button">
-            <span class="nav-icon" aria-hidden="true">
-              <svg viewBox="0 0 48 48" aria-hidden="true">
-                <rect x="8" y="12" width="30" height="20" rx="6" stroke="currentColor" stroke-width="2" fill="none" />
-                <path d="M20 18c0-2 1.6-3.4 4-3.4s4 1.4 4 3.2c0 1.4-1 2.4-2.4 2.8l-1.2.4c-1 .3-1.6.9-1.6 1.9v.6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-                <circle cx="24" cy="28.5" r="1.4" fill="currentColor" />
-              </svg>
-            </span>
-            <div class="nav-copy">
-              <h3>History</h3>
-              <p class="muted">Past sessions &amp; stats.</p>
-            </div>
-          </button>
-          <button id="navGroups" class="nav-card nav-card--groups" type="button">
-            <span class="nav-icon" aria-hidden="true">
-              <svg viewBox="0 0 48 48" aria-hidden="true">
-                <circle cx="16" cy="18" r="5.5" stroke="currentColor" stroke-width="2" fill="none" />
-                <circle cx="32" cy="18" r="5.5" stroke="currentColor" stroke-width="2" fill="none" />
-                <path d="M8 34c2.8-4.4 12.4-4.4 15.2 0" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none" />
-                <path d="M24.8 34c2.8-4.4 12.4-4.4 15.2 0" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none" />
-              </svg>
-            </span>
-            <div class="nav-copy">
-              <h3>Groups</h3>
-              <p class="muted">Manage your table.</p>
-            </div>
-          </button>
-        </div>
-
-        <div class="landing-grid">
-          <div class="landing-card lets-play" id="letsDealCard">
-            <div class="card-header">
-              <h2>Let’s deal</h2>
-            </div>
+        <div class="landing-card lets-play">
+          <div class="card-header">
+            <h2>Let’s deal</h2>
+            <button id="openSessions" class="primary history-btn" type="button">History</button>
+          </div>
           <label class="field">
             <span>Game name</span>
             <input id="newGameName" type="text" placeholder="Generating name..." />
@@ -90,17 +46,16 @@
             </select>
           </label>
           <button id="createGame" class="primary">Host a game</button>
-            <button id="joinPlayer" class="secondary" type="button">Join as player</button>
-          </div>
+          <button id="joinPlayer" class="secondary" type="button">Join as player</button>
+        </div>
 
-          <div class="landing-side">
-            <div class="landing-card compact group-card" id="groupsCard">
-              <div class="group-header">
-                <h2>Groups</h2>
-                <button id="createGroup" class="primary add-group-btn" type="button">+</button>
-              </div>
-              <div id="groupList" class="group-list"></div>
+        <div class="landing-side">
+          <div class="landing-card compact group-card">
+            <div class="group-header">
+              <h2>Groups</h2>
+              <button id="createGroup" class="primary add-group-btn" type="button">+</button>
             </div>
+            <div id="groupList" class="group-list"></div>
           </div>
         </div>
       </section>
