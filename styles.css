@@ -2235,6 +2235,36 @@ body:not(.theme-light) .footer-toggle input {
     align-items: flex-start;
   }
 
+  .game-info {
+    flex-wrap: wrap;
+    gap: 12px;
+    width: 100%;
+  }
+
+  .game-info > div {
+    min-width: 0;
+  }
+
+  .game-info h2 {
+    font-size: 1.1rem;
+    word-break: break-word;
+  }
+
+  .info-chip {
+    padding: 8px 10px;
+    font-size: 0.72rem;
+  }
+
+  .toggle {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  #qrCanvas {
+    width: 120px;
+    height: 120px;
+  }
+
   .sessions-bar {
     flex-direction: row;
     align-items: center;
@@ -2248,6 +2278,31 @@ body:not(.theme-light) .footer-toggle input {
 
   .host-layout {
     grid-template-columns: 1fr;
+  }
+
+  .player-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .player-header-actions {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .player-stats {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .stat-field input {
+    text-align: left;
+  }
+
+  .player-actions button {
+    width: 100%;
   }
 
   .top-actions {
