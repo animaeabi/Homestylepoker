@@ -6,6 +6,8 @@ const $ = (selector) => document.querySelector(selector);
 
 const elements = {
   landing: $("#landing"),
+  navLetsDeal: $("#navLetsDeal"),
+  navGroups: $("#navGroups"),
   newGameName: $("#newGameName"),
   newBuyIn: $("#newBuyIn"),
   newHostName: $("#newHostName"),
@@ -16,7 +18,9 @@ const elements = {
   joinGame: $("#joinGame"),
   openSessions: $("#openSessions"),
   homeTitle: $("#homeTitle"),
+  letsDealCard: $("#letsDealCard"),
   groupList: $("#groupList"),
+  groupsCard: $("#groupsCard"),
   createGroup: $("#createGroup"),
   groupModal: $("#groupModal"),
   groupModalTitle: $("#groupModalTitle"),
@@ -3134,6 +3138,18 @@ if (elements.openSessions) {
   elements.openSessions.addEventListener("click", () => {
     if (configMissing) return;
     openSessionsPage();
+  });
+}
+
+if (elements.navLetsDeal) {
+  elements.navLetsDeal.addEventListener("click", () => {
+    elements.letsDealCard?.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+}
+
+if (elements.navGroups) {
+  elements.navGroups.addEventListener("click", () => {
+    elements.groupsCard?.scrollIntoView({ behavior: "smooth", block: "start" });
   });
 }
 

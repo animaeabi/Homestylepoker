@@ -339,11 +339,105 @@ body.theme-light .brand-icon {
 
 .landing {
   display: grid;
+  gap: 18px;
+}
+
+.landing-nav,
+.landing-grid {
+  width: min(1040px, 100%);
+  margin: 0 auto;
+}
+
+.landing-nav {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 18px;
+}
+
+.landing-grid {
+  display: grid;
   grid-template-columns: minmax(0, 1fr) max-content;
   gap: 14px;
   align-items: start;
-  width: min(1040px, 100%);
-  margin: 0 auto;
+}
+
+.nav-card {
+  text-align: left;
+  border-radius: 26px;
+  padding: 20px 22px;
+  border: 1px solid var(--surface-border);
+  background: var(--surface-grad);
+  box-shadow: var(--surface-shadow);
+  display: grid;
+  gap: 12px;
+  position: relative;
+  overflow: hidden;
+}
+
+.nav-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(120deg, rgba(210, 166, 78, 0.12), transparent 45%);
+  opacity: 0.18;
+  pointer-events: none;
+}
+
+.nav-card:hover {
+  border-color: rgba(210, 166, 78, 0.4);
+  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.28);
+}
+
+.nav-card--deal {
+  --nav-accent: var(--accent);
+}
+
+.nav-card--history {
+  --nav-accent: var(--accent-cool);
+}
+
+.nav-card--groups {
+  --nav-accent: var(--accent-red);
+}
+
+.nav-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(210, 166, 78, 0.12);
+  border: 1px solid rgba(210, 166, 78, 0.28);
+  color: var(--nav-accent);
+}
+
+.nav-card--history .nav-icon {
+  background: rgba(61, 140, 125, 0.16);
+  border-color: rgba(61, 140, 125, 0.35);
+}
+
+.nav-card--groups .nav-icon {
+  background: rgba(178, 74, 59, 0.16);
+  border-color: rgba(178, 74, 59, 0.35);
+}
+
+.nav-icon svg {
+  width: 26px;
+  height: 26px;
+  stroke: currentColor;
+}
+
+.nav-copy h3 {
+  margin: 0;
+  font-family: "Cinzel", "Fraunces", serif;
+  font-size: 0.95rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.nav-copy p {
+  margin: 6px 0 0;
 }
 
 .sessions {
@@ -1936,7 +2030,11 @@ body:not(.theme-light) .footer-toggle input {
 }
 
 @media (max-width: 720px) {
-  .landing {
+  .landing-nav {
+    grid-template-columns: 1fr;
+  }
+
+  .landing-grid {
     grid-template-columns: 1fr;
     justify-items: center;
   }
@@ -1951,19 +2049,12 @@ body:not(.theme-light) .footer-toggle input {
     justify-items: center;
   }
 
-  .history-btn,
   .group-card {
     justify-self: center;
   }
 
   .landing-card {
     width: 100%;
-  }
-
-  .lets-play .history-btn {
-    padding: 6px 10px;
-    font-size: 0.72rem;
-    flex-shrink: 0;
   }
 
   .lets-play .card-header h2 {
