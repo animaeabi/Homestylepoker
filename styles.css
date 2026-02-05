@@ -539,9 +539,15 @@ body.theme-light .settings-button:hover {
   isolation: isolate;
 }
 
+<<<<<<< ours
 .join-icon {
+<<<<<<< ours
   width: 4.5em;
   height: 4.5em;
+=======
+  width: 1.4em;
+  height: 1.4em;
+>>>>>>> theirs
   display: inline-block;
   background-image: url("assets/chips.png");
   background-repeat: no-repeat;
@@ -549,6 +555,8 @@ body.theme-light .settings-button:hover {
   background-size: contain;
 }
 
+=======
+>>>>>>> theirs
 .lets-deal-toggle::before,
 .deal-button::before {
   content: "";
@@ -600,7 +608,7 @@ body.theme-light .settings-button:hover {
   background-position: center;
   color: #140d07;
   position: absolute;
-  right: 40px;
+  right: 52px;
   top: 50%;
   transform: translateY(-50%);
   margin-top: 0;
