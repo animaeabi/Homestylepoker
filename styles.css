@@ -965,48 +965,40 @@ select:focus-visible {
 .recent-summary {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  justify-content: flex-start;
+  gap: 0;
   cursor: pointer;
-  padding: 6px 8px;
-  font-size: 0.85rem;
+  padding: 11px 12px;
+  font-size: 1rem;
+  font-family: inherit;
   color: var(--ink);
   list-style: none;
   position: relative;
-  padding-right: 72px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position:
+    calc(100% - 18px) calc(50% - 2px),
+    calc(100% - 12px) calc(50% - 2px);
+  background-size: 6px 6px;
+  background-repeat: no-repeat;
+  padding-right: 34px;
 }
 
 .recent-summary::-webkit-details-marker {
   display: none;
 }
 
-.recent-summary::after {
-  content: "";
-  width: 36px;
-  height: 36px;
-  border-radius: 12px;
-  background: linear-gradient(180deg, rgba(36, 54, 42, 0.95), rgba(21, 34, 27, 0.95));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 6px 14px rgba(0, 0, 0, 0.25);
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-  position: absolute;
-  right: 12px;
-}
-
+.recent-summary::after,
 .recent-summary::before {
-  content: "";
-  position: absolute;
-  right: 26px;
-  width: 0;
-  height: 0;
-  border-left: 6px solid transparent;
-  border-right: 6px solid transparent;
-  border-top: 6px solid #d9c49a;
-  transform: translateY(2px);
-  pointer-events: none;
+  content: none;
 }
 
 .recent-group[open] > .recent-summary::after {
-  transform: rotate(180deg);
+  transform: none;
 }
 
 .recent-summary strong {
@@ -1403,7 +1395,7 @@ button:disabled {
   display: none;
 }
 
-.game.settled-view #hostPanel .panel-title,
+.game.settled-view #hostPanel .host-title,
 .game.settled-view #hostPanel #summary,
 .game.settled-view #hostPanel .host-actions,
 .game.settled-view #hostPanel #players {
