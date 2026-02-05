@@ -1113,9 +1113,6 @@ function renderRecentGames(list = loadRecentGames()) {
     summary.className = "recent-summary";
     summary.innerHTML = `
       <span>${group.label}</span>
-      <span class="recent-summary-actions">
-        ${key !== "ungrouped" ? `<button class="ghost small stats-btn" data-action="stats" data-group-id="${key}">Stats</button>` : ""}
-      </span>
     `;
     details.appendChild(summary);
 
@@ -1123,6 +1120,13 @@ function renderRecentGames(list = loadRecentGames()) {
     listWrap.className = "recent-group-list";
     if (group.games.length > 3) {
       listWrap.classList.add("scrollable");
+    }
+
+    if (key !== "ungrouped") {
+      const actions = document.createElement("div");
+      actions.className = "recent-group-actions";
+      actions.innerHTML = `<button class="ghost small stats-btn" data-action="stats" data-group-id="${key}">Stats</button>`;
+      listWrap.appendChild(actions);
     }
 
     group.games.forEach((game) => {

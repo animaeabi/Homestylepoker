@@ -1012,6 +1012,12 @@ select:focus-visible {
   margin-top: 8px;
 }
 
+.recent-group-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 4px 6px 6px;
+}
+
 .recent-group-list.scrollable {
   max-height: calc(3 * 56px + 2 * 8px);
   overflow-y: auto;
