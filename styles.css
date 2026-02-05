@@ -540,8 +540,8 @@ body.theme-light .settings-button:hover {
 }
 
 .join-icon {
-  width: 1.4em;
-  height: 1.4em;
+  width: 7em;
+  height: 7em;
   display: inline-block;
   background-image: url("assets/chips.png");
   background-repeat: no-repeat;
