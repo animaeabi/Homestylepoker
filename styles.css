@@ -584,7 +584,7 @@ body.theme-light .settings-button:hover {
   background-size: contain;
   background-position: center;
   color: #140d07;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='26' height='26' viewBox='0 0 26 26' fill='none'><rect x='4' y='5' width='12' height='16' rx='2.6' stroke='%23140d07' stroke-width='1.6'/><rect x='9' y='3' width='13' height='19' rx='2.8' fill='%23140d07'/><path d='M15.5 10c-1-1.6-3.6-1.2-3.6 0.9 0 1.9 3.6 4.6 3.6 4.6s3.6-2.7 3.6-4.6c0-2.1-2.6-2.5-3.6-0.9z' fill='%23f7f1e5'/></svg>");
+  background-image: url("assets/host.png");
 }
 
 .deal-button {
