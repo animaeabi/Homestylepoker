@@ -571,9 +571,6 @@ body.theme-light .settings-button:hover {
   z-index: 1;
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35);
   color: #140d07;
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
 }
 
 .host-icon {
@@ -584,8 +581,30 @@ body.theme-light .settings-button:hover {
   background-size: contain;
   background-position: center;
   color: #140d07;
+  position: absolute;
+  right: 22px;
+  top: 50%;
+  transform: translateY(-50%);
+  margin-top: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.host-icon-collapsed {
+  background-image: url("assets/host-1.png");
+  opacity: 1;
+}
+
+.host-icon-expanded {
   background-image: url("assets/host.png");
-  margin-top: 1px;
+}
+
+.lets-deal-toggle[aria-expanded="true"] .host-icon-collapsed {
+  opacity: 0;
+}
+
+.lets-deal-toggle[aria-expanded="true"] .host-icon-expanded {
+  opacity: 1;
 }
 
 .deal-button {
