@@ -539,6 +539,16 @@ body.theme-light .settings-button:hover {
   isolation: isolate;
 }
 
+.join-icon {
+  width: 1.4em;
+  height: 1.4em;
+  display: inline-block;
+  background-image: url("assets/chips.png");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+}
+
 .lets-deal-toggle::before,
 .deal-button::before {
   content: "";
