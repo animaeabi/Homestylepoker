@@ -115,9 +115,9 @@ body.theme-light .deal-button {
 }
 
 body.theme-light .deal-mid {
-  background: radial-gradient(circle at 20% 30%, rgba(231, 214, 120, 0.75), transparent 55%),
-    radial-gradient(circle at 75% 25%, rgba(76, 140, 112, 0.55), transparent 60%),
-    linear-gradient(135deg, #c7b86a 0%, #9e9b50 55%, #6c7c3a 100%);
+  background: radial-gradient(circle at 20% 30%, rgba(235, 220, 135, 0.82), transparent 55%),
+    radial-gradient(circle at 75% 25%, rgba(90, 155, 120, 0.62), transparent 60%),
+    linear-gradient(135deg, #d0c07a 0%, #a7a75c 55%, #748244 100%);
   color: #1f1a0d;
   border-color: transparent;
   border: none;
@@ -603,11 +603,11 @@ body.theme-light .settings-button:hover {
 }
 
 .deal-mid {
-  background: linear-gradient(140deg, #c7a868 0%, #a87333 65%, #8c571f 100%);
+  background: linear-gradient(140deg, #d4b97a 0%, #b9843e 65%, #9d6530 100%);
   color: #2a1b0d;
   border-color: rgba(255, 255, 255, 0.3);
   box-shadow: 0 10px 20px rgba(0, 0, 0, 0.26);
-  filter: saturate(0.88);
+  filter: saturate(0.98) brightness(1.05);
 }
 
 .deal-mid::before,
