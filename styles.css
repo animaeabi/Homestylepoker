@@ -107,7 +107,8 @@ body.theme-light .lets-deal-toggle::after {
 }
 
 body.theme-light .lets-deal-title {
-  background: linear-gradient(180deg, #5e461f 0%, #6f4f21 55%, #7c5a26 100%);
+  color: #1a1209;
+  background: none;
   text-shadow: none;
 }
 
@@ -575,11 +576,9 @@ body.theme-light .settings-button:hover {
   text-transform: uppercase;
   position: relative;
   z-index: 1;
-  background: linear-gradient(180deg, #f7e7b3 0%, #d9b067 55%, #b1782e 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.25);
+  color: #1a1209;
+  background: none;
+  text-shadow: none;
 }
 
 .host-icon {
