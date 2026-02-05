@@ -1497,6 +1497,20 @@ function downloadShareImage(blob, filename) {
   URL.revokeObjectURL(url);
 }
 
+function setSummaryActionsHidden(node, hidden) {
+  const actions = node?.querySelector(".summary-actions");
+  if (!actions) return;
+  if (hidden) {
+    actions.dataset.prevVisibility = actions.style.visibility || "";
+    actions.style.visibility = "hidden";
+    actions.style.pointerEvents = "none";
+  } else {
+    actions.style.visibility = actions.dataset.prevVisibility || "";
+    actions.style.pointerEvents = "";
+    delete actions.dataset.prevVisibility;
+  }
+}
+
 function buildSummaryShareCanvas() {
   const isLight = document.body.classList.contains("theme-light");
   const bg = isLight ? "#efe7da" : "#0f1712";
@@ -1622,7 +1636,7 @@ function buildSummaryShareCanvas() {
 async function shareSummary(node) {
   if (!node) return;
   const isLight = document.body.classList.contains("theme-light");
-  node.classList.add("sharing");
+  setSummaryActionsHidden(node, true);
   try {
     setStatus("Preparing share…");
     let canvas = null;
@@ -1662,7 +1676,7 @@ async function shareSummary(node) {
   } catch (err) {
     setStatus("Share failed", "error");
   } finally {
-    node.classList.remove("sharing");
+    setSummaryActionsHidden(node, false);
   }
 }
 

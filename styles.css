@@ -2261,9 +2261,6 @@ body.theme-light .stats-btn {
   gap: 12px;
 }
 
-.settlement-summary.sharing .summary-actions {
-  display: none;
-}
 
 .settlement-list {
   display: grid;
