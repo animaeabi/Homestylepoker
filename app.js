@@ -79,6 +79,8 @@ const elements = {
   rosterStart: $("#rosterStart"),
   summaryGroup: $("#summaryGroup"),
   summaryQuarter: $("#summaryQuarter"),
+  summaryStart: $("#summaryStart"),
+  summaryEnd: $("#summaryEnd"),
   openSummary: $("#openSummary"),
   configNotice: $("#configNotice"),
   themeToggle: $("#themeToggle"),
@@ -1429,6 +1431,13 @@ function parseQuarterValue(value) {
   return { year: Number(match[1]), quarter: Number(match[2]) };
 }
 
+function parseDateInput(value) {
+  if (!value) return null;
+  const parsed = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed;
+}
+
 function getQuarterRange(year, quarter) {
   const startMonth = (quarter - 1) * 3;
   const start = new Date(Date.UTC(year, startMonth, 1));
@@ -2424,14 +2433,42 @@ async function loadQuarterSummary() {
     return;
   }
 
-  const quarterValue = safeTrim(elements.summaryQuarter?.value);
-  const parsed = parseQuarterValue(quarterValue);
-  if (!parsed) return;
-
   const group = state.groups.find((item) => item.id === groupId);
   const groupName = group?.name || "Group";
-  const { start, end } = getQuarterRange(parsed.year, parsed.quarter);
-  const label = `Q${parsed.quarter} ${parsed.year}`;
+  const startInput = safeTrim(elements.summaryStart?.value);
+  const endInput = safeTrim(elements.summaryEnd?.value);
+  let start;
+  let end;
+  let label;
+
+  if (startInput || endInput) {
+    if (!startInput || !endInput) {
+      setStatus("Select both start and end dates for custom range.", "error");
+      return;
+    }
+    const parsedStart = parseDateInput(startInput);
+    const parsedEnd = parseDateInput(endInput);
+    if (!parsedStart || !parsedEnd) {
+      setStatus("Invalid custom date range.", "error");
+      return;
+    }
+    if (parsedEnd < parsedStart) {
+      setStatus("End date must be after start date.", "error");
+      return;
+    }
+    start = parsedStart;
+    end = new Date(parsedEnd);
+    end.setDate(end.getDate() + 1);
+    label = `${formatShortDate(parsedStart)} – ${formatShortDate(parsedEnd)}`;
+  } else {
+    const quarterValue = safeTrim(elements.summaryQuarter?.value);
+    const parsed = parseQuarterValue(quarterValue);
+    if (!parsed) return;
+    const range = getQuarterRange(parsed.year, parsed.quarter);
+    start = range.start;
+    end = range.end;
+    label = `Q${parsed.quarter} ${parsed.year}`;
+  }
 
   const { data: games, error: gameError } = await supabase
     .from("games")
@@ -3666,6 +3703,22 @@ if (elements.summaryGroup) {
 
 if (elements.summaryQuarter) {
   elements.summaryQuarter.addEventListener("change", () => {
+    if (elements.summaryModal && !elements.summaryModal.classList.contains("hidden")) {
+      loadQuarterSummary();
+    }
+  });
+}
+
+if (elements.summaryStart) {
+  elements.summaryStart.addEventListener("change", () => {
+    if (elements.summaryModal && !elements.summaryModal.classList.contains("hidden")) {
+      loadQuarterSummary();
+    }
+  });
+}
+
+if (elements.summaryEnd) {
+  elements.summaryEnd.addEventListener("change", () => {
     if (elements.summaryModal && !elements.summaryModal.classList.contains("hidden")) {
       loadQuarterSummary();
     }
