@@ -981,17 +981,28 @@ select:focus-visible {
 }
 
 .recent-summary::after {
-  content: "▾";
-  font-size: 0.8rem;
-  color: #23160a;
-  margin-left: 8px;
-  padding: 6px 10px;
-  border-radius: 999px;
-  background: var(--accent);
-  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
+  content: "";
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(36, 54, 42, 0.95), rgba(21, 34, 27, 0.95));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 6px 14px rgba(0, 0, 0, 0.25);
   transition: transform 0.2s ease, box-shadow 0.2s ease;
   position: absolute;
   right: 12px;
+}
+
+.recent-summary::before {
+  content: "";
+  position: absolute;
+  right: 26px;
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 6px solid #d9c49a;
+  transform: translateY(2px);
+  pointer-events: none;
 }
 
 .recent-group[open] > .recent-summary::after {
