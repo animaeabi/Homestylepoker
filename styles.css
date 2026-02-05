@@ -468,8 +468,20 @@ body.theme-light .brand-icon {
   box-shadow: none;
 }
 
+.sessions-actions .stats-btn,
+.sessions-actions .settings-button {
+  height: 28px;
+  padding: 6px 12px;
+  border-radius: 999px;
+}
+
+.sessions-actions .settings-button {
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
 .sessions-actions .icon-button {
-  padding: 6px 10px;
+  padding: 6px 12px;
   font-size: 0.75rem;
   border-radius: 999px;
 }
@@ -961,7 +973,7 @@ select:focus-visible {
   color: var(--ink);
   list-style: none;
   position: relative;
-  padding-right: 52px;
+  padding-right: 56px;
 }
 
 .recent-summary::-webkit-details-marker {
@@ -979,7 +991,7 @@ select:focus-visible {
   box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
   transition: transform 0.2s ease, box-shadow 0.2s ease;
   position: absolute;
-  right: 10px;
+  right: 12px;
 }
 
 .recent-group[open] > .recent-summary::after {
@@ -1201,14 +1213,15 @@ body.theme-light #newHostName::placeholder {
 .inline-toggle {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   font-size: 0.9rem;
-  margin-top: 6px;
+  margin-top: 2px;
+  line-height: 1;
 }
 
 .inline-toggle input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   appearance: none;
   border-radius: 6px;
   border: 1px solid rgba(210, 166, 78, 0.45);
@@ -1969,7 +1982,8 @@ button:disabled {
 .recent-summary-actions {
   display: inline-flex;
   align-items: center;
-  gap: 12px;
+  gap: 16px;
+  margin-right: 56px;
   margin-left: auto;
   justify-content: flex-end;
 }
