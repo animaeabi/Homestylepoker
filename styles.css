@@ -574,15 +574,15 @@ body.theme-light .settings-button:hover {
 }
 
 .host-icon {
-  width: 1.95em;
-  height: 1.95em;
+  width: 3.9em;
+  height: 3.9em;
   display: inline-block;
   background-repeat: no-repeat;
   background-size: contain;
   background-position: center;
   color: #140d07;
   position: absolute;
-  right: 16px;
+  right: 12px;
   top: 50%;
   transform: translateY(-50%);
   margin-top: 0;
