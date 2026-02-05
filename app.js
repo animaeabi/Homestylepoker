@@ -1529,7 +1529,7 @@ function buildSummaryShareCanvas() {
   const width = 1080;
   const padding = 72;
   const rowHeight = 56;
-  const headerHeight = 180;
+  const headerHeight = 200;
   const footerHeight = 90;
   const height = headerHeight + rows.length * rowHeight + footerHeight;
 
@@ -1548,6 +1548,10 @@ function buildSummaryShareCanvas() {
   ctx.font = "500 22px 'Manrope', Arial, sans-serif";
   ctx.fillStyle = muted;
   ctx.fillText("Settlement summary", padding, 118);
+  if (state.game?.ended_at) {
+    ctx.font = "500 18px 'Manrope', Arial, sans-serif";
+    ctx.fillText(`Settled ${formatDateTime(state.game.ended_at)}`, padding, 146);
+  }
 
   ctx.fillStyle = muted;
   ctx.font = "700 18px 'Manrope', Arial, sans-serif";
@@ -2209,6 +2213,7 @@ function renderSettlementSummary() {
       return { id: player.id, name: player.name, moneyIn, moneyOut, net: moneyOut - moneyIn };
     });
 
+  const settledAtText = state.game?.ended_at ? formatDateTime(state.game.ended_at) : "";
   containers.forEach(({ node, visible, title, showHome }) => {
     if (!node) return;
     node.innerHTML = "";
@@ -2222,6 +2227,7 @@ function renderSettlementSummary() {
         <div class="summary-header">
           <div>
             <h2>${title}</h2>
+            ${settledAtText ? `<p class="settled-meta">Settled ${settledAtText}</p>` : ""}
           </div>
           <div class="summary-actions">
             <button class="ghost icon-button" type="button" data-action="home" aria-label="Home">
@@ -2239,7 +2245,12 @@ function renderSettlementSummary() {
         </div>
       `;
     } else {
-      header.innerHTML = `<h2>${title}</h2>`;
+      header.innerHTML = `
+        <div>
+          <h2>${title}</h2>
+          ${settledAtText ? `<p class="settled-meta">Settled ${settledAtText}</p>` : ""}
+        </div>
+      `;
     }
     node.appendChild(header);
 
