@@ -105,10 +105,11 @@
               Status
               <strong id="gameStatusChip">Live</strong>
             </div>
-            <label class="toggle">
-              <input type="checkbox" id="hostModeToggle" />
-              <span>Host mode</span>
-            </label>
+            <div class="game-tools">
+              <button id="qrButton" class="qr-button" type="button" aria-label="Show QR code">
+                <canvas id="qrCanvas" width="64" height="64"></canvas>
+              </button>
+            </div>
             <button id="openSettle" class="danger-outline">Settle game</button>
           </div>
         </div>
@@ -127,9 +128,7 @@
                 <div class="share-panel">
                   <div class="link-row">
                     <input id="joinLink" class="sr-only" type="text" readonly />
-                    <button id="copyLinkInline" class="ghost">Share Link</button>
                   </div>
-                  <canvas id="qrCanvas" width="140" height="140"></canvas>
                 </div>
                 <div class="join-card hidden">
                   <h3>Game settings</h3>
@@ -153,17 +152,25 @@
 
             <div class="host-right">
               <section id="hostPanel" class="panel">
-                <div class="panel-title">
-                  <h2>Host</h2>
-                  <p>Live totals as players buy in.</p>
+                <div class="panel-title host-title">
+                  <div>
+                    <h2>Host</h2>
+                  </div>
+                  <label class="toggle">
+                    <input type="checkbox" id="hostModeToggle" />
+                    <span>Host mode</span>
+                  </label>
                 </div>
                 <div id="summary" class="summary"></div>
                 <div class="host-actions">
-                  <label class="field">
-                    <span>Add player (optional)</span>
-                    <input id="hostPlayerName" type="text" placeholder="Player name" />
-                  </label>
-                  <div class="action-row">
+                  <div class="host-actions-bar">
+                    <button id="hostAddToggle" class="primary add-player-btn" type="button">+</button>
+                  </div>
+                  <div id="hostAddForm" class="host-add-form hidden">
+                    <label class="field">
+                      <span class="sr-only">Player name</span>
+                      <input id="hostPlayerName" type="text" placeholder="Player name" />
+                    </label>
                     <button id="hostAddPlayer" class="primary">Add player</button>
                   </div>
                 </div>
@@ -264,16 +271,36 @@
         <section id="settlePanel" class="panel settle-panel">
           <div class="panel-title">
             <h2>Settle</h2>
-            <p>Enter each player’s remaining chips. This ends the game and saves the results.</p>
+            <p>Enter each player's remaining chips.</p>
           </div>
           <p id="settleError" class="form-error hidden"></p>
           <form id="settleForm" class="settle-form">
             <div id="settleList" class="settle-list"></div>
             <div class="settle-actions">
-              <button id="settleCancel" type="button" class="ghost">Cancel</button>
-              <button type="submit" class="primary">Save settlement</button>
+              <div class="settle-balance" aria-live="polite">
+                <span>Pot balance</span>
+                <strong id="settleRemaining">-$0.00</strong>
+              </div>
+              <div class="settle-buttons">
+                <button id="settleCancel" type="button" class="ghost">Cancel</button>
+                <button type="submit" class="primary">Save settlement</button>
+              </div>
             </div>
           </form>
+        </section>
+      </div>
+
+      <div id="qrModal" class="modal hidden" role="dialog" aria-modal="true">
+        <div class="modal-backdrop" data-action="close"></div>
+        <section class="panel qr-panel">
+          <div class="panel-title summary-header">
+            <div>
+              <h2>Scan to join</h2>
+              <p class="muted">Point your camera at the code.</p>
+            </div>
+            <button id="qrClose" class="ghost" type="button">Close</button>
+          </div>
+          <canvas id="qrCanvasLarge" width="240" height="240"></canvas>
         </section>
       </div>
 
@@ -518,6 +545,23 @@
           <div class="roster-actions">
             <button id="lockPhraseCancel" class="ghost" type="button">Cancel</button>
             <button id="lockPhraseSubmit" class="primary" type="button">Unlock</button>
+          </div>
+        </section>
+      </div>
+
+      <div id="confirmModal" class="modal hidden" role="dialog" aria-modal="true">
+        <div class="modal-backdrop" data-action="close"></div>
+        <section class="panel confirm-panel">
+          <div class="panel-title summary-header">
+            <div>
+              <h2>Are you sure?</h2>
+              <p id="confirmMessage" class="muted"></p>
+            </div>
+            <button id="confirmClose" class="ghost" type="button">Close</button>
+          </div>
+          <div class="roster-actions">
+            <button id="confirmCancel" class="ghost" type="button">Cancel</button>
+            <button id="confirmOk" class="danger-outline" type="button">Remove</button>
           </div>
         </section>
       </div>

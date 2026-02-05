@@ -170,6 +170,12 @@ body.theme-light .recent-summary strong {
   padding: 0;
 }
 
+html,
+body {
+  width: 100%;
+  overflow-x: hidden;
+}
+
 body {
   font-family: "Manrope", sans-serif;
   background: radial-gradient(circle at top, rgba(210, 166, 78, 0.15), transparent 55%),
@@ -238,6 +244,7 @@ body.theme-light::after {
 
 .app {
   max-width: 1120px;
+  width: 100%;
   margin: 0 auto;
   padding: 32px 20px 56px;
   display: flex;
@@ -245,6 +252,7 @@ body.theme-light::after {
   gap: 40px;
   position: relative;
   z-index: 1;
+  overflow-x: hidden;
 }
 
 .hidden {
@@ -1232,6 +1240,22 @@ button:disabled {
   align-items: start;
 }
 
+.game.settled-view .host-layout {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.game.settled-view .host-left,
+.game.settled-view #logPanel {
+  display: none;
+}
+
+.game.settled-view #hostPanel .panel-title,
+.game.settled-view #hostPanel #summary,
+.game.settled-view #hostPanel .host-actions,
+.game.settled-view #hostPanel #players {
+  display: none;
+}
+
 .host-left,
 .host-right {
   display: grid;
@@ -1254,6 +1278,51 @@ button:disabled {
   display: flex;
   gap: 18px;
   align-items: center;
+  max-width: 100%;
+}
+
+.game-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.host-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.qr-button {
+  width: 64px;
+  height: 64px;
+  padding: 0;
+  border-radius: 14px;
+  background: var(--row-bg);
+  border: 1px solid var(--row-border);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.qr-button canvas {
+  width: 56px;
+  height: 56px;
+}
+
+.qr-panel {
+  max-width: 360px;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.qr-panel canvas {
+  width: 240px;
+  height: 240px;
+  display: block;
+  margin: 0 auto;
 }
 
 .game-info h2 {
@@ -1629,12 +1698,14 @@ button:disabled {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  flex-wrap: wrap;
 }
 
 .summary-actions {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .summary-header button {
@@ -1803,6 +1874,24 @@ body.theme-light .stats-btn {
   gap: 10px;
 }
 
+.host-actions-bar {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.add-player-btn {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: 12px;
+  font-size: 1.1rem;
+}
+
+.host-add-form {
+  display: grid;
+  gap: 10px;
+}
+
 .players {
   display: grid;
   gap: 14px;
@@ -1826,15 +1915,37 @@ body.theme-light .stats-btn {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 10px;
+}
+
+.player-name {
+  display: grid;
+  gap: 6px;
+}
+
+.player-name input {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 8px 10px;
+  font-size: 0.95rem;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--ink);
 }
 
 .player-header h4 {
   font-size: 1.1rem;
+  margin: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .player-header-actions {
   display: flex;
   gap: 8px;
+  flex-shrink: 0;
 }
 
 .player-header-actions button {
@@ -1846,15 +1957,27 @@ body.theme-light .stats-btn {
   color: var(--muted);
 }
 
+.icon-btn {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+}
+
 .player-stats {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 8px;
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
 }
 
 .stat-field {
-  display: grid;
-  gap: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 0.75rem;
   color: var(--muted);
 }
@@ -1866,8 +1989,44 @@ body.theme-light .stats-btn {
   font-size: 0.95rem;
   background: rgba(255, 255, 255, 0.08);
   color: var(--ink);
-  text-align: right;
+  text-align: left;
   font-variant-numeric: tabular-nums;
+}
+
+.stat-value {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.player-tile .stat-value,
+.player-tile .player-name h4 {
+  display: block;
+}
+
+.player-tile input[data-role='edit-name'],
+.player-tile input[data-role='edit-count'],
+.player-tile input[data-role='edit-total'],
+.player-tile.editing .stat-value,
+.player-tile.editing .player-name h4 {
+  display: none;
+}
+
+.player-tile.editing input[data-role='edit-name'],
+.player-tile.editing input[data-role='edit-count'],
+.player-tile.editing input[data-role='edit-total'] {
+  display: block;
+}
+
+.player-tile.editing .player-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+}
+
+.player-tile.editing .stat-field {
+  flex-direction: column;
+  align-items: stretch;
 }
 
 .adjust-hint {
@@ -1878,6 +2037,11 @@ body.theme-light .stats-btn {
 .player-actions {
   display: grid;
   gap: 10px;
+}
+
+.player-actions .primary {
+  padding: 10px 14px;
+  font-size: 0.9rem;
 }
 
 .player-actions .row {
@@ -2015,20 +2179,70 @@ body.theme-light .stats-btn {
   margin-top: 2px;
 }
 
+.settle-meta {
+  display: grid;
+  gap: 4px;
+}
+
+.settle-input {
+  display: grid;
+  justify-items: end;
+  gap: 4px;
+  min-width: 150px;
+  text-align: right;
+}
+
+.settle-input span {
+  margin-top: 0;
+  font-size: 0.72rem;
+}
+
 .settle-row input {
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 8px 10px;
-  width: 150px;
-  font-size: 0.9rem;
+  padding: 6px 10px;
+  width: 128px;
+  font-size: 0.85rem;
   background: rgba(255, 255, 255, 0.08);
   color: var(--ink);
 }
 
 .settle-actions {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
   flex-wrap: wrap;
+  gap: 12px;
+}
+
+.settle-balance {
+  display: grid;
+  gap: 2px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.settle-balance strong {
+  font-size: 1rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+#settleRemaining[data-state="neg"] {
+  color: var(--accent-red);
+}
+
+#settleRemaining[data-state="pos"] {
+  color: var(--accent);
+}
+
+#settleRemaining[data-state="zero"] {
+  color: var(--accent-cool);
+}
+
+.settle-buttons {
+  display: inline-flex;
+  align-items: center;
   gap: 10px;
 }
 
@@ -2039,6 +2253,10 @@ body.theme-light .stats-btn {
   padding: 16px;
   display: grid;
   gap: 12px;
+}
+
+.settlement-summary.sharing .summary-actions {
+  display: none;
 }
 
 .settlement-list {
@@ -2236,13 +2454,40 @@ body:not(.theme-light) .footer-toggle input {
   }
 
   .game-info {
-    flex-wrap: wrap;
-    gap: 12px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+    gap: 10px;
+    width: 100%;
+    align-items: center;
+  }
+
+  .game-info > div:first-child {
+    grid-column: 1 / -1;
+  }
+
+  .info-chip {
     width: 100%;
   }
 
-  .game-info > div {
-    min-width: 0;
+  .game-tools {
+    grid-column: 3;
+    justify-content: flex-end;
+    justify-self: end;
+  }
+
+  #openSettle {
+    grid-column: 1 / -1;
+  }
+
+  .host-title {
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .host-title .toggle {
+    padding: 6px 10px;
+    font-size: 0.8rem;
   }
 
   .game-info h2 {
@@ -2255,14 +2500,29 @@ body:not(.theme-light) .footer-toggle input {
     font-size: 0.72rem;
   }
 
-  .toggle {
+  .game-tools {
     width: 100%;
-    justify-content: flex-start;
+    justify-content: flex-end;
+  }
+
+  .toggle {
+    padding: 6px 10px;
+    font-size: 0.8rem;
   }
 
   #qrCanvas {
-    width: 120px;
-    height: 120px;
+    width: 48px;
+    height: 48px;
+  }
+
+  .qr-button {
+    width: 56px;
+    height: 56px;
+  }
+
+  .qr-button canvas {
+    width: 48px;
+    height: 48px;
   }
 
   .sessions-bar {
@@ -2280,25 +2540,9 @@ body:not(.theme-light) .footer-toggle input {
     grid-template-columns: 1fr;
   }
 
-  .player-header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 8px;
-  }
-
-  .player-header-actions {
-    width: 100%;
-    justify-content: flex-start;
-    flex-wrap: wrap;
-  }
-
-  .player-stats {
-    grid-template-columns: 1fr;
-    gap: 10px;
-  }
-
-  .stat-field input {
-    text-align: left;
+  .player-header-actions button {
+    padding: 4px 8px;
+    font-size: 0.75rem;
   }
 
   .player-actions button {
@@ -2377,11 +2621,12 @@ body:not(.theme-light) .footer-toggle input {
   }
 
   .settle-row {
-    flex-direction: column;
-    align-items: stretch;
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
   }
 
   .settle-row input {
-    width: 100%;
+    width: 120px;
   }
 }

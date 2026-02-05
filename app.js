@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import QRCode from "https://esm.sh/qrcode@1.5.3";
+import html2canvas from "https://esm.sh/html2canvas@1.4.1";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js";
 
 const $ = (selector) => document.querySelector(selector);
@@ -21,6 +22,10 @@ const elements = {
   joinGame: $("#joinGame"),
   openSessions: $("#openSessions"),
   homeTitle: $("#homeTitle"),
+  qrButton: $("#qrButton"),
+  qrModal: $("#qrModal"),
+  qrClose: $("#qrClose"),
+  qrCanvasLarge: $("#qrCanvasLarge"),
   groupList: $("#groupList"),
   createGroup: $("#createGroup"),
   groupModal: $("#groupModal"),
@@ -62,6 +67,11 @@ const elements = {
   lockPhraseClose: $("#lockPhraseClose"),
   lockPhraseCancel: $("#lockPhraseCancel"),
   lockPhraseSubmit: $("#lockPhraseSubmit"),
+  confirmModal: $("#confirmModal"),
+  confirmMessage: $("#confirmMessage"),
+  confirmClose: $("#confirmClose"),
+  confirmCancel: $("#confirmCancel"),
+  confirmOk: $("#confirmOk"),
   rosterTitle: $("#rosterTitle"),
   rosterClose: $("#rosterClose"),
   rosterList: $("#rosterList"),
@@ -99,6 +109,7 @@ const elements = {
   settleList: $("#settleList"),
   settleCancel: $("#settleCancel"),
   settleError: $("#settleError"),
+  settleRemaining: $("#settleRemaining"),
   settlementSummary: $("#settlementSummary"),
   summaryModal: $("#summaryModal"),
   summaryClose: $("#summaryClose"),
@@ -119,6 +130,8 @@ const elements = {
   guideClose: $("#guideClose"),
   hostPanel: $("#hostPanel"),
   summary: $("#summary"),
+  hostAddToggle: $("#hostAddToggle"),
+  hostAddForm: $("#hostAddForm"),
   hostPlayerName: $("#hostPlayerName"),
   hostAddPlayer: $("#hostAddPlayer"),
   players: $("#players"),
@@ -179,6 +192,7 @@ let statusTimer = null;
 let joinFlowName = "";
 let joinFlowHasList = false;
 let lockResolve = null;
+let confirmResolve = null;
 
 if (configMissing) {
   elements.configNotice.classList.remove("hidden");
@@ -187,6 +201,7 @@ if (configMissing) {
   if (elements.joinGame) elements.joinGame.disabled = true;
   elements.joinAsPlayer.disabled = true;
   elements.hostAddPlayer.disabled = true;
+  if (elements.hostAddToggle) elements.hostAddToggle.disabled = true;
   if (elements.openSettle) elements.openSettle.disabled = true;
   if (elements.playerSubmitChips) elements.playerSubmitChips.disabled = true;
   if (elements.deleteAllGames) elements.deleteAllGames.disabled = true;
@@ -1471,6 +1486,182 @@ async function copyText(value) {
   }
 }
 
+function downloadShareImage(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function buildSummaryShareCanvas() {
+  const isLight = document.body.classList.contains("theme-light");
+  const bg = isLight ? "#efe7da" : "#0f1712";
+  const ink = isLight ? "#1f3b33" : "#f3e6c8";
+  const muted = isLight ? "#4c6a5f" : "#c5b18a";
+  const line = isLight ? "rgba(0,0,0,0.12)" : "rgba(255,255,255,0.15)";
+  const pos = isLight ? "#1f6f5c" : "#76e3c7";
+  const neg = isLight ? "#a23a2a" : "#b24a3b";
+
+  const buyinTotals = new Map();
+  state.buyins.forEach((buyin) => {
+    const current = buyinTotals.get(buyin.player_id) || 0;
+    buyinTotals.set(buyin.player_id, current + Number(buyin.amount || 0));
+  });
+  const settlementTotals = new Map();
+  state.settlements.forEach((settlement) => {
+    const current = settlementTotals.get(settlement.player_id) || 0;
+    settlementTotals.set(settlement.player_id, current + Number(settlement.amount || 0));
+  });
+
+  const rows = state.players
+    .slice()
+    .sort((a, b) => (a.name || "").localeCompare(b.name || ""))
+    .map((player) => {
+      const moneyIn = buyinTotals.get(player.id) || 0;
+      const moneyOut = settlementTotals.get(player.id) || 0;
+      return { name: player.name || "Player", moneyIn, moneyOut, net: moneyOut - moneyIn };
+    });
+
+  const width = 1080;
+  const padding = 72;
+  const rowHeight = 56;
+  const headerHeight = 180;
+  const footerHeight = 90;
+  const height = headerHeight + rows.length * rowHeight + footerHeight;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, width, height);
+
+  ctx.fillStyle = ink;
+  ctx.font = "700 44px Cinzel, Georgia, serif";
+  ctx.fillText(state.game?.name || "Poker Nights", padding, 78);
+  ctx.font = "500 22px 'Manrope', Arial, sans-serif";
+  ctx.fillStyle = muted;
+  ctx.fillText("Settlement summary", padding, 118);
+
+  ctx.fillStyle = muted;
+  ctx.font = "700 18px 'Manrope', Arial, sans-serif";
+  const headerY = headerHeight - 20;
+  const colNet = width - padding;
+  const colOut = colNet - 160;
+  const colIn = colOut - 160;
+
+  ctx.fillText("Player", padding, headerY);
+  ctx.fillText("In", colIn - 20, headerY);
+  ctx.fillText("Out", colOut - 20, headerY);
+  ctx.fillText("Net", colNet - 20, headerY);
+
+  ctx.strokeStyle = line;
+  ctx.beginPath();
+  ctx.moveTo(padding, headerY + 12);
+  ctx.lineTo(width - padding, headerY + 12);
+  ctx.stroke();
+
+  const drawRight = (text, x, y) => {
+    const w = ctx.measureText(text).width;
+    ctx.fillText(text, x - w, y);
+  };
+
+  let y = headerHeight + 24;
+  let totalIn = 0;
+  let totalOut = 0;
+
+  rows.forEach((row) => {
+    totalIn += row.moneyIn;
+    totalOut += row.moneyOut;
+    ctx.fillStyle = ink;
+    ctx.font = "600 24px 'Manrope', Arial, sans-serif";
+    ctx.fillText(row.name, padding, y);
+    ctx.font = "500 22px 'Manrope', Arial, sans-serif";
+    ctx.fillStyle = muted;
+    drawRight(formatCurrency(row.moneyIn), colIn, y);
+    drawRight(formatCurrency(row.moneyOut), colOut, y);
+    ctx.fillStyle = row.net >= 0 ? pos : neg;
+    const netText = `${row.net < 0 ? "-" : ""}${formatCurrency(Math.abs(row.net))}`;
+    drawRight(netText, colNet, y);
+    y += rowHeight;
+  });
+
+  ctx.strokeStyle = line;
+  ctx.beginPath();
+  ctx.moveTo(padding, y - 18);
+  ctx.lineTo(width - padding, y - 18);
+  ctx.stroke();
+
+  ctx.fillStyle = ink;
+  ctx.font = "700 22px 'Manrope', Arial, sans-serif";
+  ctx.fillText("Total", padding, y + 12);
+  ctx.fillStyle = muted;
+  drawRight(formatCurrency(totalIn), colIn, y + 12);
+  drawRight(formatCurrency(totalOut), colOut, y + 12);
+  const netTotal = totalOut - totalIn;
+  ctx.fillStyle = netTotal >= 0 ? pos : neg;
+  drawRight(
+    `${netTotal < 0 ? "-" : ""}${formatCurrency(Math.abs(netTotal))}`,
+    colNet,
+    y + 12
+  );
+
+  return canvas;
+}
+
+async function shareSummary(node) {
+  if (!node) return;
+  const isLight = document.body.classList.contains("theme-light");
+  node.classList.add("sharing");
+  try {
+    setStatus("Preparing share…");
+    let canvas = null;
+    try {
+      canvas = await html2canvas(node, {
+        backgroundColor: isLight ? "#f2ede3" : "#0f1712",
+        scale: Math.min(2, window.devicePixelRatio || 1),
+        useCORS: true
+      });
+    } catch (err) {
+      canvas = buildSummaryShareCanvas();
+    }
+    if (!canvas) {
+      canvas = buildSummaryShareCanvas();
+    }
+    let blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+    if (!blob) {
+      const dataUrl = canvas.toDataURL("image/png");
+      const res = await fetch(dataUrl);
+      blob = await res.blob();
+    }
+    if (!blob) throw new Error("Share failed");
+    const file = new File([blob], `poker-night-summary-${state.game?.code || "game"}.png`, {
+      type: "image/png"
+    });
+    const canNativeShare =
+      navigator.share &&
+      (!navigator.canShare || navigator.canShare({ files: [file] })) &&
+      window.isSecureContext;
+    if (canNativeShare) {
+      await navigator.share({ files: [file], title: "Poker Nights Summary" });
+      setStatus("Share sheet opened");
+      return;
+    }
+    downloadShareImage(blob, file.name);
+    setStatus("Image downloaded");
+  } catch (err) {
+    setStatus("Share failed", "error");
+  } finally {
+    node.classList.remove("sharing");
+  }
+}
+
 function applyHostMode() {
   elements.hostModeToggle.checked = state.isHost;
   const toggleWrap = elements.hostModeToggle.closest(".toggle");
@@ -1498,6 +1689,7 @@ function applyHostMode() {
   elements.defaultBuyIn.disabled = !state.isHost;
   elements.hostPlayerName.disabled = !state.isHost;
   elements.hostAddPlayer.disabled = !state.isHost;
+  if (elements.hostAddToggle) elements.hostAddToggle.disabled = !state.isHost;
   if (elements.settlementSummary) {
     elements.settlementSummary.classList.toggle("hidden", !state.isHost || !isGameSettled());
   }
@@ -1523,6 +1715,19 @@ function applyGameStatus() {
   const settledAt = state.game.ended_at;
   const settled = Boolean(settledAt);
   const settling = !settled && isSettleOpen();
+
+  if (elements.gamePanel) {
+    elements.gamePanel.classList.toggle("settled-view", settled);
+  }
+  if (elements.hostPanel) {
+    elements.hostPanel.classList.toggle("settled-only", settled);
+  }
+  if (elements.joinPanel) {
+    elements.joinPanel.classList.toggle("hidden", settled);
+  }
+  if (elements.logPanel) {
+    elements.logPanel.classList.toggle("hidden", settled);
+  }
 
   if (elements.gameStatusChip) {
     elements.gameStatusChip.textContent = settled ? "Settled" : settling ? "Settling" : "Live";
@@ -1561,12 +1766,24 @@ function hydrateInputs() {
   const joinLink = getJoinLink();
   elements.joinLink.value = joinLink;
 
-  QRCode.toCanvas(
-    elements.qrCanvas,
-    joinLink,
-    { width: 140, margin: 1, color: { dark: "#1b140c", light: "#ffffff" } },
-    () => {}
-  );
+  const qrSmall = elements.qrCanvas;
+  const qrLarge = elements.qrCanvasLarge;
+  if (qrSmall) {
+    QRCode.toCanvas(
+      qrSmall,
+      joinLink,
+      { width: 64, margin: 1, color: { dark: "#1b140c", light: "#ffffff" } },
+      () => {}
+    );
+  }
+  if (qrLarge) {
+    QRCode.toCanvas(
+      qrLarge,
+      joinLink,
+      { width: 240, margin: 1, color: { dark: "#1b140c", light: "#ffffff" } },
+      () => {}
+    );
+  }
 }
 
 function computeSummary() {
@@ -1673,10 +1890,23 @@ async function setPlayerBuyinCount(playerId, targetCount) {
 function handleEditCommit(event) {
   if (!state.isHost || isGameSettled() || isSettleOpen()) return;
   const role = event.target.dataset.role;
-  if (!["edit-count", "edit-total"].includes(role)) return;
+  if (!["edit-count", "edit-total", "edit-name"].includes(role)) return;
   const tile = event.target.closest(".player-tile");
   if (!tile) return;
   const playerId = tile.dataset.playerId;
+  const player = state.players.find((item) => item.id === playerId);
+  if (!player) return;
+
+  if (role === "edit-name") {
+    const nextName = safeTrim(event.target.value);
+    if (!nextName) {
+      event.target.value = player.name;
+      return;
+    }
+    if (nextName === player.name) return;
+    updatePlayerName(playerId, nextName);
+    return;
+  }
   const defaultBuyin = getDefaultBuyinValue();
   if (defaultBuyin <= 0) {
     setStatus("Default buy-in must be greater than 0.", "error");
@@ -1695,6 +1925,10 @@ function handleEditCommit(event) {
     if (count === currentCount) return;
     const totalInput = tile.querySelector("[data-role='edit-total']");
     if (totalInput) totalInput.value = formatNumberValue(count * defaultBuyin);
+    const displayCount = tile.querySelector("[data-role='count-display']");
+    const displayTotal = tile.querySelector("[data-role='total-display']");
+    if (displayCount) displayCount.textContent = count;
+    if (displayTotal) displayTotal.textContent = formatCurrency(count * defaultBuyin);
     setPlayerBuyinCount(playerId, count);
     return;
   }
@@ -1715,6 +1949,10 @@ function handleEditCommit(event) {
 
   const countInput = tile.querySelector("[data-role='edit-count']");
   if (countInput) countInput.value = count;
+  const displayCount = tile.querySelector("[data-role='count-display']");
+  const displayTotal = tile.querySelector("[data-role='total-display']");
+  if (displayCount) displayCount.textContent = count;
+  if (displayTotal) displayTotal.textContent = formatCurrency(adjustedTotal);
   event.target.value = formatNumberValue(adjustedTotal);
   if (Math.abs(adjustedTotal - totalValue) > 0.001) {
     showAdjustHint(tile, "Adjusted to nearest buy-in.");
@@ -1757,30 +1995,44 @@ function renderPlayers() {
     return;
   }
 
-  state.players.forEach((player) => {
+  const orderedPlayers = state.players.slice().sort((a, b) => {
+    const aHost = a.name?.includes("(Host)");
+    const bHost = b.name?.includes("(Host)");
+    if (aHost && !bHost) return -1;
+    if (!aHost && bHost) return 1;
+    return 0;
+  });
+
+  orderedPlayers.forEach((player) => {
     const buyins = buyinMap.get(player.id) || [];
     const total = buyins.reduce((sum, item) => sum + Number(item.amount || 0), 0);
 
     const card = document.createElement("div");
     card.className = "player-tile";
     card.dataset.playerId = player.id;
+    const isHostPlayer = player.name?.includes("(Host)");
 
     card.innerHTML = `
       <div class="player-header">
-        <h4>${player.name}</h4>
+        <div class="player-name">
+          <h4 data-role="name-display">${player.name}</h4>
+          <input data-role="edit-name" type="text" value="${player.name}" disabled />
+        </div>
         <div class="player-header-actions">
           <button data-action="edit" class="ghost">Edit</button>
-          <button data-action="remove" class="ghost">Remove</button>
+          <button data-action="remove" class="ghost icon-btn ${isHostPlayer ? "hidden" : ""}" aria-label="Remove player">✕</button>
         </div>
       </div>
       <div class="player-stats">
         <label class="stat-field">
           <span>Buy-ins</span>
-          <input data-role="edit-count" type="number" min="0" step="1" value="${buyins.length}" />
+          <strong class="stat-value" data-role="count-display">${buyins.length}</strong>
+          <input data-role="edit-count" type="number" min="0" step="1" value="${buyins.length}" disabled />
         </label>
         <label class="stat-field">
           <span>Total</span>
-          <input data-role="edit-total" type="number" min="0" step="1" value="${Number(total).toFixed(2)}" />
+          <strong class="stat-value" data-role="total-display">${formatCurrency(total)}</strong>
+          <input data-role="edit-total" type="number" min="0" step="1" value="${Number(total).toFixed(2)}" disabled />
         </label>
       </div>
       <span class="adjust-hint hidden">Adjusted to nearest buy-in.</span>
@@ -1974,6 +2226,10 @@ function renderSettlementSummary() {
           <div class="summary-actions">
             <button class="ghost icon-button" type="button" data-action="home" aria-label="Home">
               <span aria-hidden="true">⌂</span>
+            </button>
+            <button class="ghost icon-button" type="button" data-action="share" aria-label="Share summary">
+              <span aria-hidden="true">⤴︎</span>
+              <span>Share</span>
             </button>
             <button class="ghost icon-button" type="button" data-action="history" aria-label="Back to history">
               <span aria-hidden="true">←</span>
@@ -2713,6 +2969,20 @@ async function addPlayerByName(name) {
   await refreshData();
 }
 
+async function updatePlayerName(playerId, name) {
+  if (!supabase || !state.game) return;
+  const { error } = await supabase.from("players").update({ name }).eq("id", playerId);
+  if (error) {
+    setStatus("Could not update name", "error");
+    return;
+  }
+  if (state.playerId === playerId && state.game?.code) {
+    saveStoredPlayer(state.game.code, { id: playerId, name });
+  }
+  await refreshData();
+  setStatus("Player updated");
+}
+
 async function addBuyin(playerId, amount) {
   if (!supabase || !state.game) return;
   if (isGameSettled()) {
@@ -2787,7 +3057,8 @@ async function removePlayer(playerId) {
   if (!supabase) return;
   const player = state.players.find((item) => item.id === playerId);
   if (!player) return;
-  if (!window.confirm(`Remove ${player.name}?`)) return;
+  const confirmed = await openConfirmModal(`Remove ${player.name}?`, "Remove");
+  if (!confirmed) return;
 
   const { error } = await supabase.from("players").delete().eq("id", playerId);
   if (error) {
@@ -2860,11 +3131,14 @@ function renderSettleList() {
       existingValues.get(player.id) ??
       (settlementTotals.has(player.id) ? formatNumberValue(settlementTotals.get(player.id)) : "");
     row.innerHTML = `
-      <div>
+      <div class="settle-meta">
         <strong>${player.name}</strong>
         <span>Buy-ins: ${formatCurrency(buyinTotal)}</span>
       </div>
-      <input type="number" min="0" step="1" placeholder="Chips remaining" />
+      <div class="settle-input">
+        <span>Chips remaining</span>
+        <input type="number" min="0" step="1" placeholder="0" />
+      </div>
     `;
     const input = row.querySelector("input");
     if (input && preset !== "") {
@@ -2872,6 +3146,25 @@ function renderSettleList() {
     }
     elements.settleList.appendChild(row);
   });
+  updateSettleRemaining();
+}
+
+function updateSettleRemaining() {
+  if (!elements.settleRemaining) return;
+  const { totalBuyins } = computeSummary();
+  let submitted = 0;
+  if (elements.settleList) {
+    elements.settleList.querySelectorAll("input").forEach((input) => {
+      const value = Number(input.value);
+      if (Number.isFinite(value)) submitted += value;
+    });
+  }
+  let remaining = submitted - totalBuyins;
+  if (Math.abs(remaining) < 0.01) remaining = 0;
+  const display =
+    remaining < 0 ? `-${formatCurrency(Math.abs(remaining))}` : formatCurrency(remaining);
+  elements.settleRemaining.textContent = display;
+  elements.settleRemaining.dataset.state = remaining < 0 ? "neg" : remaining > 0 ? "pos" : "zero";
 }
 
 function setSettleError(message = "") {
@@ -2974,6 +3267,24 @@ function closeSettingsModal() {
   elements.settingsModal.classList.add("hidden");
 }
 
+function openConfirmModal(message, confirmLabel = "Confirm") {
+  if (!elements.confirmModal) return Promise.resolve(false);
+  elements.confirmMessage.textContent = message;
+  elements.confirmOk.textContent = confirmLabel;
+  elements.confirmModal.classList.remove("hidden");
+  return new Promise((resolve) => {
+    confirmResolve = resolve;
+  });
+}
+
+function closeConfirmModal(result) {
+  if (elements.confirmModal) elements.confirmModal.classList.add("hidden");
+  if (confirmResolve) {
+    confirmResolve(result);
+    confirmResolve = null;
+  }
+}
+
 function openSessionsPage() {
   if (!elements.sessionsPanel) return;
   elements.landing.classList.add("hidden");
@@ -3031,6 +3342,8 @@ function clearCurrentGame() {
   if (elements.sessionsPanel) elements.sessionsPanel.classList.add("hidden");
   if (elements.settledNotice) elements.settledNotice.classList.add("hidden");
   if (elements.settleModal) elements.settleModal.classList.add("hidden");
+  if (elements.qrModal) elements.qrModal.classList.add("hidden");
+  if (elements.confirmModal) elements.confirmModal.classList.add("hidden");
   if (elements.settlementSummary) elements.settlementSummary.classList.add("hidden");
   if (elements.playerSettledSummary) elements.playerSettledSummary.classList.add("hidden");
   elements.landing.classList.remove("hidden");
@@ -3105,9 +3418,11 @@ async function submitSettlement(event) {
   }
 
   state.game.ended_at = settledAt;
+  state.settlements = entries;
   recordRecentGame(state.game);
   setStatus("Settlement saved");
   await closeSettlePanel();
+  renderAll();
   await refreshData();
 }
 
@@ -3159,6 +3474,46 @@ if (elements.openSessions) {
   elements.openSessions.addEventListener("click", () => {
     if (configMissing) return;
     openSessionsPage();
+  });
+}
+
+if (elements.qrButton) {
+  elements.qrButton.addEventListener("click", () => {
+    if (elements.qrModal) elements.qrModal.classList.remove("hidden");
+  });
+}
+
+if (elements.qrClose) {
+  elements.qrClose.addEventListener("click", () => {
+    if (elements.qrModal) elements.qrModal.classList.add("hidden");
+  });
+}
+
+if (elements.qrModal) {
+  elements.qrModal.addEventListener("click", (event) => {
+    if (event.target?.classList.contains("modal-backdrop")) {
+      elements.qrModal.classList.add("hidden");
+    }
+  });
+}
+
+if (elements.confirmClose) {
+  elements.confirmClose.addEventListener("click", () => closeConfirmModal(false));
+}
+
+if (elements.confirmCancel) {
+  elements.confirmCancel.addEventListener("click", () => closeConfirmModal(false));
+}
+
+if (elements.confirmOk) {
+  elements.confirmOk.addEventListener("click", () => closeConfirmModal(true));
+}
+
+if (elements.confirmModal) {
+  elements.confirmModal.addEventListener("click", (event) => {
+    if (event.target?.classList.contains("modal-backdrop")) {
+      closeConfirmModal(false);
+    }
   });
 }
 
@@ -3645,6 +4000,13 @@ if (elements.settleCancel) {
 if (elements.settleForm) {
   elements.settleForm.addEventListener("submit", submitSettlement);
 }
+if (elements.settleList) {
+  elements.settleList.addEventListener("input", (event) => {
+    if (event.target && event.target.tagName === "INPUT") {
+      updateSettleRemaining();
+    }
+  });
+}
 
 if (elements.settleModal) {
   elements.settleModal.addEventListener("click", (event) => {
@@ -3704,6 +4066,7 @@ elements.hostAddPlayer.addEventListener("click", async () => {
   if (!name) return;
   elements.hostPlayerName.value = "";
   await addPlayerByName(name);
+  if (elements.hostAddForm) elements.hostAddForm.classList.add("hidden");
 });
 
 elements.hostPlayerName.addEventListener("keydown", (event) => {
@@ -3711,6 +4074,15 @@ elements.hostPlayerName.addEventListener("keydown", (event) => {
     elements.hostAddPlayer.click();
   }
 });
+
+if (elements.hostAddToggle) {
+  elements.hostAddToggle.addEventListener("click", () => {
+    if (!elements.hostAddForm) return;
+    const isHidden = elements.hostAddForm.classList.contains("hidden");
+    elements.hostAddForm.classList.toggle("hidden", !isHidden);
+    if (isHidden) elements.hostPlayerName.focus();
+  });
+}
 
 elements.players.addEventListener("click", (event) => {
   if (!state.isHost) return;
@@ -3727,9 +4099,12 @@ elements.players.addEventListener("click", (event) => {
   }
 
   if (action === "edit") {
-    tile.classList.toggle("editing");
-    const countInput = tile.querySelector("[data-role='edit-count']");
-    if (countInput) countInput.focus();
+    const isEditing = tile.classList.toggle("editing");
+    tile.querySelectorAll("[data-role='edit-name'], [data-role='edit-count'], [data-role='edit-total']").forEach((input) => {
+      input.disabled = !isEditing;
+    });
+    const nameInput = tile.querySelector("[data-role='edit-name']");
+    if (isEditing && nameInput) nameInput.focus();
     return;
   }
 
@@ -3746,7 +4121,7 @@ elements.players.addEventListener("keydown", (event) => {
   if (!state.isHost) return;
   if (isGameSettled() || isSettleOpen()) return;
   if (event.key !== "Enter") return;
-  if (!["edit-count", "edit-total"].includes(event.target.dataset.role)) return;
+  if (!["edit-count", "edit-total", "edit-name"].includes(event.target.dataset.role)) return;
   event.preventDefault();
   handleEditCommit(event);
 });
@@ -3780,6 +4155,11 @@ if (elements.playerSettledSummary) {
       setStatus("Ready");
       return;
     }
+    const shareButton = event.target.closest("button[data-action='share']");
+    if (shareButton) {
+      shareSummary(elements.playerSettledSummary);
+      return;
+    }
     const historyButton = event.target.closest("button[data-action='history']");
     if (!historyButton) return;
     clearCurrentGame();
@@ -3793,6 +4173,11 @@ if (elements.settlementSummary) {
     if (button) {
       clearCurrentGame();
       setStatus("Ready");
+      return;
+    }
+    const shareButton = event.target.closest("button[data-action='share']");
+    if (shareButton) {
+      shareSummary(elements.settlementSummary);
       return;
     }
     const historyButton = event.target.closest("button[data-action='history']");
