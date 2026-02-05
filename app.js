@@ -1125,7 +1125,7 @@ function renderRecentGames(list = loadRecentGames()) {
     if (key !== "ungrouped") {
       const actions = document.createElement("div");
       actions.className = "recent-group-actions";
-      actions.innerHTML = `<button class="ghost small stats-btn" data-action="stats" data-group-id="${key}">Stats</button>`;
+      actions.innerHTML = `<button class="ghost small stats-btn" data-action="stats" data-group-id="${key}">Leaderboard</button>`;
       listWrap.appendChild(actions);
     }
 
