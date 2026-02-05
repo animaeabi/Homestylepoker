@@ -79,6 +79,8 @@ const elements = {
   rosterStart: $("#rosterStart"),
   summaryGroup: $("#summaryGroup"),
   summaryQuarter: $("#summaryQuarter"),
+  summaryUseCustom: $("#summaryUseCustom"),
+  summaryCustomRow: $("#summaryCustomRow"),
   summaryStart: $("#summaryStart"),
   summaryEnd: $("#summaryEnd"),
   openSummary: $("#openSummary"),
@@ -2435,13 +2437,14 @@ async function loadQuarterSummary() {
 
   const group = state.groups.find((item) => item.id === groupId);
   const groupName = group?.name || "Group";
+  const useCustom = Boolean(elements.summaryUseCustom?.checked);
   const startInput = safeTrim(elements.summaryStart?.value);
   const endInput = safeTrim(elements.summaryEnd?.value);
   let start;
   let end;
   let label;
 
-  if (startInput || endInput) {
+  if (useCustom) {
     if (!startInput || !endInput) {
       setStatus("Select both start and end dates for custom range.", "error");
       return;
@@ -3703,6 +3706,20 @@ if (elements.summaryGroup) {
 
 if (elements.summaryQuarter) {
   elements.summaryQuarter.addEventListener("change", () => {
+    if (elements.summaryModal && !elements.summaryModal.classList.contains("hidden")) {
+      loadQuarterSummary();
+    }
+  });
+}
+
+if (elements.summaryUseCustom && elements.summaryCustomRow) {
+  elements.summaryUseCustom.addEventListener("change", () => {
+    const open = elements.summaryUseCustom.checked;
+    elements.summaryCustomRow.classList.toggle("hidden", !open);
+    if (!open) {
+      if (elements.summaryStart) elements.summaryStart.value = "";
+      if (elements.summaryEnd) elements.summaryEnd.value = "";
+    }
     if (elements.summaryModal && !elements.summaryModal.classList.contains("hidden")) {
       loadQuarterSummary();
     }

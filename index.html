@@ -262,7 +262,11 @@
               <span>Quarter</span>
               <select id="summaryQuarter"></select>
             </label>
-            <div class="row">
+            <label class="field inline-toggle">
+              <input id="summaryUseCustom" type="checkbox" />
+              <span>Use custom range</span>
+            </label>
+            <div id="summaryCustomRow" class="row hidden">
               <label class="field">
                 <span>Custom start</span>
                 <input id="summaryStart" type="date" />
@@ -271,8 +275,8 @@
                 <span>Custom end</span>
                 <input id="summaryEnd" type="date" />
               </label>
+              <p class="hint">Custom range overrides quarter.</p>
             </div>
-            <p class="hint">Custom range overrides quarter when set.</p>
             <button id="openSummary" class="primary">View summary</button>
           </div>
         </div>

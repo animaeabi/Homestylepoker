@@ -1165,6 +1165,13 @@ body.theme-light #newHostName::placeholder {
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
 }
 
+.inline-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+}
+
 button {
   border: none;
   border-radius: 999px;
