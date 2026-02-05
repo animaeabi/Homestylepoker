@@ -1172,6 +1172,40 @@ body.theme-light #newHostName::placeholder {
   font-size: 0.9rem;
 }
 
+.inline-toggle input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  appearance: none;
+  border-radius: 6px;
+  border: 1px solid rgba(210, 166, 78, 0.45);
+  background: transparent;
+  display: inline-grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.inline-toggle input[type="checkbox"]::after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 3px;
+  background: rgba(210, 166, 78, 0.8);
+  transform: scale(0);
+  transition: transform 0.12s ease;
+}
+
+.inline-toggle input[type="checkbox"]:checked::after {
+  transform: scale(1);
+}
+
+body.theme-light .inline-toggle input[type="checkbox"] {
+  border-color: rgba(31, 111, 92, 0.35);
+}
+
+body.theme-light .inline-toggle input[type="checkbox"]::after {
+  background: rgba(31, 111, 92, 0.75);
+}
+
 button {
   border: none;
   border-radius: 999px;
