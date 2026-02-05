@@ -1014,8 +1014,15 @@ select:focus-visible {
 
 .recent-group-actions {
   display: flex;
-  justify-content: flex-end;
-  padding: 4px 6px 6px;
+  justify-content: center;
+  padding: 8px 6px;
+  border-top: 1px solid rgba(210, 166, 78, 0.22);
+  border-bottom: 1px solid rgba(210, 166, 78, 0.22);
+}
+
+.recent-group-actions .stats-btn {
+  min-width: 96px;
+  justify-content: center;
 }
 
 .recent-group-list.scrollable {
