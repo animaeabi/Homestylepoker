@@ -973,7 +973,7 @@ select:focus-visible {
   color: var(--ink);
   list-style: none;
   position: relative;
-  padding-right: 56px;
+  padding-right: 72px;
 }
 
 .recent-summary::-webkit-details-marker {
@@ -1982,8 +1982,8 @@ button:disabled {
 .recent-summary-actions {
   display: inline-flex;
   align-items: center;
-  gap: 16px;
-  margin-right: 56px;
+  gap: 20px;
+  margin-right: 72px;
   margin-left: auto;
   justify-content: flex-end;
 }
