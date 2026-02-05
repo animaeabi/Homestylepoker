@@ -577,14 +577,15 @@ body.theme-light .settings-button:hover {
 }
 
 .host-icon {
-  width: 22px;
-  height: 22px;
+  width: 1em;
+  height: 1em;
   display: inline-block;
   background-repeat: no-repeat;
   background-size: contain;
   background-position: center;
   color: #140d07;
   background-image: url("assets/host.png");
+  margin-top: 1px;
 }
 
 .deal-button {
