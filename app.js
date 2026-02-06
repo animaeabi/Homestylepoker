@@ -295,6 +295,19 @@ function normalizeName(name) {
   return safeTrim(name).replace(/\s+/g, " ").toLowerCase();
 }
 
+function stripHostSuffix(name) {
+  return safeTrim(name).replace(/\s*\(Host\)$/i, "");
+}
+
+function isHostPlayer(player) {
+  return Boolean(state.game?.host_player_id && player?.id === state.game.host_player_id);
+}
+
+function displayPlayerName(player) {
+  const base = stripHostSuffix(player?.name || "Player");
+  return isHostPlayer(player) ? `${base} (Host)` : base;
+}
+
 function applyTheme(theme) {
   const mode = theme === "light" ? "light" : "dark";
   document.body.classList.toggle("theme-light", mode === "light");
@@ -502,7 +515,7 @@ function saveStoredPlayer(code, player) {
   if (!code || !player?.id) return;
   localStorage.setItem(
     playerKey(code),
-    JSON.stringify({ id: player.id, name: player.name || "" })
+    JSON.stringify({ id: player.id, name: stripHostSuffix(player.name || "") })
   );
 }
 
@@ -1416,7 +1429,7 @@ async function loadGroupStats() {
 
   (playersRes.data || []).forEach((player) => {
     gamesSet.add(player.game_id);
-    const normalized = normalizeName(player.name.replace(/\s*\(Host\)$/i, ""));
+    const normalized = normalizeName(stripHostSuffix(player.name));
     const mappedGroupId = groupIdByNormalized.get(normalized) || null;
     const key = player.group_player_id || mappedGroupId || normalized;
     playerKeyById.set(player.id, key);
@@ -1424,7 +1437,7 @@ async function loadGroupStats() {
       const displayName =
         groupNameById.get(player.group_player_id) ||
         groupNameById.get(mappedGroupId) ||
-        player.name.replace(/\s*\(Host\)$/i, "");
+        stripHostSuffix(player.name);
       ledger.set(key, {
         name: displayName,
         buyinCount: 0,
@@ -1644,7 +1657,7 @@ function buildSummaryShareCanvas() {
     .map((player) => {
       const moneyIn = buyinTotals.get(player.id) || 0;
       const moneyOut = settlementTotals.get(player.id) || 0;
-      return { name: player.name || "Player", moneyIn, moneyOut, net: moneyOut - moneyIn };
+      return { name: displayPlayerName(player), moneyIn, moneyOut, net: moneyOut - moneyIn };
     });
 
   const width = 1080;
@@ -2034,10 +2047,10 @@ function handleEditCommit(event) {
   if (role === "edit-name") {
     const nextName = safeTrim(event.target.value);
     if (!nextName) {
-      event.target.value = player.name;
+      event.target.value = stripHostSuffix(player.name);
       return;
     }
-    if (nextName === player.name) return;
+    if (nextName === stripHostSuffix(player.name)) return;
     updatePlayerName(playerId, nextName);
     return;
   }
@@ -2130,8 +2143,8 @@ function renderPlayers() {
   }
 
   const orderedPlayers = state.players.slice().sort((a, b) => {
-    const aHost = a.name?.includes("(Host)");
-    const bHost = b.name?.includes("(Host)");
+    const aHost = isHostPlayer(a);
+    const bHost = isHostPlayer(b);
     if (aHost && !bHost) return -1;
     if (!aHost && bHost) return 1;
     return 0;
@@ -2144,17 +2157,19 @@ function renderPlayers() {
     const card = document.createElement("div");
     card.className = "player-tile";
     card.dataset.playerId = player.id;
-    const isHostPlayer = player.name?.includes("(Host)");
+    const hostFlag = isHostPlayer(player);
+    const displayName = displayPlayerName(player);
+    const editName = stripHostSuffix(player.name || "");
 
     card.innerHTML = `
       <div class="player-header">
         <div class="player-name">
-          <h4 data-role="name-display">${player.name}</h4>
-          <input data-role="edit-name" type="text" value="${player.name}" disabled />
+          <h4 data-role="name-display">${displayName}</h4>
+          <input data-role="edit-name" type="text" value="${editName}" disabled />
         </div>
         <div class="player-header-actions">
           <button data-action="edit" class="ghost">Edit</button>
-          <button data-action="remove" class="ghost icon-btn ${isHostPlayer ? "hidden" : ""}" aria-label="Remove player">✕</button>
+          <button data-action="remove" class="ghost icon-btn ${hostFlag ? "hidden" : ""}" aria-label="Remove player">✕</button>
         </div>
       </div>
       <div class="player-stats">
@@ -2236,7 +2251,7 @@ function renderPlayerSeat() {
     elements.playerSettledSummary.classList.add("hidden");
   }
   elements.playerCard.innerHTML = `
-    <strong>${player.name}</strong>
+    <strong>${displayPlayerName(player)}</strong>
     <div class="player-metrics">
       <div>
         <span>Buy-ins</span>
@@ -2272,7 +2287,9 @@ function renderPlayerSeat() {
 }
 
 function renderLog() {
-  const playerLookup = new Map(state.players.map((player) => [player.id, player.name]));
+  const playerLookup = new Map(
+    state.players.map((player) => [player.id, displayPlayerName(player)])
+  );
   const rows = state.buyins
     .slice()
     .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
@@ -2323,7 +2340,9 @@ function renderSettlementSummary() {
     { node: elements.playerSettledSummary, visible: settled && !state.isHost, title: "Game settled", showHome: true }
   ];
 
-  const playerLookup = new Map(state.players.map((player) => [player.id, player.name]));
+  const playerLookup = new Map(
+    state.players.map((player) => [player.id, displayPlayerName(player)])
+  );
   const buyinTotals = new Map();
   state.buyins.forEach((buyin) => {
     const current = buyinTotals.get(buyin.player_id) || 0;
@@ -2340,7 +2359,13 @@ function renderSettlementSummary() {
     .map((player) => {
       const moneyIn = buyinTotals.get(player.id) || 0;
       const moneyOut = settlementTotals.get(player.id) || 0;
-      return { id: player.id, name: player.name, moneyIn, moneyOut, net: moneyOut - moneyIn };
+      return {
+        id: player.id,
+        name: displayPlayerName(player),
+        moneyIn,
+        moneyOut,
+        net: moneyOut - moneyIn
+      };
     });
 
   const settledAtText = state.game?.ended_at ? formatDateTime(state.game.ended_at) : "";
@@ -2627,7 +2652,7 @@ async function loadQuarterSummary() {
   const gamesByKey = new Map();
 
   function getKey(player) {
-    const cleanedName = (player.name || "Player").replace(/\s*\(Host\)$/i, "");
+    const cleanedName = stripHostSuffix(player.name || "Player");
     const normalized = normalizeName(cleanedName);
     const mappedGroupId = groupIdByNormalized.get(normalized) || null;
     const resolvedGroupId = player.group_player_id || mappedGroupId;
@@ -2784,7 +2809,9 @@ function renderHostRosterSuggestions() {
       .filter((value) => value)
   );
   const activeNames = new Set(
-    state.players.map((player) => normalizeName(player.name)).filter((value) => value)
+    state.players
+      .map((player) => normalizeName(stripHostSuffix(player.name)))
+      .filter((value) => value)
   );
   const matches = state.gameGroupPlayers.filter((player) => {
     const normalized = player.normalized_name || normalizeName(player.name);
@@ -2983,7 +3010,7 @@ async function createGame(options = {}) {
     const hostEntry = roster.find((player) => player.isHost) || null;
     const playersPayload = roster.map((player) => ({
       game_id: state.game.id,
-      name: player.isHost ? `${player.name} (Host)` : player.name,
+      name: player.name,
       group_player_id: player.id.startsWith("host:") ? null : player.id
     }));
 
@@ -3012,7 +3039,12 @@ async function createGame(options = {}) {
       createdPlayers.find(
         (player) => hostEntry && player.group_player_id && player.group_player_id === hostEntry.id
       ) ||
-      createdPlayers.find((player) => player.name?.includes("(Host)")) ||
+      createdPlayers.find(
+        (player) =>
+          hostEntry &&
+          normalizeName(stripHostSuffix(player.name)) ===
+            normalizeName(stripHostSuffix(hostEntry.name))
+      ) ||
       null;
 
     if (hostPlayer) {
@@ -3035,11 +3067,9 @@ async function createGame(options = {}) {
       groupPlayerId = groupPlayer?.id || null;
     }
 
-    const displayName = `${hostName} (Host)`;
-
     const { data: hostPlayer, error: hostError } = await supabase
       .from("players")
-      .insert({ game_id: state.game.id, name: displayName, group_player_id: groupPlayerId })
+      .insert({ game_id: state.game.id, name: hostName, group_player_id: groupPlayerId })
       .select()
       .single();
 
@@ -3112,7 +3142,9 @@ async function joinAsPlayer() {
     }
   }
 
-  const matches = state.players.filter((player) => normalizeName(player.name) === normalized);
+  const matches = state.players.filter(
+    (player) => normalizeName(stripHostSuffix(player.name)) === normalized
+  );
   if (matches.length === 1) {
     if (rosterId && matches[0].group_player_id !== rosterId) {
       await supabase.from("players").update({ group_player_id: rosterId }).eq("id", matches[0].id);
@@ -3138,7 +3170,7 @@ async function joinAsPlayer() {
         const button = document.createElement("button");
         button.className = "ghost match-button";
         const joined = formatTime(player.created_at);
-        button.textContent = `${player.name} · joined ${joined}`;
+        button.textContent = `${displayPlayerName(player)} · joined ${joined}`;
         button.dataset.playerId = player.id;
         elements.playerMatchList.appendChild(button);
       });
@@ -3212,7 +3244,10 @@ async function getOrCreateGroupPlayer(groupId, name) {
 
 async function ensurePlayerLinked(player) {
   if (!supabase || !state.game?.group_id || player.group_player_id) return;
-  const groupPlayer = await getOrCreateGroupPlayer(state.game.group_id, player.name);
+  const groupPlayer = await getOrCreateGroupPlayer(
+    state.game.group_id,
+    stripHostSuffix(player.name)
+  );
   if (!groupPlayer?.id) return;
   await supabase.from("players").update({ group_player_id: groupPlayer.id }).eq("id", player.id);
 }
@@ -3265,13 +3300,14 @@ async function addPlayerByName(name) {
 
 async function updatePlayerName(playerId, name) {
   if (!supabase || !state.game) return;
-  const { error } = await supabase.from("players").update({ name }).eq("id", playerId);
+  const cleaned = stripHostSuffix(name);
+  const { error } = await supabase.from("players").update({ name: cleaned }).eq("id", playerId);
   if (error) {
     setStatus("Could not update name", "error");
     return;
   }
   if (state.playerId === playerId && state.game?.code) {
-    saveStoredPlayer(state.game.code, { id: playerId, name });
+    saveStoredPlayer(state.game.code, { id: playerId, name: cleaned });
   }
   await refreshData();
   setStatus("Player updated");
@@ -3351,7 +3387,7 @@ async function removePlayer(playerId) {
   if (!supabase) return;
   const player = state.players.find((item) => item.id === playerId);
   if (!player) return;
-  const confirmed = await openConfirmModal(`Remove ${player.name}?`, "Remove");
+  const confirmed = await openConfirmModal(`Remove ${displayPlayerName(player)}?`, "Remove");
   if (!confirmed) return;
 
   const { error } = await supabase.from("players").delete().eq("id", playerId);
@@ -3426,7 +3462,7 @@ function renderSettleList() {
       (settlementTotals.has(player.id) ? formatNumberValue(settlementTotals.get(player.id)) : "");
     row.innerHTML = `
       <div class="settle-meta">
-        <strong>${player.name}</strong>
+        <strong>${displayPlayerName(player)}</strong>
         <span>Buy-ins: ${formatCurrency(buyinTotal)}</span>
       </div>
       <div class="settle-input">
@@ -3591,7 +3627,7 @@ function renderHostTransferList() {
   const buttons = eligible
     .map(
       (player) =>
-        `<button type="button" class="host-transfer-item" data-player-id="${player.id}">${player.name}</button>`
+        `<button type="button" class="host-transfer-item" data-player-id="${player.id}">${displayPlayerName(player)}</button>`
     )
     .join("");
   elements.hostTransferList.innerHTML = buttons;
