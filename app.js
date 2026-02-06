@@ -534,12 +534,20 @@ function syncHostAccess() {
   const hostId = state.game.host_player_id || null;
   if (hostId) {
     const isHostPlayer = Boolean(state.playerId && state.playerId === hostId);
-    state.canHost = isHostPlayer;
-    state.isHost = isHostPlayer;
+    const storedHost = isLocalHostForGame(state.game.code);
     if (isHostPlayer) {
+      state.canHost = true;
+      state.isHost = true;
       localStorage.setItem(hostKey(state.game.code), "true");
+    } else if (storedHost && !state.playerId) {
+      state.canHost = true;
+      state.isHost = true;
     } else {
-      localStorage.removeItem(hostKey(state.game.code));
+      state.canHost = false;
+      state.isHost = false;
+      if (!storedHost) {
+        localStorage.removeItem(hostKey(state.game.code));
+      }
     }
     history.replaceState({}, "", state.isHost ? getHostLink() : getJoinLink());
     return;
