@@ -701,7 +701,7 @@ body.theme-light .settings-button:hover {
 .deal-button {
   width: 100%;
   border-radius: 18px;
-  padding: 22px 26px;
+  padding: 18px 26px;
   text-align: center;
   display: flex;
   align-items: center;
@@ -714,6 +714,23 @@ body.theme-light .settings-button:hover {
   position: relative;
   overflow: hidden;
   isolation: isolate;
+}
+
+.deal-chevron {
+  position: absolute;
+  right: 28px;
+  width: 0;
+  height: 0;
+  border-left: 7px solid transparent;
+  border-right: 7px solid transparent;
+  border-top: 8px solid rgba(36, 24, 12, 0.8);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.lets-deal-toggle[aria-expanded="true"] .deal-chevron {
+  transform: rotate(180deg);
+  transform-origin: 50% 45%;
 }
 
 .lets-deal-toggle {
@@ -793,7 +810,7 @@ body.theme-light .settings-button:hover {
   background-position: center;
   color: #140d07;
   position: absolute;
-  right: 64px;
+  left: 78px;
   top: 50%;
   transform: translateY(-50%);
   margin-top: 0;
@@ -801,9 +818,16 @@ body.theme-light .settings-button:hover {
   pointer-events: none;
 }
 
+.host-icon-right {
+  left: auto;
+  right: 72px;
+  display: none;
+}
+
 .host-icon-collapsed {
   background-image: url("assets/host-1.png");
   opacity: 0.7;
+  transform: translateY(-50%) rotate(-6deg);
 }
 
 .host-icon-expanded {
@@ -816,6 +840,19 @@ body.theme-light .settings-button:hover {
 
 .lets-deal-toggle[aria-expanded="true"] .host-icon-expanded {
   opacity: 0.7;
+}
+
+.host-icon-right.host-icon-collapsed {
+  opacity: 0.6;
+}
+
+.lets-deal-toggle[aria-expanded="true"] .host-icon-right.host-icon-collapsed {
+  opacity: 0;
+}
+
+.lets-deal-toggle[aria-expanded="true"] .host-icon-right.host-icon-expanded {
+  opacity: 0.6;
+  transform: translateY(-50%) scaleX(-1);
 }
 
 .deal-button {
@@ -858,6 +895,13 @@ body.theme-light .settings-button:hover {
 .deal-mid::before,
 .deal-mid::after {
   opacity: 0;
+}
+
+.host-game-btn {
+  background: linear-gradient(140deg, #caa45c 0%, #a3742f 60%, #7f511f 100%);
+  color: #24160b;
+  border-color: rgba(255, 224, 160, 0.35);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
 
 .deal-button.has-chevron {
