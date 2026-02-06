@@ -563,7 +563,7 @@ body.theme-light .brand-icon {
   width: 100%;
   max-width: 420px;
   opacity: 0.9;
-  margin-top: 18px;
+  margin-top: 24px;
 }
 
 .landing-ornament .ornament-line {
@@ -1064,6 +1064,25 @@ body.theme-light .settings-button:hover {
   padding: 18px 26px;
 }
 
+.join-standalone .join-icon {
+  width: 37px;
+  height: 37px;
+  margin-right: 10px;
+  display: inline-block;
+  vertical-align: middle;
+  object-fit: contain;
+  filter: brightness(1.18) saturate(1.1);
+}
+
+.join-standalone {
+  justify-content: center;
+}
+
+.join-standalone .join-text {
+  display: inline-block;
+  transform: translateX(-8px);
+}
+
 .lets-play .join-standalone {
   margin: 16px 0 0;
   width: 100%;
@@ -1136,7 +1155,7 @@ select:focus-visible {
   gap: 12px;
   justify-items: stretch;
   width: 100%;
-  margin-top: 10px;
+  margin-top: 18px;
 }
 
 .group-card {
