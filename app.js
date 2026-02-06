@@ -3146,6 +3146,11 @@ async function joinAsPlayer() {
     (player) => normalizeName(stripHostSuffix(player.name)) === normalized
   );
   if (matches.length === 1) {
+    const hostId = state.game?.host_player_id || null;
+    if (hostId && matches[0].id === hostId && state.playerId !== hostId) {
+      setStatus("Host seat is protected. Ask the host to transfer.", "error");
+      return;
+    }
     if (rosterId && matches[0].group_player_id !== rosterId) {
       await supabase.from("players").update({ group_player_id: rosterId }).eq("id", matches[0].id);
     }
@@ -4676,6 +4681,11 @@ if (elements.playerMatchList) {
     const playerId = button.dataset.playerId;
     const player = state.players.find((item) => item.id === playerId);
     if (!player || !state.game) return;
+    const hostId = state.game?.host_player_id || null;
+    if (hostId && player.id === hostId && state.playerId !== hostId) {
+      setStatus("Host seat is protected. Ask the host to transfer.", "error");
+      return;
+    }
     state.playerId = player.id;
     await ensurePlayerLinked(player);
     saveStoredPlayer(state.game.code, { id: player.id, name: player.name });
