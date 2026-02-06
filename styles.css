@@ -2247,6 +2247,11 @@ body.theme-light .stats-btn {
   gap: 10px;
 }
 
+.host-actions-bar .settle-cta {
+  order: -1;
+  margin-right: auto;
+}
+
 .add-player-btn {
   width: 36px;
   height: 36px;
