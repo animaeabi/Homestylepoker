@@ -540,16 +540,11 @@
       <div id="joinPlayerModal" class="modal hidden" role="dialog" aria-modal="true">
         <div class="modal-backdrop" data-action="close"></div>
         <section class="panel join-player-panel">
-          <div class="panel-title summary-header">
-            <div>
-              <h2>Find a seat</h2>
-              <p class="muted">Find the active table or enter a code.</p>
-            </div>
-            <button id="joinPlayerClose" class="ghost" type="button">Close</button>
-          </div>
+          <h2 class="join-player-title">Find a seat</h2>
+          <button id="joinPlayerClose" class="close-x" type="button" aria-label="Close">✕</button>
           <div id="joinPlayerStepName" class="join-player-step">
             <label class="field">
-              <span>Your name</span>
+              <span></span>
               <input id="joinPlayerName" type="text" placeholder="Name" />
             </label>
             <div class="roster-actions">
