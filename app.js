@@ -23,6 +23,7 @@ const elements = {
   openSessions: $("#openSessions"),
   homeTitle: $("#homeTitle"),
   brandIcon: $("#brandIcon"),
+  ornamentToggle: $("#ornamentToggle"),
   qrButton: $("#qrButton"),
   qrModal: $("#qrModal"),
   qrClose: $("#qrClose"),
@@ -330,7 +331,11 @@ function applyLightsOff(isOff) {
   if (elements.brandIcon) {
     elements.brandIcon.setAttribute("aria-pressed", isOff ? "true" : "false");
   }
+  if (elements.ornamentToggle) {
+    elements.ornamentToggle.setAttribute("aria-pressed", isOff ? "true" : "false");
+  }
   if (!isOff) {
+    resetOrnamentFlicker();
     restartHeaderAnimations();
   }
 }
@@ -1301,6 +1306,25 @@ function initTitleFlicker() {
     span.style.setProperty("--flicker-duration", `${(1.6 + Math.random() * 1.2).toFixed(2)}s`);
     title.appendChild(span);
   });
+}
+
+function resetOrnamentFlicker() {
+  const nodes = document.querySelectorAll(
+    ".landing-ornament .ornament-line, .landing-ornament .ornament-crest, .landing-ornament-suits span"
+  );
+  nodes.forEach((node) => {
+    node.style.setProperty("--flicker-delay", `${(Math.random() * 0.9).toFixed(2)}s`);
+    node.style.setProperty("--flicker-duration", `${(1.4 + Math.random() * 1.4).toFixed(2)}s`);
+  });
+}
+
+function initOrnamentFlicker() {
+  const nodes = document.querySelectorAll(
+    ".landing-ornament .ornament-line, .landing-ornament .ornament-crest, .landing-ornament-suits span"
+  );
+  if (!nodes.length) return;
+  nodes.forEach((node) => node.classList.add("ornament-flicker"));
+  resetOrnamentFlicker();
 }
 
 function buildStatsRanges() {
@@ -3826,6 +3850,7 @@ initTheme();
 initHeaderLights();
 void initGameName();
 initTitleFlicker();
+initOrnamentFlicker();
 
 // Event listeners
 if (elements.themeToggle) {
@@ -3966,6 +3991,24 @@ if (elements.brandIcon) {
   });
 
   elements.brandIcon.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    event.stopPropagation();
+    const isOff = !document.body.classList.contains("lights-off");
+    applyLightsOff(isOff);
+    localStorage.setItem(lightsOffKey, isOff ? "1" : "0");
+  });
+}
+
+if (elements.ornamentToggle) {
+  elements.ornamentToggle.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const isOff = !document.body.classList.contains("lights-off");
+    applyLightsOff(isOff);
+    localStorage.setItem(lightsOffKey, isOff ? "1" : "0");
+  });
+
+  elements.ornamentToggle.addEventListener("keydown", (event) => {
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
     event.stopPropagation();

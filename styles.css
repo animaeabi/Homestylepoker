@@ -404,6 +404,11 @@ body.theme-light .brand h1 {
   animation-delay: var(--flicker-delay, 0s);
 }
 
+.ornament-flicker {
+  animation: letterFlicker var(--flicker-duration, 2.2s) steps(1, end) both;
+  animation-delay: var(--flicker-delay, 0s);
+}
+
 .brand-icon {
   font-family: "Apple Symbols", "Segoe UI Symbol", "Noto Sans Symbols", "Noto Sans", sans-serif;
   font-variant-emoji: text;
@@ -460,6 +465,10 @@ body.theme-light .brand-icon {
   animation: none;
 }
 
+.lights-off .ornament-flicker {
+  animation: none;
+}
+
 .lights-reset .topbar,
 .lights-reset .brand h1,
 .lights-reset .brand-icon {
@@ -472,6 +481,10 @@ body.theme-light .brand-icon {
 }
 
 .lights-reset .neon-letter {
+  animation: none !important;
+}
+
+.lights-reset .ornament-flicker {
   animation: none !important;
 }
 
@@ -545,6 +558,8 @@ body.theme-light .brand-icon {
   border: 1px solid rgba(255, 196, 120, 0.55);
   box-shadow: 0 0 16px rgba(255, 170, 90, 0.45);
   text-shadow: 0 0 10px rgba(255, 176, 110, 0.6);
+  cursor: pointer;
+  transition: box-shadow 0.2s ease, opacity 0.2s ease, background 0.2s ease;
 }
 
 .landing-ornament-suits {
@@ -561,6 +576,28 @@ body.theme-light .brand-icon {
   font-variant-emoji: text;
   margin-top: 20px;
   text-shadow: 0 0 10px rgba(255, 176, 110, 0.55);
+}
+
+.lights-off .landing-ornament {
+  opacity: 0.5;
+}
+
+.lights-off .landing-ornament .ornament-line {
+  background: linear-gradient(90deg, transparent, rgba(255, 196, 120, 0.2), transparent);
+  box-shadow: none;
+}
+
+.lights-off .landing-ornament .ornament-crest {
+  color: rgba(180, 160, 130, 0.7);
+  background: rgba(12, 18, 14, 0.65);
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: none;
+  text-shadow: none;
+}
+
+.lights-off .landing-ornament-suits {
+  color: rgba(180, 160, 130, 0.5);
+  text-shadow: none;
 }
 
 body.theme-light .landing-ornament .ornament-line {
@@ -811,15 +848,15 @@ body.theme-light .settings-button:hover {
 }
 
 .host-icon {
-  width: 3.9em;
-  height: 3.9em;
+  width: 3.3em;
+  height: 3.3em;
   display: inline-block;
   background-repeat: no-repeat;
   background-size: contain;
   background-position: center;
   color: #140d07;
   position: absolute;
-  left: 78px;
+  left: 90px;
   top: 50%;
   transform: translateY(-50%);
   margin-top: 0;
