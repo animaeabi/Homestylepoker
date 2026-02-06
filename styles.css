@@ -1612,6 +1612,13 @@ button:disabled {
   margin-left: auto;
 }
 
+.qr-hint {
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
 .host-title {
   display: flex;
   justify-content: space-between;
