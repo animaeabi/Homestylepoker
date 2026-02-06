@@ -1748,6 +1748,23 @@ button:disabled {
   margin-top: 22px;
 }
 
+body.player-locked {
+  overflow: hidden;
+}
+
+body.player-locked .app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+body.player-locked .game {
+  flex: 1 1 auto;
+  overflow: auto;
+  margin-top: 18px;
+  padding-bottom: 24px;
+}
+
 .game-layout {
   display: grid;
   gap: 24px;

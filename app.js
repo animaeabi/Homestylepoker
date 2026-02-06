@@ -1894,6 +1894,8 @@ function applyHostMode() {
   if (elements.leaveGame) {
     elements.leaveGame.classList.toggle("hidden", !state.isHost);
   }
+  const isGameVisible = elements.gamePanel && !elements.gamePanel.classList.contains("hidden");
+  document.body.classList.toggle("player-locked", !state.isHost && isGameVisible);
   elements.gameName.disabled = !state.isHost;
   elements.currency.disabled = !state.isHost;
   elements.defaultBuyIn.disabled = !state.isHost;
