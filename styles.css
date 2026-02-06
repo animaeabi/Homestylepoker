@@ -184,8 +184,15 @@ body {
 
 body {
   font-family: "Manrope", sans-serif;
-  background: radial-gradient(circle at top, rgba(210, 166, 78, 0.15), transparent 55%),
+  background: radial-gradient(circle at 50% 0%, rgba(8, 12, 10, 0.35), transparent 55%),
+    radial-gradient(circle at top, rgba(210, 166, 78, 0.15), transparent 55%),
     radial-gradient(circle at 80% 10%, rgba(61, 140, 125, 0.22), transparent 50%),
+    linear-gradient(
+      180deg,
+      transparent 60%,
+      rgba(255, 170, 90, 0.09) 88%,
+      rgba(64, 255, 214, 0.05) 100%
+    ),
     radial-gradient(circle at 50% 80%, rgba(10, 18, 14, 0.8), transparent 55%),
     var(--bg);
   color: var(--ink);
@@ -275,13 +282,16 @@ body.theme-light::after {
   width: min(1040px, 100%);
   padding: 14px 22px;
   border-radius: 30px;
-  background: radial-gradient(circle at 12% 15%, rgba(210, 166, 78, 0.22), transparent 52%),
-    radial-gradient(circle at 88% 20%, rgba(61, 140, 125, 0.18), transparent 62%),
-    rgba(17, 31, 24, 0.96);
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
+  background: radial-gradient(circle at 20% 20%, rgba(64, 255, 214, 0.22), transparent 55%),
+    radial-gradient(circle at 85% 25%, rgba(255, 185, 90, 0.22), transparent 60%),
+    radial-gradient(circle at 55% 15%, rgba(255, 120, 220, 0.18), transparent 58%),
+    rgba(12, 18, 15, 0.96);
+  border: 1px solid rgba(64, 255, 214, 0.18);
+  box-shadow: 0 0 24px rgba(64, 255, 214, 0.22), 0 0 24px rgba(255, 185, 90, 0.16),
+    0 0 20px rgba(255, 120, 220, 0.12), 0 12px 28px rgba(0, 0, 0, 0.28);
   position: relative;
   overflow: hidden;
+  animation: tubeFlicker 2.4s ease-out both;
 }
 
 .topbar::after {
@@ -289,10 +299,32 @@ body.theme-light::after {
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  background: radial-gradient(circle at 15% 10%, rgba(210, 166, 78, 0.35), transparent 55%),
-    radial-gradient(circle at 85% 0%, rgba(178, 74, 59, 0.28), transparent 60%);
-  opacity: 0.18;
+  background: radial-gradient(circle at 10% 15%, rgba(64, 255, 214, 0.35), transparent 60%),
+    radial-gradient(circle at 90% 10%, rgba(255, 185, 90, 0.3), transparent 60%),
+    radial-gradient(circle at 55% 5%, rgba(255, 120, 220, 0.28), transparent 62%);
+  opacity: 0.25;
   pointer-events: none;
+}
+
+.topbar::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 2px;
+  background: linear-gradient(
+    120deg,
+    rgba(255, 235, 170, 1),
+    rgba(255, 170, 90, 0.95),
+    rgba(255, 110, 70, 0.85),
+    rgba(64, 255, 214, 0.8)
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0.8;
+  pointer-events: none;
+  animation: tubeRing 2.4s ease-out both;
 }
 
 body.theme-light .topbar {
@@ -344,21 +376,32 @@ body.theme-light .topbar::after {
   font-family: "Cinzel", "Fraunces", serif;
   font-size: 1.8rem;
   line-height: 1.05;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
-  background: linear-gradient(120deg, #f3d388 10%, #fff2cc 45%, #d7b15a 80%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.22);
+  color: #ffd2a3;
+  text-rendering: geometricPrecision;
+  text-shadow:
+    0 0 1px rgba(255, 230, 200, 0.95),
+    0 0 6px rgba(255, 170, 90, 0.75),
+    0 0 12px rgba(230, 80, 30, 0.55),
+    0 0 18px rgba(190, 50, 20, 0.35);
+  animation: tubeGlow 2.4s ease-out both;
+  white-space: pre;
 }
 
 body.theme-light .brand h1 {
-  background: linear-gradient(120deg, #1f6f5c 10%, #2f8a72 45%, #d4a444 90%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  text-shadow: 0 6px 14px rgba(27, 26, 23, 0.15);
+  color: #6a2f12;
+  text-shadow:
+    0 0 1px rgba(255, 235, 200, 0.45),
+    0 0 6px rgba(230, 110, 50, 0.3),
+    0 0 12px rgba(190, 60, 24, 0.2);
+}
+
+.neon-letter {
+  display: inline-block;
+  opacity: 0.22;
+  animation: letterFlicker var(--flicker-duration, 2.2s) steps(1, end) both;
+  animation-delay: var(--flicker-delay, 0s);
 }
 
 .brand-icon {
@@ -371,17 +414,63 @@ body.theme-light .brand h1 {
   background: linear-gradient(135deg, rgba(210, 166, 78, 0.35), rgba(178, 74, 59, 0.35));
   color: #f8eed9;
   font-size: 1.1rem;
-  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 0 10px rgba(255, 170, 90, 0.6), 0 0 18px rgba(255, 120, 60, 0.45),
+    0 0 26px rgba(230, 80, 30, 0.35), 0 8px 18px rgba(0, 0, 0, 0.35);
   border: 1px solid rgba(255, 255, 255, 0.2);
   position: relative;
   z-index: 1;
+  animation: tubeGlow 2.4s ease-out both;
+  cursor: pointer;
 }
 
 body.theme-light .brand-icon {
   background: linear-gradient(135deg, rgba(31, 111, 92, 0.22), rgba(210, 166, 78, 0.25));
   color: #1a2a25;
   border-color: rgba(31, 111, 92, 0.25);
-  box-shadow: 0 8px 18px rgba(27, 26, 23, 0.12);
+  box-shadow: 0 0 10px rgba(255, 170, 90, 0.3), 0 0 16px rgba(230, 100, 40, 0.25),
+    0 8px 18px rgba(27, 26, 23, 0.12);
+}
+
+.lights-off .topbar {
+  background: rgba(10, 14, 12, 0.96);
+  border-color: rgba(255, 255, 255, 0.06);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.4);
+  animation: none;
+}
+
+.lights-off .topbar::before,
+.lights-off .topbar::after {
+  opacity: 0.06;
+  animation: none;
+}
+
+.lights-off .brand h1 {
+  color: #6d5a3a;
+  text-shadow: none;
+  animation: none;
+}
+
+.lights-off .brand-icon {
+  background: rgba(80, 70, 50, 0.35);
+  color: #d5c2a2;
+  box-shadow: none;
+  border-color: rgba(255, 255, 255, 0.08);
+  animation: none;
+}
+
+.lights-reset .topbar,
+.lights-reset .brand h1,
+.lights-reset .brand-icon {
+  animation: none !important;
+}
+
+.lights-reset .topbar::before,
+.lights-reset .topbar::after {
+  animation: none !important;
+}
+
+.lights-reset .neon-letter {
+  animation: none !important;
 }
 
 .brand-chip {
@@ -419,12 +508,13 @@ body.theme-light .brand-icon {
   align-items: center;
   gap: 18px;
   width: min(520px, 100%);
-  margin: 0 auto;
+  margin: 22px auto 0;
 }
 
 .sessions {
   display: grid;
   gap: 18px;
+  margin-top: 22px;
 }
 
 .sessions-bar {
@@ -555,31 +645,39 @@ body.theme-light .settings-button:hover {
   gap: 12px;
   background: linear-gradient(140deg, #e9cf84 0%, #c6923f 55%, #a8641e 100%);
   color: #2b1b09;
-  border: 1px solid rgba(255, 255, 255, 0.4);
-  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.35);
   position: relative;
   overflow: hidden;
   isolation: isolate;
 }
 
-<<<<<<< ours
-.join-icon {
-<<<<<<< ours
-  width: 4.5em;
-  height: 4.5em;
-=======
-  width: 1.4em;
-  height: 1.4em;
->>>>>>> theirs
-  display: inline-block;
-  background-image: url("assets/chips.png");
-  background-repeat: no-repeat;
-  background-position: center;
-  background-size: contain;
+.lets-deal-toggle {
+  background:
+    radial-gradient(circle at 50% -12%, rgba(255, 244, 204, 0.1), rgba(255, 244, 204, 0) 55%),
+    linear-gradient(180deg, #f4d989 0%, #e5bf5e 32%, #c98b2a 62%, #a96816 100%);
+  border: 1px solid rgba(255, 230, 170, 0.55);
+  box-shadow:
+    0 0 0 1px rgba(200, 140, 40, 0.55),
+    0 10px 20px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    inset 0 -12px 18px rgba(130, 70, 10, 0.35);
 }
 
-=======
->>>>>>> theirs
+.lets-deal-toggle::before {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.28) 0%,
+    rgba(255, 255, 255, 0.08) 18%,
+    rgba(255, 255, 255, 0) 45%
+  );
+  opacity: 0.16;
+}
+
+.lets-deal-toggle::after {
+  background: radial-gradient(circle at 85% 25%, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0) 40%);
+  opacity: 0.14;
+}
 .lets-deal-toggle::before,
 .deal-button::before {
   content: "";
@@ -631,7 +729,7 @@ body.theme-light .settings-button:hover {
   background-position: center;
   color: #140d07;
   position: absolute;
-  right: 52px;
+  right: 64px;
   top: 50%;
   transform: translateY(-50%);
   margin-top: 0;
@@ -641,7 +739,7 @@ body.theme-light .settings-button:hover {
 
 .host-icon-collapsed {
   background-image: url("assets/host-1.png");
-  opacity: 1;
+  opacity: 0.7;
 }
 
 .host-icon-expanded {
@@ -653,7 +751,7 @@ body.theme-light .settings-button:hover {
 }
 
 .lets-deal-toggle[aria-expanded="true"] .host-icon-expanded {
-  opacity: 1;
+  opacity: 0.7;
 }
 
 .deal-button {
@@ -1372,6 +1470,7 @@ button:disabled {
 .game {
   display: grid;
   gap: 24px;
+  margin-top: 22px;
 }
 
 .game-layout {
@@ -2561,6 +2660,147 @@ body:not(.theme-light) .footer-toggle input {
 .panel,
 .landing-card {
   animation: floatIn 0.6s ease both;
+}
+
+@keyframes tubeFlicker {
+  0% {
+    filter: brightness(0.05);
+  }
+  5% {
+    filter: brightness(2.1);
+  }
+  7% {
+    filter: brightness(0);
+  }
+  9% {
+    filter: brightness(0.35);
+  }
+  14% {
+    filter: brightness(2.3);
+  }
+  20% {
+    filter: brightness(0.4);
+  }
+  28% {
+    filter: brightness(2.5);
+  }
+  36% {
+    filter: brightness(0.55);
+  }
+  44% {
+    filter: brightness(2.2);
+  }
+  52% {
+    filter: brightness(0.75);
+  }
+  64% {
+    filter: brightness(1.6);
+  }
+  100% {
+    filter: brightness(1);
+  }
+}
+
+@keyframes tubeGlow {
+  0% {
+    opacity: 0;
+  }
+  6% {
+    opacity: 1;
+  }
+  7% {
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.2;
+  }
+  16% {
+    opacity: 1;
+  }
+  22% {
+    opacity: 0.3;
+  }
+  30% {
+    opacity: 1;
+  }
+  38% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
+  64% {
+    opacity: 0.85;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes tubeRing {
+  0% {
+    opacity: 0;
+  }
+  6% {
+    opacity: 1;
+  }
+  7% {
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.2;
+  }
+  16% {
+    opacity: 1;
+  }
+  22% {
+    opacity: 0.3;
+  }
+  30% {
+    opacity: 1;
+  }
+  38% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.95;
+  }
+}
+
+@keyframes letterFlicker {
+  0% {
+    opacity: 0.2;
+  }
+  6% {
+    opacity: 0.2;
+  }
+  10% {
+    opacity: 0.12;
+  }
+  16% {
+    opacity: 1;
+  }
+  22% {
+    opacity: 0.18;
+  }
+  30% {
+    opacity: 1;
+  }
+  36% {
+    opacity: 0.4;
+  }
+  48% {
+    opacity: 1;
+  }
+  62% {
+    opacity: 0.85;
+  }
+  100% {
+    opacity: 1;
+  }
 }
 
 @media (max-width: 720px) {

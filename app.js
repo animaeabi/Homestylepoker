@@ -22,6 +22,7 @@ const elements = {
   joinGame: $("#joinGame"),
   openSessions: $("#openSessions"),
   homeTitle: $("#homeTitle"),
+  brandIcon: $("#brandIcon"),
   qrButton: $("#qrButton"),
   qrModal: $("#qrModal"),
   qrClose: $("#qrClose"),
@@ -220,6 +221,7 @@ const playerKey = (code) => `poker_player_${code}`;
 const hostKey = (code) => `poker_host_${code}`;
 const recentGamesKey = "poker_recent_games";
 const themeKey = "poker_theme";
+const lightsOffKey = "poker_lights_off";
 const deletePinKey = "poker_delete_pin_ok";
 const deletePin = "2/7";
 const lastGroupKey = "poker_last_group";
@@ -299,6 +301,27 @@ function initTheme() {
     return;
   }
   applyTheme("dark");
+}
+
+function applyLightsOff(isOff) {
+  document.body.classList.toggle("lights-off", isOff);
+  if (elements.brandIcon) {
+    elements.brandIcon.setAttribute("aria-pressed", isOff ? "true" : "false");
+  }
+  if (!isOff) {
+    restartHeaderAnimations();
+  }
+}
+
+function initHeaderLights() {
+  const stored = localStorage.getItem(lightsOffKey);
+  applyLightsOff(stored === "1");
+}
+
+function restartHeaderAnimations() {
+  document.body.classList.add("lights-reset");
+  void document.body.offsetHeight;
+  document.body.classList.remove("lights-reset");
 }
 
 function openLockPhraseModal(groupName) {
@@ -1196,6 +1219,23 @@ function formatShortDate(iso) {
     month: "short",
     day: "numeric",
     year: "numeric"
+  });
+}
+
+function initTitleFlicker() {
+  const title = document.querySelector(".brand h1");
+  if (!title || title.dataset.flicker === "true") return;
+  const text = title.textContent || "";
+  title.dataset.flicker = "true";
+  title.setAttribute("aria-label", text);
+  title.textContent = "";
+  [...text].forEach((char) => {
+    const span = document.createElement("span");
+    span.className = "neon-letter";
+    span.textContent = char;
+    span.style.setProperty("--flicker-delay", `${(Math.random() * 0.8).toFixed(2)}s`);
+    span.style.setProperty("--flicker-duration", `${(1.6 + Math.random() * 1.2).toFixed(2)}s`);
+    title.appendChild(span);
   });
 }
 
@@ -3511,7 +3551,9 @@ async function submitSettlement(event) {
 buildQuarterOptions();
 buildStatsRanges();
 initTheme();
+initHeaderLights();
 void initGameName();
+initTitleFlicker();
 
 // Event listeners
 if (elements.themeToggle) {
@@ -3612,6 +3654,24 @@ if (elements.homeTitle) {
   elements.homeTitle.addEventListener("click", () => {
     clearCurrentGame();
     closeSessionsPage();
+  });
+}
+
+if (elements.brandIcon) {
+  elements.brandIcon.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const isOff = !document.body.classList.contains("lights-off");
+    applyLightsOff(isOff);
+    localStorage.setItem(lightsOffKey, isOff ? "1" : "0");
+  });
+
+  elements.brandIcon.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    event.stopPropagation();
+    const isOff = !document.body.classList.contains("lights-off");
+    applyLightsOff(isOff);
+    localStorage.setItem(lightsOffKey, isOff ? "1" : "0");
   });
 }
 
