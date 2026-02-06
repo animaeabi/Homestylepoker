@@ -1079,8 +1079,7 @@ body.theme-light .settings-button:hover {
 
 .join-standalone {
   justify-content: center;
-  padding-left: 12px;
-  padding-right: 42px;
+  padding-left: 18px;
 }
 
 .join-standalone .join-text {
