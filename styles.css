@@ -1080,7 +1080,7 @@ body.theme-light .settings-button:hover {
 
 .join-standalone .join-text {
   display: inline-block;
-  transform: translateX(-8px);
+  transform: translateX(-14px);
 }
 
 .lets-play .join-standalone {
