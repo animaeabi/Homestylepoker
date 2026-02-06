@@ -520,7 +520,7 @@ body.theme-light .brand-icon {
   width: 100%;
   max-width: 420px;
   opacity: 0.7;
-  margin-top: 10px;
+  margin-top: 18px;
 }
 
 .landing-ornament .ornament-line {
@@ -530,13 +530,15 @@ body.theme-light .brand-icon {
 }
 
 .landing-ornament .ornament-crest {
-  width: 32px;
-  height: 32px;
+  width: 52px;
+  height: 52px;
   border-radius: 999px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.9rem;
+  font-size: 1.8rem;
+  font-family: "Apple Symbols", "Segoe UI Symbol", "Noto Sans Symbols", "Noto Sans", sans-serif;
+  font-variant-emoji: text;
   color: rgba(255, 230, 180, 0.9);
   background: rgba(12, 20, 16, 0.55);
   border: 1px solid rgba(255, 196, 120, 0.35);
@@ -549,12 +551,13 @@ body.theme-light .brand-icon {
   gap: 14px;
   width: 100%;
   max-width: 420px;
-  font-size: 0.9rem;
+  font-size: 1.55rem;
   letter-spacing: 0.2em;
   color: rgba(255, 214, 150, 0.5);
   opacity: 0.65;
   font-family: "Apple Symbols", "Segoe UI Symbol", "Noto Sans Symbols", "Noto Sans", sans-serif;
   font-variant-emoji: text;
+  margin-top: 10px;
 }
 
 body.theme-light .landing-ornament .ornament-line {
