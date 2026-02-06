@@ -1467,9 +1467,6 @@ async function loadGroupStats() {
   });
 
   const totalBuyins = rows.reduce((sum, row) => sum + row.buyinTotal, 0);
-  const totalCashout = rows.reduce((sum, row) => sum + row.cashout, 0);
-  const totalNet = totalCashout - totalBuyins;
-
   rows.forEach((row) => {
     row.skillScore = row.buyinTotal ? row.net / row.buyinTotal : 0;
   });
@@ -1481,9 +1478,7 @@ async function loadGroupStats() {
   elements.statsSummary.innerHTML = "";
   [
     { label: "Games", value: gamesSet.size },
-    { label: "Total buy-ins", value: formatCurrency(totalBuyins) },
-    { label: "Total cash-out", value: formatCurrency(totalCashout) },
-    { label: "Net", value: formatCurrency(totalNet) }
+    { label: "Total buy-ins", value: formatCurrency(totalBuyins) }
   ].forEach((card) => {
     const node = document.createElement("div");
     node.className = "summary-card";
