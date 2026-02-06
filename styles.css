@@ -2232,16 +2232,24 @@ body.theme-light .join-player-panel::after {
 .join-player-panel .field span:empty {
   display: none;
 }
+
+.join-player-panel .join-seat-icon {
+  width: 82px;
+  height: 82px;
+  display: block;
+  margin: 16px auto 0;
+  opacity: 0.95;
+}
 .join-player-panel .field input {
   max-width: 220px;
-  margin: 44px auto 0;
+  margin: 0 auto 0;
   text-align: center;
   padding: 10px 14px;
 }
 
 .join-player-panel .roster-actions {
   justify-content: center;
-  margin-top: 14px;
+  margin-top: 6px;
 }
 
 .join-player-panel .roster-actions .primary {
