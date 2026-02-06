@@ -519,14 +519,15 @@ body.theme-light .brand-icon {
   gap: 14px;
   width: 100%;
   max-width: 420px;
-  opacity: 0.7;
+  opacity: 0.9;
   margin-top: 18px;
 }
 
 .landing-ornament .ornament-line {
   flex: 1;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255, 196, 120, 0.55), transparent);
+  background: linear-gradient(90deg, transparent, rgba(255, 196, 120, 0.85), transparent);
+  box-shadow: 0 0 10px rgba(255, 170, 90, 0.45);
 }
 
 .landing-ornament .ornament-crest {
@@ -539,10 +540,11 @@ body.theme-light .brand-icon {
   font-size: 1.8rem;
   font-family: "Apple Symbols", "Segoe UI Symbol", "Noto Sans Symbols", "Noto Sans", sans-serif;
   font-variant-emoji: text;
-  color: rgba(255, 230, 180, 0.9);
-  background: rgba(12, 20, 16, 0.55);
-  border: 1px solid rgba(255, 196, 120, 0.35);
-  box-shadow: 0 0 10px rgba(255, 170, 90, 0.2);
+  color: rgba(255, 230, 180, 1);
+  background: rgba(12, 20, 16, 0.6);
+  border: 1px solid rgba(255, 196, 120, 0.55);
+  box-shadow: 0 0 16px rgba(255, 170, 90, 0.45);
+  text-shadow: 0 0 10px rgba(255, 176, 110, 0.6);
 }
 
 .landing-ornament-suits {
@@ -553,26 +555,30 @@ body.theme-light .brand-icon {
   max-width: 420px;
   font-size: 1.55rem;
   letter-spacing: 0.2em;
-  color: rgba(255, 214, 150, 0.5);
-  opacity: 0.65;
+  color: rgba(255, 214, 150, 0.78);
+  opacity: 0.9;
   font-family: "Apple Symbols", "Segoe UI Symbol", "Noto Sans Symbols", "Noto Sans", sans-serif;
   font-variant-emoji: text;
   margin-top: 20px;
+  text-shadow: 0 0 10px rgba(255, 176, 110, 0.55);
 }
 
 body.theme-light .landing-ornament .ornament-line {
-  background: linear-gradient(90deg, transparent, rgba(31, 111, 92, 0.35), transparent);
+  background: linear-gradient(90deg, transparent, rgba(31, 111, 92, 0.6), transparent);
+  box-shadow: 0 0 10px rgba(31, 111, 92, 0.35);
 }
 
 body.theme-light .landing-ornament .ornament-crest {
-  color: rgba(31, 111, 92, 0.85);
-  background: rgba(255, 255, 255, 0.7);
-  border-color: rgba(31, 111, 92, 0.25);
-  box-shadow: 0 0 8px rgba(31, 111, 92, 0.2);
+  color: rgba(31, 111, 92, 1);
+  background: rgba(255, 255, 255, 0.75);
+  border-color: rgba(31, 111, 92, 0.4);
+  box-shadow: 0 0 14px rgba(31, 111, 92, 0.35);
+  text-shadow: 0 0 8px rgba(31, 111, 92, 0.35);
 }
 
 body.theme-light .landing-ornament-suits {
-  color: rgba(31, 111, 92, 0.45);
+  color: rgba(31, 111, 92, 0.7);
+  text-shadow: 0 0 8px rgba(31, 111, 92, 0.35);
 }
 
 .sessions {
