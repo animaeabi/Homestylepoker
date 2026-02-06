@@ -418,23 +418,53 @@ body.theme-light .brand h1 {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: radial-gradient(circle at 30% 30%, rgba(255, 210, 150, 0.35), rgba(24, 34, 28, 0.92) 70%);
-  color: #f9e6bd;
-  font-size: 1.1rem;
-  box-shadow: 0 0 10px rgba(255, 170, 90, 0.55), 0 0 18px rgba(255, 120, 60, 0.35),
-    0 0 26px rgba(230, 80, 30, 0.35), 0 8px 18px rgba(0, 0, 0, 0.35);
-  border: 1px solid rgba(255, 210, 150, 0.35);
+  background: linear-gradient(145deg, rgba(130, 70, 70, 0.28), rgba(90, 130, 115, 0.32), rgba(26, 40, 34, 0.45));
+  color: #fbe7c2;
+  font-size: 1.55rem;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.18),
+    0 10px 22px rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(242, 200, 130, 0.8);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 224, 170, 0.55),
+    0 10px 22px rgba(0, 0, 0, 0.35);
   position: relative;
   z-index: 1;
   animation: tubeGlow 2.4s ease-out both;
   cursor: pointer;
 }
 
+.brand-icon.suit-off {
+  opacity: 0.35;
+  transition: opacity 0.12s ease;
+}
+
+.brand-icon::before {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.35), rgba(255, 255, 255, 0) 58%);
+  opacity: 0.65;
+  pointer-events: none;
+}
+
+.brand-icon::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 14px;
+  box-shadow: none;
+  opacity: 0;
+  pointer-events: none;
+}
+
 body.theme-light .brand-icon {
-  background: linear-gradient(135deg, rgba(31, 111, 92, 0.22), rgba(210, 166, 78, 0.25));
+  background: linear-gradient(145deg, rgba(19, 80, 64, 0.25), rgba(245, 231, 208, 0.85));
   color: #1a2a25;
-  border-color: rgba(31, 111, 92, 0.25);
-  box-shadow: 0 0 10px rgba(255, 170, 90, 0.3), 0 0 16px rgba(230, 100, 40, 0.25),
+  border-color: rgba(31, 111, 92, 0.3);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.25),
     0 8px 18px rgba(27, 26, 23, 0.12);
 }
 

@@ -232,6 +232,12 @@ const hostKey = (code) => `poker_host_${code}`;
 const recentGamesKey = "poker_recent_games";
 const themeKey = "poker_theme";
 const lightsOffKey = "poker_lights_off";
+const suitCycle = ["♠", "♣", "♦", "♥"];
+const suitCycleDelayMs = 3600;
+let suitCycleIndex = 0;
+let suitCycleTimer = null;
+let suitCycleStartTimer = null;
+let lastAutoLightsOff = null;
 const deletePinKey = "poker_delete_pin_ok";
 const deletePin = "2/7";
 const lastGroupKey = "poker_last_group";
@@ -337,12 +343,48 @@ function applyLightsOff(isOff) {
   if (!isOff) {
     resetOrnamentFlicker();
     restartHeaderAnimations();
+    startSuitCycle();
   }
 }
 
 function initHeaderLights() {
   const stored = localStorage.getItem(lightsOffKey);
   applyLightsOff(stored === "1");
+}
+
+function setBrandSuit(char) {
+  if (!elements.brandIcon) return;
+  elements.brandIcon.textContent = char;
+}
+
+function startSuitCycle() {
+  if (!elements.brandIcon) return;
+  const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  if (reduceMotion) {
+    setBrandSuit("♠");
+    return;
+  }
+  if (suitCycleTimer) clearInterval(suitCycleTimer);
+  if (suitCycleStartTimer) clearTimeout(suitCycleStartTimer);
+  suitCycleIndex = 0;
+  setBrandSuit(suitCycle[suitCycleIndex]);
+  suitCycleStartTimer = setTimeout(() => {
+    suitCycleTimer = setInterval(() => {
+      if (document.hidden) return;
+      if (document.body.classList.contains("lights-off")) return;
+      if (elements.brandIcon) {
+        elements.brandIcon.classList.add("suit-off");
+      }
+      setTimeout(() => {
+        if (document.body.classList.contains("lights-off")) return;
+        suitCycleIndex = (suitCycleIndex + 1) % suitCycle.length;
+        setBrandSuit(suitCycle[suitCycleIndex]);
+        if (elements.brandIcon) {
+          elements.brandIcon.classList.remove("suit-off");
+        }
+      }, 140);
+    }, 2200);
+  }, suitCycleDelayMs);
 }
 
 function restartHeaderAnimations() {
@@ -1880,6 +1922,12 @@ function applyGameStatus() {
   const settledAt = state.game.ended_at;
   const settled = Boolean(settledAt);
   const settling = !settled && isSettleOpen();
+
+  const shouldForceOff = settling || settled;
+  if (lastAutoLightsOff !== shouldForceOff) {
+    applyLightsOff(shouldForceOff);
+    lastAutoLightsOff = shouldForceOff;
+  }
 
   if (elements.gamePanel) {
     elements.gamePanel.classList.toggle("settled-view", settled);
@@ -3851,6 +3899,7 @@ initHeaderLights();
 void initGameName();
 initTitleFlicker();
 initOrnamentFlicker();
+startSuitCycle();
 
 // Event listeners
 if (elements.themeToggle) {
