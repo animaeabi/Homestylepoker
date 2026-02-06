@@ -405,6 +405,8 @@ body.theme-light .brand h1 {
 }
 
 .brand-icon {
+  font-family: "Apple Symbols", "Segoe UI Symbol", "Noto Sans Symbols", "Noto Sans", sans-serif;
+  font-variant-emoji: text;
   width: 34px;
   height: 34px;
   border-radius: 12px;
@@ -551,6 +553,8 @@ body.theme-light .brand-icon {
   letter-spacing: 0.2em;
   color: rgba(255, 214, 150, 0.5);
   opacity: 0.65;
+  font-family: "Apple Symbols", "Segoe UI Symbol", "Noto Sans Symbols", "Noto Sans", sans-serif;
+  font-variant-emoji: text;
 }
 
 body.theme-light .landing-ornament .ornament-line {
