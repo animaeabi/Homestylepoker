@@ -888,7 +888,7 @@ body.theme-light .settings-button:hover {
   position: absolute;
   left: 90px;
   top: 50%;
-  transform: translateY(-50%);
+  transform: translateY(-50%) scale(1.08);
   margin-top: 0;
   opacity: 0;
   pointer-events: none;
@@ -1068,14 +1068,19 @@ body.theme-light .settings-button:hover {
   width: 37px;
   height: 37px;
   margin-right: 10px;
+  margin-left: -10px;
   display: inline-block;
   vertical-align: middle;
   object-fit: contain;
   filter: brightness(1.18) saturate(1.1);
+  transform: scale(1.5);
+  transform-origin: center;
 }
 
 .join-standalone {
   justify-content: center;
+  padding-left: 12px;
+  padding-right: 42px;
 }
 
 .join-standalone .join-text {
