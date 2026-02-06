@@ -2243,6 +2243,8 @@ body.theme-light .stats-btn {
 .host-actions-bar {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
 }
 
 .add-player-btn {
