@@ -2925,6 +2925,16 @@ async function createGame(options = {}) {
     if (!hostError && hostPlayer) {
       state.playerId = hostPlayer.id;
       saveStoredPlayer(state.game.code, { id: hostPlayer.id, name: hostPlayer.name });
+      if (!state.game.group_id) {
+        const { error: hostBuyinError } = await supabase.from("buyins").insert({
+          game_id: state.game.id,
+          player_id: hostPlayer.id,
+          amount: defaultBuyIn
+        });
+        if (hostBuyinError) {
+          setStatus("Could not seed host buy-in", "error");
+        }
+      }
     }
   }
 
@@ -3004,6 +3014,16 @@ async function joinAsPlayer() {
   state.playerId = data.id;
   saveStoredPlayer(state.game.code, { id: data.id, name });
   elements.playerName.value = "";
+  if (!state.game.group_id) {
+    const { error: buyinError } = await supabase.from("buyins").insert({
+      game_id: state.game.id,
+      player_id: data.id,
+      amount: state.game.default_buyin || 10
+    });
+    if (buyinError) {
+      setStatus("Could not add buy-in", "error");
+    }
+  }
   await refreshData();
 }
 
