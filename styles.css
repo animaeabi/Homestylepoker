@@ -976,7 +976,8 @@ body.theme-light .settings-button:hover {
 .groups-panel-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
+  gap: 8px;
   font-family: "Cinzel", "Fraunces", serif;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -1147,14 +1148,14 @@ select:focus-visible {
 }
 
 .add-group-btn {
-  width: 32px;
-  height: 32px;
-  padding: 0;
+  width: auto;
+  height: auto;
+  padding: 6px 12px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border-radius: 10px;
-  font-size: 1rem;
+  font-size: 0.75rem;
 }
 
 .recent-group {
