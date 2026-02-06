@@ -428,6 +428,7 @@ function openJoinPlayerModal() {
   elements.joinPlayerGameList.innerHTML = "";
   elements.joinPlayerListHint.textContent = "";
   elements.joinPlayerCodeHint.textContent = "";
+  elements.joinPlayerCodeHint.classList.remove("error");
   elements.joinPlayerName.value = "";
   elements.joinPlayerCode.value = "";
   showJoinStep("name");
@@ -496,7 +497,8 @@ async function handleJoinPlayerContinue() {
   const groupIds = Array.from(new Set((data || []).map((row) => row.group_id))).filter(Boolean);
   if (!groupIds.length) {
     joinFlowHasList = false;
-    elements.joinPlayerCodeHint.textContent = "No group match found. Enter a game code.";
+    elements.joinPlayerCodeHint.textContent = "No group match found.";
+    elements.joinPlayerCodeHint.classList.add("error");
     showJoinStep("code");
     return;
   }
@@ -509,7 +511,8 @@ async function handleJoinPlayerContinue() {
 
   if (!activeGames.length) {
     joinFlowHasList = false;
-    elements.joinPlayerCodeHint.textContent = "No active group game found. Enter a game code.";
+    elements.joinPlayerCodeHint.textContent = "No active group game found.";
+    elements.joinPlayerCodeHint.classList.remove("error");
     showJoinStep("code");
     return;
   }

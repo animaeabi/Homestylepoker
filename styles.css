@@ -2198,6 +2198,14 @@ body.theme-light .join-player-panel::after {
   margin-bottom: 14px;
 }
 
+.join-player-step .muted {
+  text-align: center;
+}
+
+.join-player-step .muted.error {
+  color: #e56a5a;
+}
+
 .join-player-panel .close-x {
   position: absolute;
   right: 16px;
