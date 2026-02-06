@@ -1607,8 +1607,9 @@ button:disabled {
 
 .game-tools {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
   margin-left: auto;
 }
 
