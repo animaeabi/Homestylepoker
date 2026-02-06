@@ -557,7 +557,7 @@ body.theme-light .brand-icon {
   opacity: 0.65;
   font-family: "Apple Symbols", "Segoe UI Symbol", "Noto Sans Symbols", "Noto Sans", sans-serif;
   font-variant-emoji: text;
-  margin-top: 10px;
+  margin-top: 20px;
 }
 
 body.theme-light .landing-ornament .ornament-line {
@@ -735,29 +735,32 @@ body.theme-light .settings-button:hover {
 
 .lets-deal-toggle {
   background:
-    radial-gradient(circle at 50% -12%, rgba(255, 244, 204, 0.1), rgba(255, 244, 204, 0) 55%),
-    linear-gradient(180deg, #f4d989 0%, #e5bf5e 32%, #c98b2a 62%, #a96816 100%);
-  border: 1px solid rgba(255, 230, 170, 0.55);
+    radial-gradient(circle at 20% 12%, rgba(255, 200, 140, 0.22), rgba(255, 200, 140, 0) 45%),
+    radial-gradient(circle at 50% -12%, rgba(255, 198, 140, 0.2), rgba(255, 198, 140, 0) 55%),
+    linear-gradient(180deg, #f2d3a0 0%, #ddb177 32%, #c58a4d 62%, #a0633a 100%);
+  border: 1px solid transparent;
+  background-clip: padding-box;
   box-shadow:
-    0 0 0 1px rgba(200, 140, 40, 0.55),
+    0 0 0 1px rgba(208, 140, 90, 0.55),
     0 10px 20px rgba(0, 0, 0, 0.35),
-    inset 0 1px 0 rgba(255, 255, 255, 0.12),
-    inset 0 -12px 18px rgba(130, 70, 10, 0.35);
+    inset 0 1px 0 rgba(245, 186, 135, 0.14),
+    inset 0 -12px 18px rgba(100, 50, 30, 0.35);
+  transform: translateZ(0);
 }
 
 .lets-deal-toggle::before {
   background: linear-gradient(
     180deg,
-    rgba(255, 255, 255, 0.28) 0%,
-    rgba(255, 255, 255, 0.08) 18%,
+    rgba(244, 200, 160, 0.14) 0%,
+    rgba(244, 200, 160, 0.04) 18%,
     rgba(255, 255, 255, 0) 45%
   );
-  opacity: 0.16;
+  opacity: 0.06;
 }
 
 .lets-deal-toggle::after {
-  background: radial-gradient(circle at 85% 25%, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0) 40%);
-  opacity: 0.14;
+  background: radial-gradient(circle at 85% 25%, rgba(244, 200, 160, 0.14), rgba(244, 200, 160, 0) 40%);
+  opacity: 0.06;
 }
 .lets-deal-toggle::before,
 .deal-button::before {
@@ -873,7 +876,7 @@ body.theme-light .settings-button:hover {
 
 .deal-secondary {
   background: linear-gradient(140deg, #153127 0%, #10261f 55%, #0c1d17 100%);
-  color: #e9d6a2;
+  color: #f2d39a;
   border-color: rgba(210, 166, 78, 0.18);
   box-shadow: 0 8px 14px rgba(0, 0, 0, 0.28);
   filter: saturate(0.6);
@@ -897,6 +900,51 @@ body.theme-light .settings-button:hover {
   opacity: 0;
 }
 
+.deal-bronze {
+  background:
+    radial-gradient(circle at 50% -12%, rgba(255, 198, 120, 0.2), rgba(255, 198, 120, 0) 55%),
+    linear-gradient(180deg, #1f5a44 0%, #184a39 34%, #103828 68%, #0c2a1f 100%);
+  color: #e9d6a2;
+  border-color: rgba(210, 166, 78, 0.55);
+  box-shadow:
+    0 0 0 1px rgba(200, 140, 40, 0.45),
+    0 10px 20px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 198, 120, 0.16),
+    inset 0 -12px 18px rgba(6, 22, 16, 0.6);
+  filter: saturate(1.05);
+}
+
+.deal-bronze::before,
+.deal-bronze::after {
+  opacity: 0.1;
+}
+
+.deal-primary {
+  background:
+    radial-gradient(circle at 50% -12%, rgba(255, 244, 204, 0.1), rgba(255, 244, 204, 0) 55%),
+    linear-gradient(180deg, #f4d989 0%, #e5bf5e 32%, #c98b2a 62%, #a96816 100%);
+  border: 1px solid rgba(255, 230, 170, 0.55);
+  box-shadow:
+    0 0 0 1px rgba(200, 140, 40, 0.55),
+    0 10px 20px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    inset 0 -12px 18px rgba(130, 70, 10, 0.35);
+}
+
+.deal-primary::before {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.28) 0%,
+    rgba(255, 255, 255, 0.08) 18%,
+    rgba(255, 255, 255, 0) 45%
+  );
+  opacity: 0.16;
+}
+
+.deal-primary::after {
+  background: radial-gradient(circle at 85% 25%, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0) 40%);
+  opacity: 0.14;
+}
 .host-game-btn {
   background: linear-gradient(140deg, #caa45c 0%, #a3742f 60%, #7f511f 100%);
   color: #24160b;
@@ -928,7 +976,7 @@ body.theme-light .settings-button:hover {
 
 .landing-actions {
   display: grid;
-  gap: 16px;
+  gap: 22px;
   width: 100%;
 }
 
@@ -940,6 +988,12 @@ body.theme-light .settings-button:hover {
 .join-standalone {
   margin: 22px 16px 30px;
   width: calc(100% - 32px);
+  padding: 18px 26px;
+}
+
+.lets-play .join-standalone {
+  margin: 16px 0 0;
+  width: 100%;
 }
 
 .lets-deal-chevron {
@@ -1009,6 +1063,7 @@ select:focus-visible {
   gap: 12px;
   justify-items: stretch;
   width: 100%;
+  margin-top: 10px;
 }
 
 .group-card {
