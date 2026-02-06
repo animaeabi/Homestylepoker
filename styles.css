@@ -1502,6 +1502,21 @@ button:disabled {
   box-shadow: 0 0 0 2px rgba(178, 74, 59, 0.2);
 }
 
+.settle-cta {
+  background: rgba(255, 118, 96, 0.22);
+  color: #ffe6dd;
+  border-color: rgba(255, 118, 96, 0.7);
+  box-shadow: 0 0 14px rgba(255, 118, 96, 0.25);
+}
+
+.settle-cta:hover {
+  box-shadow: 0 0 18px rgba(255, 118, 96, 0.35);
+}
+
+.terminate-cta {
+  background: rgba(178, 74, 59, 0.08);
+}
+
 .hint {
   font-size: 0.85rem;
   color: var(--muted);
@@ -1602,6 +1617,12 @@ button:disabled {
   justify-content: space-between;
   align-items: center;
   gap: 12px;
+}
+
+.host-mode-dock {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
 }
 
 .qr-button {
@@ -1849,6 +1870,35 @@ button:disabled {
 .lock-modal-body {
   display: grid;
   gap: 12px;
+}
+
+.host-transfer-panel {
+  position: relative;
+  z-index: 1;
+  width: min(92vw, 460px);
+  max-height: 85vh;
+  overflow: auto;
+}
+
+.host-transfer-list {
+  display: grid;
+  gap: 10px;
+}
+
+.host-transfer-item {
+  text-align: left;
+  background: var(--row-bg);
+  border: 1px solid var(--row-border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-weight: 600;
+  color: var(--ink);
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.host-transfer-item:hover {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.12);
 }
 
 .join-player-step {
@@ -2206,6 +2256,48 @@ body.theme-light .stats-btn {
 .host-add-form {
   display: grid;
   gap: 10px;
+}
+
+.roster-suggestions {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(12, 20, 16, 0.5);
+  border: 1px solid var(--border);
+}
+
+.roster-suggestions-title {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+}
+
+.roster-suggestions-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.roster-pill {
+  border-radius: 999px;
+  padding: 6px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--ink);
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.roster-pill:hover {
+  border-color: rgba(255, 196, 120, 0.4);
+  box-shadow: 0 0 10px rgba(255, 170, 90, 0.2);
+}
+
+.roster-suggestions-empty {
+  font-size: 0.75rem;
+  color: var(--muted);
 }
 
 .players {

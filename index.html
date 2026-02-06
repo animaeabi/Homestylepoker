@@ -122,7 +122,10 @@
                 <canvas id="qrCanvas" width="64" height="64"></canvas>
               </button>
             </div>
-            <button id="openSettle" class="danger-outline">Settle game</button>
+            <div class="game-actions">
+              <button id="openSettle" class="danger-outline settle-cta">Settle game</button>
+              <button id="terminateGame" class="danger-outline terminate-cta">Terminate game</button>
+            </div>
           </div>
         </div>
 
@@ -183,6 +186,7 @@
                       <span class="sr-only">Player name</span>
                       <input id="hostPlayerName" type="text" placeholder="Player name" />
                     </label>
+                    <div id="hostRosterSuggestions" class="roster-suggestions hidden"></div>
                     <button id="hostAddPlayer" class="primary">Add player</button>
                   </div>
                 </div>
@@ -204,6 +208,12 @@
             <div class="panel-title" id="playerPanelTitle">
               <h2 id="playerPanelHeading">Player</h2>
               <p id="playerPanelSubtitle">Join once, tap to add buy-ins.</p>
+            </div>
+            <div id="hostModeDock" class="host-mode-dock hidden">
+              <label class="toggle">
+                <input type="checkbox" id="hostModeToggleAlt" />
+                <span>Host mode</span>
+              </label>
             </div>
             <div id="playerJoin" class="player-join">
               <label class="field">
@@ -572,6 +582,23 @@
           <div class="roster-actions">
             <button id="lockPhraseCancel" class="ghost" type="button">Cancel</button>
             <button id="lockPhraseSubmit" class="primary" type="button">Unlock</button>
+          </div>
+        </section>
+      </div>
+
+      <div id="hostTransferModal" class="modal hidden" role="dialog" aria-modal="true">
+        <div class="modal-backdrop" data-action="close"></div>
+        <section class="panel host-transfer-panel">
+          <div class="panel-title summary-header">
+            <div>
+              <h2>Pass host</h2>
+              <p class="muted">Choose a player to take over host controls.</p>
+            </div>
+            <button id="hostTransferClose" class="ghost" type="button">Close</button>
+          </div>
+          <div id="hostTransferList" class="host-transfer-list"></div>
+          <div class="roster-actions">
+            <button id="hostTransferCancel" class="ghost" type="button">Cancel</button>
           </div>
         </section>
       </div>

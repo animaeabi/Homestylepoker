@@ -68,6 +68,10 @@ const elements = {
   lockPhraseClose: $("#lockPhraseClose"),
   lockPhraseCancel: $("#lockPhraseCancel"),
   lockPhraseSubmit: $("#lockPhraseSubmit"),
+  hostTransferModal: $("#hostTransferModal"),
+  hostTransferList: $("#hostTransferList"),
+  hostTransferClose: $("#hostTransferClose"),
+  hostTransferCancel: $("#hostTransferCancel"),
   confirmModal: $("#confirmModal"),
   confirmMessage: $("#confirmMessage"),
   confirmClose: $("#confirmClose"),
@@ -108,6 +112,7 @@ const elements = {
   settledNotice: $("#settledNotice"),
   settledAt: $("#settledAt"),
   openSettle: $("#openSettle"),
+  terminateGame: $("#terminateGame"),
   settleModal: $("#settleModal"),
   settlePanel: $("#settlePanel"),
   settleForm: $("#settleForm"),
@@ -130,6 +135,8 @@ const elements = {
   statsSummary: $("#statsSummary"),
   statsLeaderboard: $("#statsLeaderboard"),
   hostModeToggle: $("#hostModeToggle"),
+  hostModeToggleAlt: $("#hostModeToggleAlt"),
+  hostModeDock: $("#hostModeDock"),
   openGuide: $("#openGuide"),
   guideModal: $("#guideModal"),
   guideClose: $("#guideClose"),
@@ -139,6 +146,7 @@ const elements = {
   hostAddForm: $("#hostAddForm"),
   hostPlayerName: $("#hostPlayerName"),
   hostAddPlayer: $("#hostAddPlayer"),
+  hostRosterSuggestions: $("#hostRosterSuggestions"),
   players: $("#players"),
   recentGames: $("#recentGames"),
   deleteAllGames: $("#deleteAllGames"),
@@ -184,7 +192,9 @@ const state = {
   canHost: false,
   playerId: null,
   channel: null,
-  statsGroupId: null
+  statsGroupId: null,
+  gameGroupPlayers: [],
+  gameGroupPlayersGroupId: null
 };
 
 const configMissing =
@@ -519,6 +529,27 @@ function isLocalHostForGame(code) {
   return localStorage.getItem(hostKey(code)) === "true";
 }
 
+function syncHostAccess() {
+  if (!state.game) return;
+  const hostId = state.game.host_player_id || null;
+  if (hostId) {
+    const isHostPlayer = Boolean(state.playerId && state.playerId === hostId);
+    state.canHost = isHostPlayer;
+    state.isHost = isHostPlayer;
+    if (isHostPlayer) {
+      localStorage.setItem(hostKey(state.game.code), "true");
+    } else {
+      localStorage.removeItem(hostKey(state.game.code));
+    }
+    history.replaceState({}, "", state.isHost ? getHostLink() : getJoinLink());
+    return;
+  }
+  const storedHost = isLocalHostForGame(state.game.code);
+  state.canHost = storedHost;
+  state.isHost = storedHost;
+  history.replaceState({}, "", state.isHost ? getHostLink() : getJoinLink());
+}
+
 function loadLastGroup() {
   return localStorage.getItem(lastGroupKey) || "";
 }
@@ -759,6 +790,19 @@ async function fetchGroupPlayers(groupId) {
     return [];
   }
   return data || [];
+}
+
+async function loadGameGroupPlayers() {
+  if (!supabase || !state.game?.group_id) {
+    state.gameGroupPlayers = [];
+    state.gameGroupPlayersGroupId = null;
+    return;
+  }
+  if (state.gameGroupPlayersGroupId === state.game.group_id && state.gameGroupPlayers.length) {
+    return;
+  }
+  state.gameGroupPlayers = await fetchGroupPlayers(state.game.group_id);
+  state.gameGroupPlayersGroupId = state.game.group_id;
 }
 
 function renderGroupPlayers() {
@@ -1737,9 +1781,15 @@ async function shareSummary(node) {
 
 function applyHostMode() {
   elements.hostModeToggle.checked = state.isHost;
+  if (elements.hostModeToggleAlt) {
+    elements.hostModeToggleAlt.checked = state.isHost;
+  }
   const toggleWrap = elements.hostModeToggle.closest(".toggle");
   if (toggleWrap) {
     toggleWrap.classList.toggle("hidden", !state.canHost);
+  }
+  if (elements.hostModeDock) {
+    elements.hostModeDock.classList.toggle("hidden", !state.canHost);
   }
   if (elements.hostLayout) {
     elements.hostLayout.classList.toggle("hidden", !state.isHost);
@@ -1753,6 +1803,9 @@ function applyHostMode() {
   }
   if (elements.openLink) {
     elements.openLink.classList.toggle("hidden", !state.isHost);
+  }
+  if (elements.terminateGame) {
+    elements.terminateGame.classList.toggle("hidden", !state.isHost);
   }
   if (elements.leaveGame) {
     elements.leaveGame.classList.toggle("hidden", !state.isHost);
@@ -2698,6 +2751,7 @@ function renderAll() {
   applyHostMode();
   applyGameStatus();
   renderSummary();
+  renderHostRosterSuggestions();
   renderPlayers();
   renderPlayerSeat();
   renderLog();
@@ -2705,6 +2759,49 @@ function renderAll() {
   if (elements.settleModal && !elements.settleModal.classList.contains("hidden")) {
     renderSettleList();
   }
+}
+
+function renderHostRosterSuggestions() {
+  const container = elements.hostRosterSuggestions;
+  if (!container) return;
+  if (!state.game?.group_id || !state.gameGroupPlayers.length) {
+    container.classList.add("hidden");
+    container.innerHTML = "";
+    return;
+  }
+  const query = normalizeName(elements.hostPlayerName?.value || "");
+  const activeGroupIds = new Set(
+    state.players
+      .map((player) => player.group_player_id)
+      .filter((value) => value)
+  );
+  const activeNames = new Set(
+    state.players.map((player) => normalizeName(player.name)).filter((value) => value)
+  );
+  const matches = state.gameGroupPlayers.filter((player) => {
+    const normalized = player.normalized_name || normalizeName(player.name);
+    if (activeGroupIds.has(player.id) || activeNames.has(normalized)) {
+      return false;
+    }
+    if (!query) return true;
+    return normalized.includes(query);
+  });
+  if (!matches.length) {
+    container.innerHTML = `<div class="roster-suggestions-empty">All roster players are already seated</div>`;
+    container.classList.remove("hidden");
+    return;
+  }
+  const buttons = matches
+    .map(
+      (player) =>
+        `<button type="button" class="roster-pill" data-name="${player.name.replace(/"/g, "&quot;")}">${player.name}</button>`
+    )
+    .join("");
+  container.innerHTML = `
+    <div class="roster-suggestions-title">No shows</div>
+    <div class="roster-suggestions-list">${buttons}</div>
+  `;
+  container.classList.remove("hidden");
 }
 
 async function refreshData() {
@@ -2733,8 +2830,15 @@ async function refreshData() {
     state.buyins = buyinsRes.data || [];
     state.settlementsAvailable = !settlementsRes.error || settlementsRes.error.code !== "42P01";
     state.settlements = settlementsRes.error ? [] : settlementsRes.data || [];
+    syncHostAccess();
     if (settlementsRes.error && settlementsRes.error.code === "42P01") {
       setStatus("Settlement table missing. Run the README SQL.", "error");
+    }
+    if (state.game?.group_id) {
+      await loadGameGroupPlayers();
+    } else {
+      state.gameGroupPlayers = [];
+      state.gameGroupPlayersGroupId = null;
     }
     if (state.isHost) {
       recordRecentGame(state.game);
@@ -2798,17 +2902,17 @@ async function loadGameByCode(code, options = {}) {
     setStatus("Game not found", "error");
     return null;
   }
-  if (data.ended_at && !allowSettled && !isLocalHostForGame(trimmed)) {
+  const storedPlayer = loadStoredPlayer(trimmed);
+  const isStoredHost =
+    Boolean(storedPlayer?.id && data.host_player_id && storedPlayer.id === data.host_player_id);
+  if (data.ended_at && !allowSettled && !isLocalHostForGame(trimmed) && !isStoredHost) {
     setStatus("Game settled. Only live games can be joined by code.", "error");
     return null;
   }
 
   state.game = data;
-  const storedPlayer = loadStoredPlayer(state.game.code);
-  const storedHost = localStorage.getItem(hostKey(state.game.code)) === "true";
   state.playerId = storedPlayer?.id || null;
-  state.canHost = storedHost;
-  state.isHost = state.canHost;
+  syncHostAccess();
   saveLastGroup(state.game.group_id || "");
   history.replaceState({}, "", state.isHost ? getHostLink() : getJoinLink());
   if (!state.isHost && storedPlayer?.name) {
@@ -2906,6 +3010,15 @@ async function createGame(options = {}) {
     if (hostPlayer) {
       state.playerId = hostPlayer.id;
       saveStoredPlayer(state.game.code, { id: hostPlayer.id, name: hostPlayer.name });
+      const { error: hostUpdateError } = await supabase
+        .from("games")
+        .update({ host_player_id: hostPlayer.id })
+        .eq("id", state.game.id);
+      if (hostUpdateError) {
+        setStatus("Could not set host", "error");
+      } else {
+        state.game.host_player_id = hostPlayer.id;
+      }
     }
   } else {
     let groupPlayerId = null;
@@ -2925,6 +3038,15 @@ async function createGame(options = {}) {
     if (!hostError && hostPlayer) {
       state.playerId = hostPlayer.id;
       saveStoredPlayer(state.game.code, { id: hostPlayer.id, name: hostPlayer.name });
+      const { error: hostUpdateError } = await supabase
+        .from("games")
+        .update({ host_player_id: hostPlayer.id })
+        .eq("id", state.game.id);
+      if (hostUpdateError) {
+        setStatus("Could not set host", "error");
+      } else {
+        state.game.host_player_id = hostPlayer.id;
+      }
       if (!state.game.group_id) {
         const { error: hostBuyinError } = await supabase.from("buyins").insert({
           game_id: state.game.id,
@@ -2963,12 +3085,35 @@ async function joinAsPlayer() {
   if (!name) return;
 
   const normalized = normalizeName(name);
+  let rosterId = null;
+  if (state.game.group_id) {
+    const { data, error } = await supabase
+      .from("group_players")
+      .select("id")
+      .eq("group_id", state.game.group_id)
+      .eq("normalized_name", normalized)
+      .maybeSingle();
+    if (error) {
+      setStatus("Could not verify group roster.", "error");
+      return;
+    }
+    rosterId = data?.id || null;
+    if (!rosterId) {
+      setStatus("Name not on this group's roster.", "error");
+      return;
+    }
+  }
+
   const matches = state.players.filter((player) => normalizeName(player.name) === normalized);
   if (matches.length === 1) {
+    if (rosterId && matches[0].group_player_id !== rosterId) {
+      await supabase.from("players").update({ group_player_id: rosterId }).eq("id", matches[0].id);
+    }
     state.playerId = matches[0].id;
     await ensurePlayerLinked(matches[0]);
     saveStoredPlayer(state.game.code, { id: matches[0].id, name: matches[0].name });
     elements.playerName.value = "";
+    syncHostAccess();
     if (elements.playerMatchList) {
       elements.playerMatchList.classList.add("hidden");
       elements.playerMatchList.innerHTML = "";
@@ -2994,11 +3139,7 @@ async function joinAsPlayer() {
     return;
   }
 
-  let groupPlayerId = null;
-  if (state.game.group_id) {
-    const groupPlayer = await getOrCreateGroupPlayer(state.game.group_id, name);
-    groupPlayerId = groupPlayer?.id || null;
-  }
+  const groupPlayerId = state.game.group_id ? rosterId : null;
 
   const { data, error } = await supabase
     .from("players")
@@ -3014,6 +3155,7 @@ async function joinAsPlayer() {
   state.playerId = data.id;
   saveStoredPlayer(state.game.code, { id: data.id, name });
   elements.playerName.value = "";
+  syncHostAccess();
   if (!state.game.group_id) {
     const { error: buyinError } = await supabase.from("buyins").insert({
       game_id: state.game.id,
@@ -3082,8 +3224,23 @@ async function addPlayerByName(name) {
 
   let groupPlayerId = null;
   if (state.game.group_id) {
-    const groupPlayer = await getOrCreateGroupPlayer(state.game.group_id, trimmed);
-    groupPlayerId = groupPlayer?.id || null;
+    const normalized = normalizeName(trimmed);
+    const { data: existing, error } = await supabase
+      .from("group_players")
+      .select("id,normalized_name")
+      .eq("group_id", state.game.group_id)
+      .eq("normalized_name", normalized)
+      .maybeSingle();
+    if (error) {
+      setStatus("Could not load group roster.", "error");
+      return;
+    }
+    if (existing) {
+      groupPlayerId = existing.id;
+    } else {
+      const groupPlayer = await getOrCreateGroupPlayer(state.game.group_id, trimmed);
+      groupPlayerId = groupPlayer?.id || null;
+    }
   }
 
   const { error } = await supabase
@@ -3414,6 +3571,58 @@ function closeConfirmModal(result) {
   }
 }
 
+function renderHostTransferList() {
+  if (!elements.hostTransferList) return;
+  const currentId = state.playerId;
+  const eligible = state.players.filter((player) => player.id !== currentId);
+  if (!eligible.length) {
+    elements.hostTransferList.innerHTML =
+      `<p class="muted">No other players are available to take over.</p>`;
+    return;
+  }
+  const buttons = eligible
+    .map(
+      (player) =>
+        `<button type="button" class="host-transfer-item" data-player-id="${player.id}">${player.name}</button>`
+    )
+    .join("");
+  elements.hostTransferList.innerHTML = buttons;
+}
+
+async function openHostTransferModal() {
+  if (!elements.hostTransferModal) return;
+  if (!("host_player_id" in state.game)) {
+    setStatus("Host transfer requires DB update. Run the README SQL.", "error");
+    return;
+  }
+  await refreshData();
+  renderHostTransferList();
+  elements.hostTransferModal.classList.remove("hidden");
+}
+
+function closeHostTransferModal() {
+  if (!elements.hostTransferModal) return;
+  elements.hostTransferModal.classList.add("hidden");
+}
+
+async function transferHostTo(playerId) {
+  if (!supabase || !state.game || !playerId) return;
+  const { error } = await supabase
+    .from("games")
+    .update({ host_player_id: playerId })
+    .eq("id", state.game.id);
+  if (error) {
+    setStatus("Could not transfer host", "error");
+    return;
+  }
+  localStorage.removeItem(hostKey(state.game.code));
+  state.game.host_player_id = playerId;
+  syncHostAccess();
+  closeHostTransferModal();
+  renderAll();
+  setStatus("Host transferred");
+}
+
 function openSessionsPage() {
   if (!elements.sessionsPanel) return;
   elements.landing.classList.add("hidden");
@@ -3645,6 +3854,38 @@ if (elements.confirmModal) {
     if (event.target?.classList.contains("modal-backdrop")) {
       closeConfirmModal(false);
     }
+  });
+}
+
+if (elements.hostTransferClose) {
+  elements.hostTransferClose.addEventListener("click", () => {
+    closeHostTransferModal();
+    setHostMode(true);
+  });
+}
+
+if (elements.hostTransferCancel) {
+  elements.hostTransferCancel.addEventListener("click", () => {
+    closeHostTransferModal();
+    setHostMode(true);
+  });
+}
+
+if (elements.hostTransferModal) {
+  elements.hostTransferModal.addEventListener("click", (event) => {
+    if (event.target?.classList.contains("modal-backdrop")) {
+      closeHostTransferModal();
+      setHostMode(true);
+    }
+  });
+}
+
+if (elements.hostTransferList) {
+  elements.hostTransferList.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-player-id]");
+    if (!button) return;
+    const playerId = button.dataset.playerId;
+    transferHostTo(playerId);
   });
 }
 
@@ -3960,6 +4201,24 @@ if (elements.joinPlayerCode) {
   });
 }
 
+if (elements.terminateGame) {
+  elements.terminateGame.addEventListener("click", async () => {
+    if (!state.isHost || !supabase || !state.game) return;
+    const confirmed = await openConfirmModal(
+      "Terminate this game? This will delete it for everyone and cannot be undone.",
+      "Terminate"
+    );
+    if (!confirmed) return;
+    const { error } = await supabase.from("games").delete().eq("id", state.game.id);
+    if (error) {
+      setStatus("Could not terminate game.", "error");
+      return;
+    }
+    clearCurrentGame();
+    setStatus("Game terminated.");
+  });
+}
+
 if (elements.lockPhraseClose) {
   elements.lockPhraseClose.addEventListener("click", () => {
     closeLockPhraseModal();
@@ -4226,18 +4485,50 @@ window.addEventListener("keydown", (event) => {
     if (lockResolve) lockResolve(null);
     lockResolve = null;
   }
+  if (elements.hostTransferModal && !elements.hostTransferModal.classList.contains("hidden")) {
+    closeHostTransferModal();
+  }
 });
 
-elements.hostModeToggle.addEventListener("change", () => {
+function setHostMode(next) {
   if (!state.game) return;
-  state.isHost = elements.hostModeToggle.checked;
-  if (state.isHost) {
+  if (next) {
+    const hostId = state.game.host_player_id || null;
+    if (hostId && state.playerId !== hostId) {
+      setStatus("Host access required.", "error");
+      return;
+    }
     state.canHost = true;
+    state.isHost = true;
     localStorage.setItem(hostKey(state.game.code), "true");
+  } else {
+    state.isHost = false;
   }
   applyHostMode();
   applyGameStatus();
+}
+
+elements.hostModeToggle.addEventListener("change", () => {
+  if (!elements.hostModeToggle.checked && state.canHost) {
+    openHostTransferModal();
+    elements.hostModeToggle.checked = true;
+    if (elements.hostModeToggleAlt) elements.hostModeToggleAlt.checked = true;
+    return;
+  }
+  setHostMode(elements.hostModeToggle.checked);
 });
+
+if (elements.hostModeToggleAlt) {
+  elements.hostModeToggleAlt.addEventListener("change", () => {
+    if (!elements.hostModeToggleAlt.checked && state.canHost) {
+      openHostTransferModal();
+      elements.hostModeToggleAlt.checked = true;
+      if (elements.hostModeToggle) elements.hostModeToggle.checked = true;
+      return;
+    }
+    setHostMode(elements.hostModeToggleAlt.checked);
+  });
+}
 
 elements.hostAddPlayer.addEventListener("click", async () => {
   if (!state.isHost) return;
@@ -4246,6 +4537,7 @@ elements.hostAddPlayer.addEventListener("click", async () => {
   elements.hostPlayerName.value = "";
   await addPlayerByName(name);
   if (elements.hostAddForm) elements.hostAddForm.classList.add("hidden");
+  if (elements.hostAddToggle) elements.hostAddToggle.textContent = "+";
 });
 
 elements.hostPlayerName.addEventListener("keydown", (event) => {
@@ -4255,11 +4547,35 @@ elements.hostPlayerName.addEventListener("keydown", (event) => {
 });
 
 if (elements.hostAddToggle) {
-  elements.hostAddToggle.addEventListener("click", () => {
+  elements.hostAddToggle.addEventListener("click", async () => {
     if (!elements.hostAddForm) return;
     const isHidden = elements.hostAddForm.classList.contains("hidden");
     elements.hostAddForm.classList.toggle("hidden", !isHidden);
-    if (isHidden) elements.hostPlayerName.focus();
+    if (isHidden) {
+      await loadGameGroupPlayers();
+      renderHostRosterSuggestions();
+      elements.hostPlayerName.focus();
+      elements.hostAddToggle.textContent = "-";
+    } else if (elements.hostRosterSuggestions) {
+      elements.hostRosterSuggestions.classList.add("hidden");
+      elements.hostAddToggle.textContent = "+";
+    }
+  });
+}
+
+if (elements.hostPlayerName) {
+  elements.hostPlayerName.addEventListener("input", () => {
+    renderHostRosterSuggestions();
+  });
+}
+
+if (elements.hostRosterSuggestions) {
+  elements.hostRosterSuggestions.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-name]");
+    if (!button || !elements.hostPlayerName) return;
+    elements.hostPlayerName.value = button.dataset.name || "";
+    renderHostRosterSuggestions();
+    elements.hostPlayerName.focus();
   });
 }
 
