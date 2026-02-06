@@ -74,7 +74,6 @@ const elements = {
   hostTransferCancel: $("#hostTransferCancel"),
   confirmModal: $("#confirmModal"),
   confirmMessage: $("#confirmMessage"),
-  confirmClose: $("#confirmClose"),
   confirmCancel: $("#confirmCancel"),
   confirmOk: $("#confirmOk"),
   rosterTitle: $("#rosterTitle"),
@@ -3884,10 +3883,6 @@ if (elements.qrModal) {
       elements.qrModal.classList.add("hidden");
     }
   });
-}
-
-if (elements.confirmClose) {
-  elements.confirmClose.addEventListener("click", () => closeConfirmModal(false));
 }
 
 if (elements.confirmCancel) {
