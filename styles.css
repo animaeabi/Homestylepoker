@@ -434,6 +434,12 @@ body.theme-light .brand h1 {
   cursor: pointer;
 }
 
+.brand-icon.is-emoji {
+  font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+  font-variant-emoji: normal;
+  line-height: 1;
+}
+
 .brand-icon.suit-off {
   opacity: 0.35;
   transition: opacity 0.12s ease;
