@@ -2373,14 +2373,66 @@ body.theme-light .join-player-panel .close-x {
 
 .guide-content {
   display: grid;
-  gap: 14px;
+  gap: 12px;
   font-size: 0.9rem;
-  line-height: 1.4;
+  line-height: 1.35;
 }
 
 .guide-content h3 {
   font-family: "Cinzel", "Fraunces", serif;
-  font-size: 1.05rem;
+  font-size: 1rem;
+  letter-spacing: 0.04em;
+}
+
+.guide-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.guide-block {
+  border: 1px solid var(--row-border);
+  background: var(--row-bg);
+  border-radius: 12px;
+  padding: 10px 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.guide-steps {
+  display: grid;
+  gap: 8px;
+}
+
+.guide-step {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  gap: 8px;
+}
+
+.guide-step p {
+  margin: 0;
+}
+
+.guide-num {
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  border: 1px solid rgba(210, 166, 78, 0.4);
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 1px;
+}
+
+.guide-list {
+  margin: 0;
+  padding-left: 16px;
+  display: grid;
+  gap: 4px;
 }
 
 .guide-content ul,
@@ -2392,6 +2444,15 @@ body.theme-light .join-player-panel .close-x {
 
 .guide-content li strong {
   color: var(--accent);
+}
+
+body.theme-light .guide-block {
+  background: rgba(255, 255, 255, 0.72);
+  border-color: rgba(31, 111, 92, 0.18);
+}
+
+body.theme-light .guide-num {
+  border-color: rgba(31, 111, 92, 0.35);
 }
 
 .group-player-list,

@@ -486,60 +486,70 @@
             <button id="guideClose" class="ghost" type="button">Close</button>
           </div>
           <div class="guide-content">
-            <h3>Quick start</h3>
-            <ol>
-              <li>Enter host name, pick optional group, and hit <strong>Host a game</strong>.</li>
-              <li>Players join on their phones and tap <strong>Add buy‑in</strong>.</li>
-              <li>When done, host clicks <strong>Settle</strong> to start chip entry.</li>
-              <li>Players submit remaining chips on their own screen.</li>
-              <li>Host reviews totals and saves settlement.</li>
-            </ol>
+            <div class="guide-grid">
+              <section class="guide-block">
+                <h3>Start a game</h3>
+                <div class="guide-steps">
+                  <div class="guide-step">
+                    <span class="guide-num">1</span>
+                    <p>Tap <strong>Deal</strong> and enter host name + buy-in.</p>
+                  </div>
+                  <div class="guide-step">
+                    <span class="guide-num">2</span>
+                    <p>Select a group (optional), then tap <strong>Host Game</strong>.</p>
+                  </div>
+                  <div class="guide-step">
+                    <span class="guide-num">3</span>
+                    <p>Players join from <strong>Join Table</strong> or host QR.</p>
+                  </div>
+                </div>
+              </section>
 
-            <h3>Groups</h3>
-            <ul>
-              <li>Groups are optional. Use them for recurring tables and summaries.</li>
-              <li>Click a group name to manage players, rename, or delete.</li>
-              <li>Lock a group with a phrase; opening it requires the phrase.</li>
-            </ul>
+              <section class="guide-block">
+                <h3>During live play</h3>
+                <ul class="guide-list">
+                  <li>Host controls pot, players, and host transfer.</li>
+                  <li>Players use <strong>Add buy-in</strong> to re-enter.</li>
+                  <li>All totals update live for everyone.</li>
+                </ul>
+              </section>
 
-            <h3>Player flow</h3>
-            <ul>
-              <li>Players are remembered per device and game.</li>
-              <li>During live play they see: buy‑ins, total, and <strong>Add buy‑in</strong>.</li>
-              <li>When settling starts, buy‑ins lock and <strong>Submit chips</strong> appears.</li>
-              <li>Settled games show a summary card and lock changes.</li>
-            </ul>
+              <section class="guide-block">
+                <h3>Settle flow</h3>
+                <div class="guide-steps">
+                  <div class="guide-step">
+                    <span class="guide-num">1</span>
+                    <p>Host taps <strong>Settle game</strong>.</p>
+                  </div>
+                  <div class="guide-step">
+                    <span class="guide-num">2</span>
+                    <p>Players submit remaining chips.</p>
+                  </div>
+                  <div class="guide-step">
+                    <span class="guide-num">3</span>
+                    <p>Host confirms totals and saves settlement.</p>
+                  </div>
+                </div>
+              </section>
 
-            <h3>Join as player (Smart Join)</h3>
-            <ul>
-              <li>Use <strong>Join as player</strong> on the landing page.</li>
-              <li>Enter your name to auto‑find active games in your group.</li>
-              <li>If multiple games are live, you’ll pick one.</li>
-              <li>No active group game? Join by code.</li>
-            </ul>
+              <section class="guide-block">
+                <h3>History and stats</h3>
+                <ul class="guide-list">
+                  <li><strong>History</strong>: past games by group.</li>
+                  <li><strong>Leaderboard</strong>: ranked by net, with skill %.</li>
+                  <li><strong>Quarterly Summary</strong>: who-pays-who from settled games.</li>
+                </ul>
+              </section>
 
-            <h3>History &amp; stats</h3>
-            <ul>
-              <li><strong>History</strong> shows past games grouped by group.</li>
-              <li><strong>Quarterly Summary</strong> includes settled games only and shows who‑pays‑who.</li>
-              <li><strong>Stats</strong> ranks players by net profit with a skill score.</li>
-            </ul>
-
-            <h3>Data &amp; privacy</h3>
-            <ul>
-              <li>This is a Supabase‑backed app. Anyone with the join link can access that game.</li>
-              <li>Groups can be locked with a phrase, but there is no full login system yet.</li>
-              <li>Host is permanent for a game (stored locally on the host device).</li>
-            </ul>
-
-            <h3>Planned / optional upgrades</h3>
-            <ul>
-              <li>PWA install (add to home screen).</li>
-              <li>CSV export and receipts.</li>
-              <li>Host/admin PIN and stricter access control.</li>
-              <li>Per‑player notes and settlement history.</li>
-              <li>Private accounts with Supabase Auth (optional).</li>
-            </ul>
+              <section class="guide-block">
+                <h3>Group rules</h3>
+                <ul class="guide-list">
+                  <li>Groups are optional.</li>
+                  <li>Lock phrase protects group access.</li>
+                  <li>Host role changes only through transfer.</li>
+                </ul>
+              </section>
+            </div>
           </div>
         </section>
       </div>
