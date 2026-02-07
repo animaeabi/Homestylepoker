@@ -3532,7 +3532,14 @@ async function joinAsPlayer() {
 
   const joinExistingSeat = async (player) => {
     const hostId = state.game?.host_player_id || null;
-    if (hostId && player.id === hostId && state.playerId !== hostId) {
+    const isHostSeat = Boolean(hostId && player.id === hostId);
+    const exactNameMatch = normalizeName(stripHostSuffix(player.name)) === normalized;
+    const rosterMatch =
+      !state.game?.group_id ||
+      (rosterId && player.group_player_id === rosterId) ||
+      (!player.group_player_id && rosterId);
+    const allowTransferredHostReclaim = isHostSeat && exactNameMatch && rosterMatch;
+    if (isHostSeat && state.playerId !== hostId && !allowTransferredHostReclaim) {
       setStatus("Host seat is protected. Ask the host to transfer.", "error");
       return false;
     }
@@ -5381,7 +5388,10 @@ if (elements.playerMatchList) {
     const player = state.players.find((item) => item.id === playerId);
     if (!player || !state.game) return;
     const hostId = state.game?.host_player_id || null;
-    if (hostId && player.id === hostId && state.playerId !== hostId) {
+    const typedNormalized = normalizeName(elements.playerName?.value || "");
+    const exactNameMatch =
+      typedNormalized && normalizeName(stripHostSuffix(player.name)) === typedNormalized;
+    if (hostId && player.id === hostId && state.playerId !== hostId && !exactNameMatch) {
       setStatus("Host seat is protected. Ask the host to transfer.", "error");
       return;
     }
