@@ -152,6 +152,7 @@ const elements = {
   hostAddPlayer: $("#hostAddPlayer"),
   hostRosterSuggestions: $("#hostRosterSuggestions"),
   players: $("#players"),
+  playersShowMore: $("#playersShowMore"),
   recentGames: $("#recentGames"),
   deleteAllGames: $("#deleteAllGames"),
   sessionsSettings: $("#sessionsSettings"),
@@ -198,7 +199,9 @@ const state = {
   channel: null,
   statsGroupId: null,
   gameGroupPlayers: [],
-  gameGroupPlayersGroupId: null
+  gameGroupPlayersGroupId: null,
+  hostPlayersPage: 0,
+  hostPlayersTopNonHostId: null
 };
 
 const configMissing =
@@ -238,6 +241,7 @@ const themeKey = "poker_theme";
 const lightsOffKey = "poker_lights_off";
 const suitCycle = ["♠", "♣", "♦", "♥"];
 const suitCycleDelayMs = 3600;
+const HOST_PLAYERS_PAGE_SIZE = 3;
 let suitCycleIndex = 0;
 let suitCycleTimer = null;
 let suitCycleStartTimer = null;
@@ -2036,6 +2040,29 @@ function buildBuyinMap() {
   return map;
 }
 
+function getLatestBuyinMs(playerId, buyinMap) {
+  const buyins = buyinMap.get(playerId) || [];
+  let latest = 0;
+  buyins.forEach((buyin) => {
+    const stamp = new Date(buyin.created_at || 0).getTime();
+    if (Number.isFinite(stamp) && stamp > latest) {
+      latest = stamp;
+    }
+  });
+  return latest;
+}
+
+function updatePlayersShowMore(totalNonHostPlayers, totalPages) {
+  if (!elements.playersShowMore) return;
+  const shouldShow = totalNonHostPlayers > HOST_PLAYERS_PAGE_SIZE;
+  elements.playersShowMore.classList.toggle("hidden", !shouldShow);
+  if (!shouldShow) {
+    elements.playersShowMore.textContent = "Show more";
+    return;
+  }
+  elements.playersShowMore.textContent = `Show more (${state.hostPlayersPage + 1}/${totalPages})`;
+}
+
 function buildBuyinTotals() {
   const totals = new Map();
   state.buyins.forEach((buyin) => {
@@ -2222,6 +2249,7 @@ function renderPlayers() {
   elements.players.innerHTML = "";
 
   if (state.players.length === 0) {
+    updatePlayersShowMore(0, 1);
     const empty = document.createElement("div");
     empty.className = "player-tile";
     empty.innerHTML = "<strong>No players yet.</strong><p>Add players or let them join by link.</p>";
@@ -2229,15 +2257,33 @@ function renderPlayers() {
     return;
   }
 
-  const orderedPlayers = state.players.slice().sort((a, b) => {
-    const aHost = isHostPlayer(a);
-    const bHost = isHostPlayer(b);
-    if (aHost && !bHost) return -1;
-    if (!aHost && bHost) return 1;
-    return 0;
-  });
+  const hostPlayer = state.players.find((player) => isHostPlayer(player)) || null;
+  const nonHostPlayers = state.players
+    .filter((player) => !hostPlayer || player.id !== hostPlayer.id)
+    .slice()
+    .sort((a, b) => {
+      const latestDiff = getLatestBuyinMs(b.id, buyinMap) - getLatestBuyinMs(a.id, buyinMap);
+      if (latestDiff !== 0) return latestDiff;
+      const createdDiff = new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
+      if (createdDiff !== 0) return createdDiff;
+      return (a.name || "").localeCompare(b.name || "");
+    });
 
-  orderedPlayers.forEach((player) => {
+  const topNonHostId = nonHostPlayers[0]?.id || null;
+  if (state.hostPlayersTopNonHostId !== topNonHostId) {
+    state.hostPlayersTopNonHostId = topNonHostId;
+    state.hostPlayersPage = 0;
+  }
+
+  const totalPages = Math.max(1, Math.ceil(nonHostPlayers.length / HOST_PLAYERS_PAGE_SIZE));
+  if (state.hostPlayersPage >= totalPages) {
+    state.hostPlayersPage = 0;
+  }
+  const pageStart = state.hostPlayersPage * HOST_PLAYERS_PAGE_SIZE;
+  const visibleNonHostPlayers = nonHostPlayers.slice(pageStart, pageStart + HOST_PLAYERS_PAGE_SIZE);
+  updatePlayersShowMore(nonHostPlayers.length, totalPages);
+
+  const renderPlayerCard = (player) => {
     const buyins = buyinMap.get(player.id) || [];
     const total = buyins.reduce((sum, item) => sum + Number(item.amount || 0), 0);
 
@@ -2280,6 +2326,9 @@ function renderPlayers() {
     `;
 
     elements.players.appendChild(card);
+    if (hostFlag) {
+      card.classList.add("host-player-tile");
+    }
 
     if (buyinLocked) {
       card.querySelector("[data-action='add-default']").disabled = true;
@@ -2290,7 +2339,36 @@ function renderPlayers() {
       if (editButton) editButton.disabled = true;
       if (removeButton) removeButton.disabled = true;
     }
-  });
+  };
+
+  if (hostPlayer) {
+    renderPlayerCard(hostPlayer);
+  }
+
+  if (!nonHostPlayers.length) {
+    return;
+  }
+
+  const separator = document.createElement("div");
+  separator.className = "players-separator";
+  separator.innerHTML = "<span>Players</span>";
+  elements.players.appendChild(separator);
+
+  visibleNonHostPlayers.forEach((player) => renderPlayerCard(player));
+
+  if (totalPages > 1 && visibleNonHostPlayers.length < HOST_PLAYERS_PAGE_SIZE) {
+    const missingSlots = HOST_PLAYERS_PAGE_SIZE - visibleNonHostPlayers.length;
+    const sampleCard = elements.players.querySelector(".player-tile:not(.host-player-tile)");
+    const slotHeight = sampleCard ? sampleCard.getBoundingClientRect().height : 0;
+    for (let i = 0; i < missingSlots; i += 1) {
+      const placeholder = document.createElement("div");
+      placeholder.className = "player-tile player-tile-placeholder";
+      if (slotHeight > 0) {
+        placeholder.style.height = `${slotHeight}px`;
+      }
+      elements.players.appendChild(placeholder);
+    }
+  }
 }
 
 function renderPlayerSeat() {
@@ -3818,6 +3896,8 @@ function clearCurrentGame() {
   state.isHost = false;
   state.canHost = false;
   state.playerId = null;
+  state.hostPlayersPage = 0;
+  state.hostPlayersTopNonHostId = null;
   elements.gamePanel.classList.add("hidden");
   if (elements.sessionsPanel) elements.sessionsPanel.classList.add("hidden");
   if (elements.settledNotice) elements.settledNotice.classList.add("hidden");
@@ -4779,6 +4859,16 @@ elements.players.addEventListener("keydown", (event) => {
   event.preventDefault();
   handleEditCommit(event);
 });
+
+if (elements.playersShowMore) {
+  elements.playersShowMore.addEventListener("click", () => {
+    const nonHostCount = state.players.filter((player) => !isHostPlayer(player)).length;
+    if (nonHostCount <= HOST_PLAYERS_PAGE_SIZE) return;
+    const totalPages = Math.ceil(nonHostCount / HOST_PLAYERS_PAGE_SIZE);
+    state.hostPlayersPage = (state.hostPlayersPage + 1) % totalPages;
+    renderPlayers();
+  });
+}
 
 elements.joinAsPlayer.addEventListener("click", () => {
   joinAsPlayer();
