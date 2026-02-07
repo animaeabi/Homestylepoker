@@ -141,7 +141,7 @@
               <span id="qrHint" class="qr-hint">Expand view</span>
             </div>
             <div class="game-actions">
-              <button id="terminateGame" class="danger-outline terminate-cta">Terminate game</button>
+              <button id="terminateGame" class="danger-outline terminate-cta">Cancel Game</button>
             </div>
           </div>
         </div>
@@ -616,6 +616,23 @@
           <div id="hostTransferList" class="host-transfer-list"></div>
           <div class="roster-actions">
             <button id="hostTransferCancel" class="ghost" type="button">Cancel</button>
+          </div>
+        </section>
+      </div>
+
+      <div id="joinRequestModal" class="modal hidden" role="dialog" aria-modal="true">
+        <div class="modal-backdrop" data-action="close"></div>
+        <section class="panel join-request-panel">
+          <div class="panel-title summary-header">
+            <div>
+              <h2>Join request</h2>
+              <p id="joinRequestMessage" class="muted"></p>
+            </div>
+            <button id="joinRequestClose" class="ghost" type="button">Close</button>
+          </div>
+          <div class="roster-actions">
+            <button id="joinRequestReject" class="ghost" type="button">Decline</button>
+            <button id="joinRequestApprove" class="primary" type="button">Approve</button>
           </div>
         </section>
       </div>

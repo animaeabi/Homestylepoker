@@ -2469,6 +2469,14 @@ body.theme-light .join-player-panel .close-x {
   font-size: 0.85rem;
 }
 
+#playerJoinNotice[data-tone="error"] {
+  color: var(--accent-red);
+}
+
+#playerJoinNotice[data-tone="info"] {
+  color: var(--muted);
+}
+
 .columns {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -2495,9 +2503,14 @@ body.theme-light .join-player-panel .close-x {
 }
 
 .settled-meta {
-  color: var(--muted);
+  color: var(--accent-red);
   font-size: 0.85rem;
   margin-top: 4px;
+  font-weight: 600;
+}
+
+.settlement-summary .panel-title .settled-meta {
+  color: var(--accent-red) !important;
 }
 
 .summary-header {

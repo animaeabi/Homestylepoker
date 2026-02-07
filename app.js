@@ -69,6 +69,11 @@ const elements = {
   lockPhraseClose: $("#lockPhraseClose"),
   lockPhraseCancel: $("#lockPhraseCancel"),
   lockPhraseSubmit: $("#lockPhraseSubmit"),
+  joinRequestModal: $("#joinRequestModal"),
+  joinRequestMessage: $("#joinRequestMessage"),
+  joinRequestClose: $("#joinRequestClose"),
+  joinRequestReject: $("#joinRequestReject"),
+  joinRequestApprove: $("#joinRequestApprove"),
   hostTransferModal: $("#hostTransferModal"),
   hostTransferList: $("#hostTransferList"),
   hostTransferClose: $("#hostTransferClose"),
@@ -188,6 +193,8 @@ const state = {
   buyins: [],
   settlements: [],
   settlementsAvailable: true,
+  joinRequests: [],
+  joinRequestsAvailable: true,
   groups: [],
   groupPlayers: [],
   activeGroupId: null,
@@ -201,7 +208,12 @@ const state = {
   gameGroupPlayers: [],
   gameGroupPlayersGroupId: null,
   hostPlayersPage: 0,
-  hostPlayersTopNonHostId: null
+  hostPlayersTopNonHostId: null,
+  pendingJoinGroupPlayerId: null,
+  activeJoinRequestId: null,
+  dismissedJoinRequestId: null,
+  playerJoinFeedbackText: "",
+  playerJoinFeedbackTone: "info"
 };
 
 const configMissing =
@@ -249,6 +261,7 @@ let lastAutoLightsOff = null;
 const deletePinKey = "poker_delete_pin_ok";
 const deletePin = "2/7";
 const lastGroupKey = "poker_last_group";
+const pendingJoinKey = (code) => `poker_pending_join_${code}`;
 const gameNameAdjectives = [
   "Lucky",
   "Tilted",
@@ -579,6 +592,26 @@ function saveStoredPlayer(code, player) {
 function clearStoredPlayer(code) {
   if (!code) return;
   localStorage.removeItem(playerKey(code));
+}
+
+function looksLikeUuid(value) {
+  const v = safeTrim(value);
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
+}
+
+function loadPendingJoin(code) {
+  if (!code) return null;
+  return safeTrim(localStorage.getItem(pendingJoinKey(code))) || null;
+}
+
+function savePendingJoin(code, groupPlayerId) {
+  if (!code || !groupPlayerId) return;
+  localStorage.setItem(pendingJoinKey(code), groupPlayerId);
+}
+
+function clearPendingJoin(code) {
+  if (!code) return;
+  localStorage.removeItem(pendingJoinKey(code));
 }
 
 function loadRecentGames() {
@@ -1897,7 +1930,7 @@ function applyHostMode() {
     elements.openLink.classList.toggle("hidden", !state.isHost);
   }
   if (elements.terminateGame) {
-    elements.terminateGame.classList.toggle("hidden", !state.isHost);
+    elements.terminateGame.classList.toggle("hidden", !state.isHost || isGameSettled());
   }
   if (elements.leaveGame) {
     elements.leaveGame.classList.toggle("hidden", !state.isHost);
@@ -1958,13 +1991,18 @@ function applyGameStatus() {
     elements.gameStatusChip.dataset.state = settled ? "settled" : settling ? "settling" : "live";
   }
 
-  elements.settledNotice.classList.toggle("hidden", !settled);
+  if (elements.settledNotice) {
+    elements.settledNotice.classList.add("hidden");
+  }
   if (settled && elements.settledAt) {
     elements.settledAt.textContent = formatDateTime(settledAt);
   }
 
   if (elements.openSettle) {
     elements.openSettle.classList.toggle("hidden", !state.isHost || settled);
+  }
+  if (elements.terminateGame) {
+    elements.terminateGame.classList.toggle("hidden", !state.isHost || settled);
   }
 
   const disableBuyins = settled || settling;
@@ -2384,6 +2422,7 @@ function renderPlayerSeat() {
   const settling = isSettleOpen();
   const player = state.players.find((item) => item.id === state.playerId);
   if (!player) {
+    const waitingApproval = Boolean(state.game?.group_id && state.pendingJoinGroupPlayerId);
     if (state.playerId && state.game) {
       clearStoredPlayer(state.game.code);
       state.playerId = null;
@@ -2401,6 +2440,28 @@ function renderPlayerSeat() {
     if (elements.playerSettledSummary) {
       elements.playerSettledSummary.classList.add("hidden");
     }
+    if (elements.playerName) {
+      elements.playerName.disabled = waitingApproval;
+    }
+    if (elements.joinAsPlayer) {
+      elements.joinAsPlayer.disabled = waitingApproval || isSettleOpen();
+      elements.joinAsPlayer.textContent = waitingApproval ? "Waiting for host..." : "Join game";
+    }
+    if (elements.playerJoinNotice) {
+      if (waitingApproval) {
+        elements.playerJoinNotice.textContent = "Waiting for host approval to join this table.";
+        elements.playerJoinNotice.dataset.tone = "info";
+        elements.playerJoinNotice.classList.remove("hidden");
+      } else if (state.playerJoinFeedbackText) {
+        elements.playerJoinNotice.textContent = state.playerJoinFeedbackText;
+        elements.playerJoinNotice.dataset.tone = state.playerJoinFeedbackTone || "info";
+        elements.playerJoinNotice.classList.remove("hidden");
+      } else if (!isGameSettled()) {
+        elements.playerJoinNotice.textContent = "Game settled — new players are closed.";
+        elements.playerJoinNotice.dataset.tone = "info";
+        elements.playerJoinNotice.classList.add("hidden");
+      }
+    }
     updateGameBarToolsVisibility();
     return;
   }
@@ -2411,6 +2472,18 @@ function renderPlayerSeat() {
   elements.playerJoin.classList.add("hidden");
   elements.playerSeat.classList.remove("hidden");
   elements.playerBuyins.classList.add("hidden");
+  if (elements.playerName) {
+    elements.playerName.disabled = false;
+  }
+  if (elements.joinAsPlayer) {
+    elements.joinAsPlayer.disabled = false;
+    elements.joinAsPlayer.textContent = "Join game";
+  }
+  if (elements.playerJoinNotice && !isGameSettled()) {
+    elements.playerJoinNotice.textContent = "Game settled — new players are closed.";
+    elements.playerJoinNotice.dataset.tone = "info";
+    elements.playerJoinNotice.classList.add("hidden");
+  }
   if (elements.playerSettle) {
     elements.playerSettle.classList.toggle("hidden", !settling);
   }
@@ -3013,7 +3086,7 @@ function renderHostRosterSuggestions() {
 async function refreshData() {
   if (!supabase || !state.game) return;
   try {
-    const [gameRes, playersRes, buyinsRes, settlementsRes] = await Promise.all([
+    const [gameRes, playersRes, buyinsRes, settlementsRes, joinRequestsRes] = await Promise.all([
       supabase.from("games").select("*").eq("id", state.game.id).single(),
       supabase.from("players").select("*").eq("game_id", state.game.id).order("created_at"),
       supabase.from("buyins").select("*").eq("game_id", state.game.id).order("created_at", { ascending: false }),
@@ -3021,7 +3094,12 @@ async function refreshData() {
         .from("settlements")
         .select("*")
         .eq("game_id", state.game.id)
-        .order("created_at", { ascending: false })
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("join_requests")
+        .select("*")
+        .eq("game_id", state.game.id)
+        .order("requested_at", { ascending: false })
     ]);
 
     if (gameRes.error) throw gameRes.error;
@@ -3030,12 +3108,17 @@ async function refreshData() {
     if (settlementsRes.error && settlementsRes.error.code !== "42P01") {
       throw settlementsRes.error;
     }
+    if (joinRequestsRes.error && joinRequestsRes.error.code !== "42P01") {
+      throw joinRequestsRes.error;
+    }
 
     state.game = gameRes.data;
     state.players = playersRes.data || [];
     state.buyins = buyinsRes.data || [];
     state.settlementsAvailable = !settlementsRes.error || settlementsRes.error.code !== "42P01";
     state.settlements = settlementsRes.error ? [] : settlementsRes.data || [];
+    state.joinRequestsAvailable = !joinRequestsRes.error || joinRequestsRes.error.code !== "42P01";
+    state.joinRequests = joinRequestsRes.error ? [] : joinRequestsRes.data || [];
     syncHostAccess();
     if (settlementsRes.error && settlementsRes.error.code === "42P01") {
       setStatus("Settlement table missing. Run the README SQL.", "error");
@@ -3045,11 +3128,15 @@ async function refreshData() {
     } else {
       state.gameGroupPlayers = [];
       state.gameGroupPlayersGroupId = null;
+      state.joinRequests = [];
+      state.pendingJoinGroupPlayerId = null;
     }
+    reconcilePendingJoinForPlayer();
     if (state.isHost) {
       recordRecentGame(state.game);
     }
     renderAll();
+    maybePromptHostJoinRequest();
     setStatus("Synced");
   } catch (err) {
     setStatus("Sync failed", "error");
@@ -3087,6 +3174,13 @@ async function startRealtime() {
       refreshData
     );
   }
+  if (state.joinRequestsAvailable) {
+    channel.on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "join_requests", filter: `game_id=eq.${state.game.id}` },
+      refreshData
+    );
+  }
 
   state.channel = channel.subscribe((status) => {
     if (status === "SUBSCRIBED") {
@@ -3118,6 +3212,15 @@ async function loadGameByCode(code, options = {}) {
 
   state.game = data;
   state.playerId = storedPlayer?.id || null;
+  state.pendingJoinGroupPlayerId = data.group_id ? loadPendingJoin(trimmed) : null;
+  state.dismissedJoinRequestId = null;
+  state.activeJoinRequestId = null;
+  state.playerJoinFeedbackText = "";
+  state.playerJoinFeedbackTone = "info";
+  if (state.playerId) {
+    clearPendingJoin(trimmed);
+    state.pendingJoinGroupPlayerId = null;
+  }
   syncHostAccess();
   saveLastGroup(state.game.group_id || "");
   history.replaceState({}, "", state.isHost ? getHostLink() : getJoinLink());
@@ -3172,6 +3275,13 @@ async function createGame(options = {}) {
   state.game = result.data;
   state.isHost = true;
   state.canHost = true;
+  state.joinRequests = [];
+  state.pendingJoinGroupPlayerId = null;
+  state.activeJoinRequestId = null;
+  state.dismissedJoinRequestId = null;
+  state.playerJoinFeedbackText = "";
+  state.playerJoinFeedbackTone = "info";
+  clearPendingJoin(state.game.code);
   localStorage.setItem(hostKey(state.game.code), "true");
   history.replaceState({}, "", getHostLink());
   recordRecentGame(state.game);
@@ -3179,19 +3289,41 @@ async function createGame(options = {}) {
 
   if (roster && roster.length) {
     const hostEntry = roster.find((player) => player.isHost) || null;
-    const playersPayload = roster.map((player) => ({
-      game_id: state.game.id,
-      name: player.name,
-      group_player_id: player.id.startsWith("host:") ? null : player.id
-    }));
+    const seen = new Set();
+    const playersPayload = roster
+      .map((player) => {
+        const normalized = normalizeName(player.name);
+        if (!normalized || seen.has(normalized)) return null;
+        seen.add(normalized);
+        const idValue = typeof player.id === "string" ? player.id : "";
+        const groupPlayerId =
+          idValue.startsWith("host:") || !looksLikeUuid(idValue) ? null : idValue;
+        return {
+          game_id: state.game.id,
+          name: player.name,
+          group_player_id: groupPlayerId
+        };
+      })
+      .filter(Boolean);
 
-    const { data: createdPlayers, error: playersError } = await supabase
+    let { data: createdPlayers, error: playersError } = await supabase
       .from("players")
       .insert(playersPayload)
       .select();
 
-    if (playersError || !createdPlayers) {
-      setStatus("Could not add players", "error");
+    if (playersError || !createdPlayers?.length) {
+      const fallbackPayload = playersPayload.map((player) => ({
+        game_id: player.game_id,
+        name: player.name,
+        group_player_id: null
+      }));
+      const fallbackRes = await supabase.from("players").insert(fallbackPayload).select();
+      createdPlayers = fallbackRes.data || [];
+      playersError = fallbackRes.error || null;
+    }
+
+    if (playersError || !createdPlayers?.length) {
+      setStatus("Could not add players to game", "error");
       return;
     }
 
@@ -3292,42 +3424,51 @@ async function joinAsPlayer() {
   }
   const name = safeTrim(elements.playerName.value);
   if (!name) return;
+  state.playerJoinFeedbackText = "";
+  state.playerJoinFeedbackTone = "info";
 
   const normalized = normalizeName(name);
   let rosterId = null;
+  let rosterName = name;
   if (state.game.group_id) {
     const { data, error } = await supabase
       .from("group_players")
-      .select("id")
+      .select("id,name")
       .eq("group_id", state.game.group_id)
       .eq("normalized_name", normalized)
       .maybeSingle();
     if (error) {
       setStatus("Could not verify group roster.", "error");
+      state.playerJoinFeedbackText = "Could not verify group roster.";
+      state.playerJoinFeedbackTone = "error";
+      renderPlayerSeat();
       return;
     }
     rosterId = data?.id || null;
+    rosterName = safeTrim(data?.name) || name;
     if (!rosterId) {
       setStatus("Name not on this group's roster.", "error");
+      state.playerJoinFeedbackText = "Name not on this group's roster.";
+      state.playerJoinFeedbackTone = "error";
+      renderPlayerSeat();
       return;
     }
   }
 
-  const matches = state.players.filter(
-    (player) => normalizeName(stripHostSuffix(player.name)) === normalized
-  );
-  if (matches.length === 1) {
+  const joinExistingSeat = async (player) => {
     const hostId = state.game?.host_player_id || null;
-    if (hostId && matches[0].id === hostId && state.playerId !== hostId) {
+    if (hostId && player.id === hostId && state.playerId !== hostId) {
       setStatus("Host seat is protected. Ask the host to transfer.", "error");
-      return;
+      return false;
     }
-    if (rosterId && matches[0].group_player_id !== rosterId) {
-      await supabase.from("players").update({ group_player_id: rosterId }).eq("id", matches[0].id);
+    if (rosterId && player.group_player_id !== rosterId) {
+      await supabase.from("players").update({ group_player_id: rosterId }).eq("id", player.id);
     }
-    state.playerId = matches[0].id;
-    await ensurePlayerLinked(matches[0]);
-    saveStoredPlayer(state.game.code, { id: matches[0].id, name: matches[0].name });
+    state.playerId = player.id;
+    await ensurePlayerLinked(player);
+    saveStoredPlayer(state.game.code, { id: player.id, name: player.name });
+    clearPendingJoin(state.game.code);
+    state.pendingJoinGroupPlayerId = null;
     elements.playerName.value = "";
     syncHostAccess();
     if (elements.playerMatchList) {
@@ -3335,6 +3476,77 @@ async function joinAsPlayer() {
       elements.playerMatchList.innerHTML = "";
     }
     await refreshData();
+    return true;
+  };
+
+  if (state.game.group_id) {
+    const directMatch =
+      state.players.find((player) => player.group_player_id && player.group_player_id === rosterId) ||
+      state.players.find(
+        (player) =>
+          !player.group_player_id &&
+          normalizeName(stripHostSuffix(player.name)) === normalized
+      ) ||
+      null;
+    if (directMatch) {
+      await joinExistingSeat(directMatch);
+      return;
+    }
+
+    if (!state.joinRequestsAvailable) {
+      setStatus("Join requests unavailable. Ask host to add you.", "error");
+      state.playerJoinFeedbackText = "Join requests unavailable. Ask host to add you.";
+      state.playerJoinFeedbackTone = "error";
+      renderPlayerSeat();
+      return;
+    }
+
+    const existingPending = state.joinRequests.find(
+      (request) =>
+        request.group_player_id === rosterId &&
+        normalizeJoinRequestStatus(request.status) === "pending"
+    );
+
+    if (!existingPending) {
+      const { error: requestError } = await supabase.from("join_requests").insert({
+        game_id: state.game.id,
+        group_player_id: rosterId,
+        player_name: rosterName,
+        status: "pending",
+        requested_at: new Date().toISOString()
+      });
+      if (requestError) {
+        if (requestError.code === "42P01") {
+          state.joinRequestsAvailable = false;
+          setStatus("Join requests table missing. Run README SQL.", "error");
+          state.playerJoinFeedbackText = "Join system unavailable. Ask host to add you.";
+          state.playerJoinFeedbackTone = "error";
+          renderPlayerSeat();
+          return;
+        }
+        setStatus("Could not send join request.", "error");
+        state.playerJoinFeedbackText = "Could not send join request.";
+        state.playerJoinFeedbackTone = "error";
+        renderPlayerSeat();
+        return;
+      }
+    }
+
+    savePendingJoin(state.game.code, rosterId);
+    state.pendingJoinGroupPlayerId = rosterId;
+    elements.playerName.value = "";
+    state.playerJoinFeedbackText = "Join request sent. Waiting for host approval.";
+    state.playerJoinFeedbackTone = "info";
+    setStatus("Join request sent. Waiting for host approval.", "info");
+    await refreshData();
+    return;
+  }
+
+  const matches = state.players.filter(
+    (player) => normalizeName(stripHostSuffix(player.name)) === normalized
+  );
+  if (matches.length === 1) {
+    await joinExistingSeat(matches[0]);
     return;
   }
 
@@ -3355,11 +3567,9 @@ async function joinAsPlayer() {
     return;
   }
 
-  const groupPlayerId = state.game.group_id ? rosterId : null;
-
   const { data, error } = await supabase
     .from("players")
-    .insert({ game_id: state.game.id, name, group_player_id: groupPlayerId })
+    .insert({ game_id: state.game.id, name, group_player_id: null })
     .select()
     .single();
 
@@ -3370,17 +3580,17 @@ async function joinAsPlayer() {
 
   state.playerId = data.id;
   saveStoredPlayer(state.game.code, { id: data.id, name });
+  clearPendingJoin(state.game.code);
+  state.pendingJoinGroupPlayerId = null;
   elements.playerName.value = "";
   syncHostAccess();
-  if (!state.game.group_id) {
-    const { error: buyinError } = await supabase.from("buyins").insert({
-      game_id: state.game.id,
-      player_id: data.id,
-      amount: state.game.default_buyin || 10
-    });
-    if (buyinError) {
-      setStatus("Could not add buy-in", "error");
-    }
+  const { error: buyinError } = await supabase.from("buyins").insert({
+    game_id: state.game.id,
+    player_id: data.id,
+    amount: state.game.default_buyin || 10
+  });
+  if (buyinError) {
+    setStatus("Could not add buy-in", "error");
   }
   await refreshData();
 }
@@ -3791,6 +4001,170 @@ function closeConfirmModal(result) {
   }
 }
 
+function normalizeJoinRequestStatus(status) {
+  return safeTrim(status).toLowerCase();
+}
+
+function getJoinRequestTime(request) {
+  const stamp = new Date(request.requested_at || request.created_at || 0).getTime();
+  return Number.isFinite(stamp) ? stamp : 0;
+}
+
+function getPendingJoinRequests() {
+  return state.joinRequests
+    .filter((request) => normalizeJoinRequestStatus(request.status) === "pending")
+    .sort((a, b) => getJoinRequestTime(a) - getJoinRequestTime(b));
+}
+
+function openJoinRequestModal(request) {
+  if (!elements.joinRequestModal || !elements.joinRequestMessage) return;
+  state.activeJoinRequestId = request?.id || null;
+  const playerName = safeTrim(request?.player_name) || "Unknown player";
+  elements.joinRequestMessage.textContent = `${playerName} wants to join this game.`;
+  elements.joinRequestModal.classList.remove("hidden");
+}
+
+function closeJoinRequestModal() {
+  if (!elements.joinRequestModal) return;
+  elements.joinRequestModal.classList.add("hidden");
+  state.activeJoinRequestId = null;
+}
+
+async function setJoinRequestStatus(requestId, status) {
+  if (!supabase || !requestId || !state.game) return false;
+  const payload = {
+    status,
+    resolved_at: new Date().toISOString(),
+    resolved_by: state.game.host_player_id || null
+  };
+  const { error } = await supabase.from("join_requests").update(payload).eq("id", requestId);
+  if (error) {
+    if (error.code === "42P01") {
+      state.joinRequestsAvailable = false;
+      setStatus("Join requests table missing. Run README SQL.", "error");
+      return false;
+    }
+    setStatus("Could not update join request.", "error");
+    return false;
+  }
+  return true;
+}
+
+async function approveJoinRequest(requestId) {
+  if (!supabase || !state.game || !state.isHost || !requestId) return;
+  const request = state.joinRequests.find((item) => item.id === requestId);
+  if (!request) {
+    closeJoinRequestModal();
+    return;
+  }
+  const groupPlayerId = request.group_player_id || null;
+  const playerName = safeTrim(request.player_name);
+  if (!groupPlayerId || !playerName) {
+    await setJoinRequestStatus(requestId, "rejected");
+    await refreshData();
+    closeJoinRequestModal();
+    return;
+  }
+
+  const existingSeat = state.players.find((player) => player.group_player_id === groupPlayerId);
+  let seatId = existingSeat?.id || null;
+  if (!existingSeat) {
+    const { data: createdSeat, error: insertError } = await supabase
+      .from("players")
+      .insert({ game_id: state.game.id, name: playerName, group_player_id: groupPlayerId })
+      .select()
+      .single();
+    if (insertError) {
+      setStatus("Could not seat player.", "error");
+      return;
+    }
+    seatId = createdSeat?.id || null;
+  }
+
+  if (seatId) {
+    const hasBuyin = state.buyins.some((buyin) => buyin.player_id === seatId);
+    if (!hasBuyin) {
+      const { error: buyinError } = await supabase.from("buyins").insert({
+        game_id: state.game.id,
+        player_id: seatId,
+        amount: Number(state.game.default_buyin || 10)
+      });
+      if (buyinError) {
+        setStatus("Player approved, but default buy-in failed.", "error");
+      }
+    }
+  }
+  const ok = await setJoinRequestStatus(requestId, "approved");
+  if (!ok) return;
+  state.dismissedJoinRequestId = null;
+  closeJoinRequestModal();
+  await refreshData();
+  setStatus("Player approved.");
+}
+
+async function rejectJoinRequest(requestId) {
+  if (!requestId) return;
+  const ok = await setJoinRequestStatus(requestId, "rejected");
+  if (!ok) return;
+  state.dismissedJoinRequestId = null;
+  closeJoinRequestModal();
+  await refreshData();
+  setStatus("Join request declined.");
+}
+
+function maybePromptHostJoinRequest() {
+  if (!state.isHost || !state.canHost || !state.joinRequestsAvailable || !state.game?.group_id) {
+    closeJoinRequestModal();
+    return;
+  }
+  if (isGameSettled() || isSettleOpen()) {
+    closeJoinRequestModal();
+    return;
+  }
+  const pending = getPendingJoinRequests().filter(
+    (request) => request.id !== state.dismissedJoinRequestId
+  );
+  if (!pending.length) {
+    closeJoinRequestModal();
+    return;
+  }
+  const first = pending[0];
+  if (state.activeJoinRequestId === first.id && elements.joinRequestModal && !elements.joinRequestModal.classList.contains("hidden")) {
+    return;
+  }
+  openJoinRequestModal(first);
+}
+
+function reconcilePendingJoinForPlayer() {
+  if (!state.game?.group_id || !state.pendingJoinGroupPlayerId) return;
+  const joinedSeat = state.players.find(
+    (player) => player.group_player_id === state.pendingJoinGroupPlayerId
+  );
+  if (joinedSeat) {
+    state.playerId = joinedSeat.id;
+    saveStoredPlayer(state.game.code, { id: joinedSeat.id, name: joinedSeat.name });
+    clearPendingJoin(state.game.code);
+    state.pendingJoinGroupPlayerId = null;
+    state.playerJoinFeedbackText = "";
+    state.playerJoinFeedbackTone = "info";
+    setStatus("Host approved. You are in.", "info");
+    return;
+  }
+  if (!state.joinRequestsAvailable) return;
+  const relatedRequests = state.joinRequests
+    .filter((request) => request.group_player_id === state.pendingJoinGroupPlayerId)
+    .sort((a, b) => getJoinRequestTime(b) - getJoinRequestTime(a));
+  const latest = relatedRequests[0];
+  if (!latest) return;
+  if (normalizeJoinRequestStatus(latest.status) === "rejected") {
+    clearPendingJoin(state.game.code);
+    state.pendingJoinGroupPlayerId = null;
+    state.playerJoinFeedbackText = "Host declined your request. Ask host to add you.";
+    state.playerJoinFeedbackTone = "error";
+    setStatus("Host declined this join request.", "error");
+  }
+}
+
 function renderHostTransferList() {
   if (!elements.hostTransferList) return;
   const currentId = state.playerId;
@@ -3887,15 +4261,22 @@ function clearCurrentGame() {
   }
   if (state.game?.code) {
     clearStoredPlayer(state.game.code);
+    clearPendingJoin(state.game.code);
     localStorage.removeItem(hostKey(state.game.code));
   }
   state.game = null;
   state.players = [];
   state.buyins = [];
   state.settlements = [];
+  state.joinRequests = [];
   state.isHost = false;
   state.canHost = false;
   state.playerId = null;
+  state.pendingJoinGroupPlayerId = null;
+  state.activeJoinRequestId = null;
+  state.dismissedJoinRequestId = null;
+  state.playerJoinFeedbackText = "";
+  state.playerJoinFeedbackTone = "info";
   state.hostPlayersPage = 0;
   state.hostPlayersTopNonHostId = null;
   elements.gamePanel.classList.add("hidden");
@@ -4096,6 +4477,38 @@ if (elements.hostTransferModal) {
     if (event.target?.classList.contains("modal-backdrop")) {
       closeHostTransferModal();
       setHostMode(true);
+    }
+  });
+}
+
+if (elements.joinRequestClose) {
+  elements.joinRequestClose.addEventListener("click", () => {
+    if (state.activeJoinRequestId) {
+      state.dismissedJoinRequestId = state.activeJoinRequestId;
+    }
+    closeJoinRequestModal();
+  });
+}
+
+if (elements.joinRequestReject) {
+  elements.joinRequestReject.addEventListener("click", () => {
+    void rejectJoinRequest(state.activeJoinRequestId);
+  });
+}
+
+if (elements.joinRequestApprove) {
+  elements.joinRequestApprove.addEventListener("click", () => {
+    void approveJoinRequest(state.activeJoinRequestId);
+  });
+}
+
+if (elements.joinRequestModal) {
+  elements.joinRequestModal.addEventListener("click", (event) => {
+    if (event.target?.classList.contains("modal-backdrop")) {
+      if (state.activeJoinRequestId) {
+        state.dismissedJoinRequestId = state.activeJoinRequestId;
+      }
+      closeJoinRequestModal();
     }
   });
 }
@@ -4443,17 +4856,17 @@ if (elements.terminateGame) {
   elements.terminateGame.addEventListener("click", async () => {
     if (!state.isHost || !supabase || !state.game) return;
     const confirmed = await openConfirmModal(
-      "Terminate this game? This will delete it for everyone and cannot be undone.",
-      "Terminate"
+      "Cancel this game? This will delete it for everyone and cannot be undone.",
+      "Cancel Game"
     );
     if (!confirmed) return;
     const { error } = await supabase.from("games").delete().eq("id", state.game.id);
     if (error) {
-      setStatus("Could not terminate game.", "error");
+      setStatus("Could not cancel game.", "error");
       return;
     }
     clearCurrentGame();
-    setStatus("Game terminated.");
+    setStatus("Game canceled.");
   });
 }
 
@@ -4725,6 +5138,12 @@ window.addEventListener("keydown", (event) => {
   }
   if (elements.hostTransferModal && !elements.hostTransferModal.classList.contains("hidden")) {
     closeHostTransferModal();
+  }
+  if (elements.joinRequestModal && !elements.joinRequestModal.classList.contains("hidden")) {
+    if (state.activeJoinRequestId) {
+      state.dismissedJoinRequestId = state.activeJoinRequestId;
+    }
+    closeJoinRequestModal();
   }
 });
 

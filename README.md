@@ -66,10 +66,23 @@ create table if not exists settlements (
   created_at timestamptz default now()
 );
 
+create table if not exists join_requests (
+  id uuid primary key default gen_random_uuid(),
+  game_id uuid references games(id) on delete cascade,
+  group_player_id uuid references group_players(id) on delete cascade,
+  player_name text not null,
+  status text not null default 'pending',
+  requested_at timestamptz default now(),
+  resolved_at timestamptz,
+  resolved_by uuid references players(id) on delete set null
+);
+
 create index if not exists idx_settlements_game_id on settlements(game_id);
+create index if not exists idx_join_requests_game_id on join_requests(game_id);
+create index if not exists idx_join_requests_group_player_id on join_requests(group_player_id);
 ```
 
-- In Supabase, enable Realtime for `games`, `players`, `buyins`, and `settlements`.
+- In Supabase, enable Realtime for `games`, `players`, `buyins`, `settlements`, and `join_requests`.
 - Leave Row Level Security (RLS) **off** for the basic setup.
 - If you created the tables earlier, run:
 
@@ -103,7 +116,19 @@ create table if not exists settlements (
   amount numeric not null,
   created_at timestamptz default now()
 );
+create table if not exists join_requests (
+  id uuid primary key default gen_random_uuid(),
+  game_id uuid references games(id) on delete cascade,
+  group_player_id uuid references group_players(id) on delete cascade,
+  player_name text not null,
+  status text not null default 'pending',
+  requested_at timestamptz default now(),
+  resolved_at timestamptz,
+  resolved_by uuid references players(id) on delete set null
+);
 create index if not exists idx_settlements_game_id on settlements(game_id);
+create index if not exists idx_join_requests_game_id on join_requests(game_id);
+create index if not exists idx_join_requests_group_player_id on join_requests(group_player_id);
 create index if not exists idx_players_group_player_id on players(group_player_id);
 create index if not exists idx_games_group_id on games(group_id);
 create index if not exists idx_group_players_group_id on group_players(group_id);
