@@ -97,6 +97,8 @@ const elements = {
   gameTitle: $("#gameTitle"),
   gameCode: $("#gameCode"),
   gameStatusChip: $("#gameStatusChip"),
+  gamePotChip: $("#gamePotChip"),
+  gamePotValue: $("#gamePotValue"),
   gameName: $("#gameName"),
   currency: $("#currency"),
   defaultBuyIn: $("#defaultBuyIn"),
@@ -109,6 +111,8 @@ const elements = {
   logPanel: $("#logPanel"),
   joinLink: $("#joinLink"),
   qrCanvas: $("#qrCanvas"),
+  gameTools: $("#gameTools"),
+  qrHint: $("#qrHint"),
   settledNotice: $("#settledNotice"),
   settledAt: $("#settledAt"),
   openSettle: $("#openSettle"),
@@ -2012,6 +2016,16 @@ function computeSummary() {
   return { totalBuyins, buyinCount, playersCount, average, settledTotal };
 }
 
+function updateGameBarToolsVisibility() {
+  const playerJoined = !state.isHost && state.players.some((player) => player.id === state.playerId);
+  if (elements.gamePotChip) {
+    elements.gamePotChip.classList.toggle("hidden", !playerJoined);
+  }
+  if (elements.gameTools) {
+    elements.gameTools.classList.toggle("hidden", playerJoined);
+  }
+}
+
 function buildBuyinMap() {
   const map = new Map();
   state.buyins.forEach((buyin) => {
@@ -2196,6 +2210,10 @@ function renderSummary() {
     node.innerHTML = `<span>${card.label}</span><strong>${card.value}</strong>`;
     elements.summary.appendChild(node);
   });
+  if (elements.gamePotValue) {
+    elements.gamePotValue.textContent = formatCurrency(totalBuyins);
+  }
+  updateGameBarToolsVisibility();
 }
 
 function renderPlayers() {
@@ -2282,6 +2300,7 @@ function renderPlayerSeat() {
     if (elements.playerSettledSummary) {
       elements.playerSettledSummary.classList.remove("hidden");
     }
+    updateGameBarToolsVisibility();
     return;
   }
   const settling = isSettleOpen();
@@ -2304,6 +2323,7 @@ function renderPlayerSeat() {
     if (elements.playerSettledSummary) {
       elements.playerSettledSummary.classList.add("hidden");
     }
+    updateGameBarToolsVisibility();
     return;
   }
 
@@ -2320,7 +2340,10 @@ function renderPlayerSeat() {
     elements.playerSettledSummary.classList.add("hidden");
   }
   elements.playerCard.innerHTML = `
-    <strong>${displayPlayerName(player)}</strong>
+    <div class="player-card-head">
+      <span class="player-seat-label">Your seat</span>
+      <strong class="player-seat-name">${displayPlayerName(player)}</strong>
+    </div>
     <div class="player-metrics">
       <div>
         <span>Buy-ins</span>
@@ -2353,6 +2376,7 @@ function renderPlayerSeat() {
       elements.playerSettleStatus.textContent = "";
     }
   }
+  updateGameBarToolsVisibility();
 }
 
 function renderLog() {
@@ -4640,6 +4664,7 @@ function setHostMode(next) {
   }
   applyHostMode();
   applyGameStatus();
+  updateGameBarToolsVisibility();
 }
 
 elements.hostModeToggle.addEventListener("change", () => {
