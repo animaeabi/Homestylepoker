@@ -2732,7 +2732,7 @@ body.theme-light .guide-num {
 
 .summary-row {
   display: grid;
-  grid-template-columns: 2fr 1fr 1fr 1fr 1fr;
+  grid-template-columns: 2fr 1fr 1fr 1fr 1fr 1fr;
   gap: 8px;
   align-items: center;
   padding: 10px 12px;
@@ -2740,7 +2740,7 @@ body.theme-light .guide-num {
   border: 1px solid var(--row-border);
   border-radius: 12px;
   font-size: 0.85rem;
-  min-width: 520px;
+  min-width: 620px;
 }
 
 .summary-row.header {
@@ -3505,6 +3505,10 @@ body.theme-light .player-metrics > div {
   gap: 4px;
 }
 
+.settle-adjustment {
+  color: var(--accent-red) !important;
+}
+
 .settle-input {
   display: grid;
   justify-items: end;
@@ -3567,6 +3571,24 @@ body.theme-light .player-metrics > div {
   gap: 10px;
 }
 
+.discrepancy-panel {
+  position: relative;
+  z-index: 1;
+  width: min(92vw, 520px);
+  max-height: 85vh;
+  overflow: auto;
+}
+
+.discrepancy-options {
+  display: grid;
+  gap: 10px;
+}
+
+.discrepancy-options button {
+  text-align: left;
+  justify-content: flex-start;
+}
+
 .settlement-summary {
   background: var(--card-grad);
   border: 1px solid var(--card-border);
@@ -3584,7 +3606,7 @@ body.theme-light .player-metrics > div {
 
 .settlement-row {
   display: grid;
-  grid-template-columns: 1.6fr 1fr 1fr 1fr;
+  grid-template-columns: 1.6fr 1fr 1fr 1fr 1fr;
   align-items: center;
   gap: 12px;
   padding: 8px 10px;
@@ -3605,11 +3627,15 @@ body.theme-light .player-metrics > div {
 
 .settlement-total {
   display: grid;
-  grid-template-columns: 1.6fr 1fr 1fr 1fr;
+  grid-template-columns: 1.6fr 1fr 1fr 1fr 1fr;
   align-items: center;
   gap: 12px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--row-border);
+  background: rgba(210, 166, 78, 0.08);
   font-weight: 700;
-  font-size: 0.95rem;
+  font-size: 0.9rem;
 }
 
 .money-pos {
@@ -4118,9 +4144,9 @@ body:not(.theme-light) .footer-toggle input {
   }
 
   .summary-row {
-    grid-template-columns: 2fr 1fr 1fr 1fr 1fr;
+    grid-template-columns: 2fr 1fr 1fr 1fr 1fr 1fr;
     align-items: center;
-    min-width: 520px;
+    min-width: 620px;
   }
 
   .settle-row {

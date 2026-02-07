@@ -127,8 +127,14 @@ const elements = {
   settleForm: $("#settleForm"),
   settleList: $("#settleList"),
   settleCancel: $("#settleCancel"),
+  settleDiscrepancy: $("#settleDiscrepancy"),
   settleError: $("#settleError"),
   settleRemaining: $("#settleRemaining"),
+  discrepancyModal: $("#discrepancyModal"),
+  discrepancyHint: $("#discrepancyHint"),
+  discrepancyPositive: $("#discrepancyPositive"),
+  discrepancyAll: $("#discrepancyAll"),
+  discrepancyCancel: $("#discrepancyCancel"),
   settlementSummary: $("#settlementSummary"),
   summaryModal: $("#summaryModal"),
   summaryClose: $("#summaryClose"),
@@ -192,7 +198,9 @@ const state = {
   players: [],
   buyins: [],
   settlements: [],
+  settlementAdjustments: [],
   settlementsAvailable: true,
+  adjustmentsAvailable: true,
   joinRequests: [],
   joinRequestsAvailable: true,
   groups: [],
@@ -213,7 +221,8 @@ const state = {
   activeJoinRequestId: null,
   dismissedJoinRequestId: null,
   playerJoinFeedbackText: "",
-  playerJoinFeedbackTone: "info"
+  playerJoinFeedbackTone: "info",
+  pendingSettleAdjustments: new Map()
 };
 
 const configMissing =
@@ -344,6 +353,18 @@ function parseChipAmount(value) {
   }
   const amount = Number(normalized);
   return Number.isFinite(amount) ? amount : NaN;
+}
+
+function toCents(value) {
+  return Math.round(Number(value || 0) * 100);
+}
+
+function fromCents(value) {
+  return Number(value || 0) / 100;
+}
+
+function moneyRound(value) {
+  return fromCents(toCents(value));
 }
 
 function normalizeName(name) {
@@ -1848,6 +1869,11 @@ function buildSummaryShareCanvas() {
     const current = settlementTotals.get(settlement.player_id) || 0;
     settlementTotals.set(settlement.player_id, current + Number(settlement.amount || 0));
   });
+  const adjustmentTotals = new Map();
+  state.settlementAdjustments.forEach((adjustment) => {
+    const current = adjustmentTotals.get(adjustment.player_id) || 0;
+    adjustmentTotals.set(adjustment.player_id, current + Number(adjustment.amount || 0));
+  });
 
   const rows = state.players
     .slice()
@@ -1855,7 +1881,14 @@ function buildSummaryShareCanvas() {
     .map((player) => {
       const moneyIn = buyinTotals.get(player.id) || 0;
       const moneyOut = settlementTotals.get(player.id) || 0;
-      return { name: displayPlayerName(player), moneyIn, moneyOut, net: moneyOut - moneyIn };
+      const misc = adjustmentTotals.get(player.id) || 0;
+      return {
+        name: displayPlayerName(player),
+        moneyIn,
+        moneyOut,
+        misc,
+        net: moneyOut - moneyIn - misc
+      };
     });
 
   const width = 1080;
@@ -1889,12 +1922,14 @@ function buildSummaryShareCanvas() {
   ctx.font = "700 18px 'Manrope', Arial, sans-serif";
   const headerY = headerHeight - 20;
   const colNet = width - padding;
-  const colOut = colNet - 160;
-  const colIn = colOut - 160;
+  const colMisc = colNet - 140;
+  const colOut = colMisc - 140;
+  const colIn = colOut - 140;
 
   ctx.fillText("Player", padding, headerY);
   ctx.fillText("In", colIn - 20, headerY);
   ctx.fillText("Out", colOut - 20, headerY);
+  ctx.fillText("Misc", colMisc - 30, headerY);
   ctx.fillText("Net", colNet - 20, headerY);
 
   ctx.strokeStyle = line;
@@ -1911,10 +1946,12 @@ function buildSummaryShareCanvas() {
   let y = headerHeight + 24;
   let totalIn = 0;
   let totalOut = 0;
+  let totalMisc = 0;
 
   rows.forEach((row) => {
     totalIn += row.moneyIn;
     totalOut += row.moneyOut;
+    totalMisc += row.misc;
     ctx.fillStyle = ink;
     ctx.font = "600 24px 'Manrope', Arial, sans-serif";
     ctx.fillText(row.name, padding, y);
@@ -1922,6 +1959,7 @@ function buildSummaryShareCanvas() {
     ctx.fillStyle = muted;
     drawRight(formatCurrency(row.moneyIn), colIn, y);
     drawRight(formatCurrency(row.moneyOut), colOut, y);
+    drawRight(formatCurrency(row.misc || 0), colMisc, y);
     ctx.fillStyle = row.net >= 0 ? pos : neg;
     const netText = `${row.net < 0 ? "-" : ""}${formatCurrency(Math.abs(row.net))}`;
     drawRight(netText, colNet, y);
@@ -1940,7 +1978,8 @@ function buildSummaryShareCanvas() {
   ctx.fillStyle = muted;
   drawRight(formatCurrency(totalIn), colIn, y + 12);
   drawRight(formatCurrency(totalOut), colOut, y + 12);
-  const netTotal = totalOut - totalIn;
+  drawRight(formatCurrency(totalMisc), colMisc, y + 12);
+  const netTotal = totalOut - totalIn - totalMisc;
   ctx.fillStyle = netTotal >= 0 ? pos : neg;
   drawRight(
     `${netTotal < 0 ? "-" : ""}${formatCurrency(Math.abs(netTotal))}`,
@@ -2109,6 +2148,7 @@ function applyGameStatus() {
   elements.hostAddPlayer.disabled = !state.isHost || settled || settling;
   if (elements.settleModal && settled) {
     elements.settleModal.classList.add("hidden");
+    closeDiscrepancyModal();
   }
 }
 
@@ -2691,18 +2731,25 @@ function renderSettlementSummary() {
     const current = settlementTotals.get(settlement.player_id) || 0;
     settlementTotals.set(settlement.player_id, current + Number(settlement.amount || 0));
   });
+  const adjustmentTotals = new Map();
+  state.settlementAdjustments.forEach((adjustment) => {
+    const current = adjustmentTotals.get(adjustment.player_id) || 0;
+    adjustmentTotals.set(adjustment.player_id, current + Number(adjustment.amount || 0));
+  });
   const rows = state.players
     .slice()
     .sort((a, b) => (a.name || "").localeCompare(b.name || ""))
     .map((player) => {
       const moneyIn = buyinTotals.get(player.id) || 0;
       const moneyOut = settlementTotals.get(player.id) || 0;
+      const misc = adjustmentTotals.get(player.id) || 0;
       return {
         id: player.id,
         name: displayPlayerName(player),
         moneyIn,
         moneyOut,
-        net: moneyOut - moneyIn
+        misc,
+        net: moneyOut - moneyIn - misc
       };
     });
 
@@ -2766,6 +2813,7 @@ function renderSettlementSummary() {
       <span>Player</span>
       <span>In</span>
       <span>Out</span>
+      <span>Misc</span>
       <span>Net</span>
     `;
     list.appendChild(headerRow);
@@ -2780,19 +2828,23 @@ function renderSettlementSummary() {
         <span>${entry.name || "Unknown"}</span>
         <strong>${formatCurrency(entry.moneyIn)}</strong>
         <strong>${formatCurrency(entry.moneyOut)}</strong>
+        <strong>${formatCurrency(entry.misc || 0)}</strong>
         <strong class="${netClass}">${formatCurrency(entry.net)}</strong>
       `;
       list.appendChild(row);
     });
 
+    const totalMisc = rows.reduce((sum, entry) => sum + Number(entry.misc || 0), 0);
+
     const totalRow = document.createElement("div");
     totalRow.className = "settlement-total";
-    const totalNet = totalOut - totalIn;
+    const totalNet = totalOut - totalIn - totalMisc;
     const totalClass = totalNet >= 0 ? "money-pos" : "money-neg";
     totalRow.innerHTML = `
       <span>Total</span>
       <strong>${formatCurrency(totalIn)}</strong>
       <strong>${formatCurrency(totalOut)}</strong>
+      <strong>${formatCurrency(totalMisc)}</strong>
       <strong class="${totalClass}">${formatCurrency(totalNet)}</strong>
     `;
 
@@ -2825,6 +2877,7 @@ function renderQuarterSummary({ groupName, label, rows, transfers }) {
       <div>Games</div>
       <div>Buy-ins</div>
       <div>Cash-out</div>
+      <div>Misc</div>
       <div>Net</div>
     </div>
   `;
@@ -2837,6 +2890,7 @@ function renderQuarterSummary({ groupName, label, rows, transfers }) {
       <div>${row.games}</div>
       <div>${formatCurrency(row.buyins)}</div>
       <div>${formatCurrency(row.cashout)}</div>
+      <div>${formatCurrency(row.misc || 0)}</div>
       <div>${formatCurrency(row.net)}</div>
     `;
     table.appendChild(node);
@@ -2869,11 +2923,19 @@ function renderQuarterSummary({ groupName, label, rows, transfers }) {
 }
 
 function computeTransfers(rows) {
-  const winners = rows
+  const transferRows = rows.map((row) => ({ ...row }));
+  const imbalance = moneyRound(transferRows.reduce((sum, row) => sum + Number(row.net || 0), 0));
+  if (Math.abs(imbalance) > 0.01) {
+    transferRows.push({
+      name: "Discrepancy pool",
+      net: moneyRound(-imbalance)
+    });
+  }
+  const winners = transferRows
     .filter((row) => row.net > 0.01)
     .map((row) => ({ ...row }))
     .sort((a, b) => b.net - a.net);
-  const losers = rows
+  const losers = transferRows
     .filter((row) => row.net < -0.01)
     .map((row) => ({ ...row }))
     .sort((a, b) => a.net - b.net);
@@ -2961,10 +3023,11 @@ async function loadQuarterSummary() {
 
   const gameIds = games.map((game) => game.id);
 
-  const [playersRes, buyinsRes, settlementsRes, groupPlayersRes] = await Promise.all([
+  const [playersRes, buyinsRes, settlementsRes, adjustmentsRes, groupPlayersRes] = await Promise.all([
     supabase.from("players").select("id,name,game_id,group_player_id").in("game_id", gameIds),
     supabase.from("buyins").select("game_id,player_id,amount").in("game_id", gameIds),
     supabase.from("settlements").select("game_id,player_id,amount").in("game_id", gameIds),
+    supabase.from("settlement_adjustments").select("game_id,player_id,amount").in("game_id", gameIds),
     supabase.from("group_players").select("id,name,normalized_name").eq("group_id", groupId)
   ]);
 
@@ -2973,8 +3036,17 @@ async function loadQuarterSummary() {
     renderQuarterSummary({ groupName, label, rows: [], transfers: [] });
     return;
   }
+  if (adjustmentsRes.error && adjustmentsRes.error.code === "42P01") {
+    setStatus("Add settlement_adjustments table in Supabase for discrepancy tracking.", "error");
+  }
 
-  if (playersRes.error || buyinsRes.error || settlementsRes.error || groupPlayersRes.error) {
+  if (
+    playersRes.error ||
+    buyinsRes.error ||
+    settlementsRes.error ||
+    (adjustmentsRes.error && adjustmentsRes.error.code !== "42P01") ||
+    groupPlayersRes.error
+  ) {
     setStatus("Could not load summary", "error");
     return;
   }
@@ -3005,7 +3077,7 @@ async function loadQuarterSummary() {
 
   function ensureEntry(key, name) {
     if (!ledger.has(key)) {
-      ledger.set(key, { name, buyins: 0, cashout: 0, games: 0, net: 0 });
+      ledger.set(key, { name, buyins: 0, cashout: 0, misc: 0, games: 0, net: 0 });
     }
     if (!gamesByKey.has(key)) {
       gamesByKey.set(key, new Set());
@@ -3030,10 +3102,21 @@ async function loadQuarterSummary() {
     gamesByKey.get(key).add(player.game_id);
   });
 
+  if (!adjustmentsRes.error) {
+    (adjustmentsRes.data || []).forEach((adjustment) => {
+      const player = playerById.get(adjustment.player_id);
+      if (!player) return;
+      const { key, name } = getKey(player);
+      ensureEntry(key, name);
+      ledger.get(key).misc += Number(adjustment.amount || 0);
+      gamesByKey.get(key).add(player.game_id);
+    });
+  }
+
   ledger.forEach((entry, key) => {
     const gamesPlayed = gamesByKey.get(key);
     entry.games = gamesPlayed ? gamesPlayed.size : 0;
-    entry.net = entry.cashout - entry.buyins;
+    entry.net = entry.cashout - entry.buyins - entry.misc;
   });
 
   const rows = Array.from(ledger.values()).sort((a, b) => b.net - a.net);
@@ -3180,12 +3263,17 @@ function renderHostRosterSuggestions() {
 async function refreshData() {
   if (!supabase || !state.game) return;
   try {
-    const [gameRes, playersRes, buyinsRes, settlementsRes, joinRequestsRes] = await Promise.all([
+    const [gameRes, playersRes, buyinsRes, settlementsRes, adjustmentsRes, joinRequestsRes] = await Promise.all([
       supabase.from("games").select("*").eq("id", state.game.id).single(),
       supabase.from("players").select("*").eq("game_id", state.game.id).order("created_at"),
       supabase.from("buyins").select("*").eq("game_id", state.game.id).order("created_at", { ascending: false }),
       supabase
         .from("settlements")
+        .select("*")
+        .eq("game_id", state.game.id)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("settlement_adjustments")
         .select("*")
         .eq("game_id", state.game.id)
         .order("created_at", { ascending: false }),
@@ -3202,6 +3290,9 @@ async function refreshData() {
     if (settlementsRes.error && settlementsRes.error.code !== "42P01") {
       throw settlementsRes.error;
     }
+    if (adjustmentsRes.error && adjustmentsRes.error.code !== "42P01") {
+      throw adjustmentsRes.error;
+    }
     if (joinRequestsRes.error && joinRequestsRes.error.code !== "42P01") {
       throw joinRequestsRes.error;
     }
@@ -3211,11 +3302,16 @@ async function refreshData() {
     state.buyins = buyinsRes.data || [];
     state.settlementsAvailable = !settlementsRes.error || settlementsRes.error.code !== "42P01";
     state.settlements = settlementsRes.error ? [] : settlementsRes.data || [];
+    state.adjustmentsAvailable = !adjustmentsRes.error || adjustmentsRes.error.code !== "42P01";
+    state.settlementAdjustments = adjustmentsRes.error ? [] : adjustmentsRes.data || [];
     state.joinRequestsAvailable = !joinRequestsRes.error || joinRequestsRes.error.code !== "42P01";
     state.joinRequests = joinRequestsRes.error ? [] : joinRequestsRes.data || [];
     syncHostAccess();
     if (settlementsRes.error && settlementsRes.error.code === "42P01") {
       setStatus("Settlement table missing. Run the README SQL.", "error");
+    }
+    if (adjustmentsRes.error && adjustmentsRes.error.code === "42P01") {
+      state.adjustmentsAvailable = false;
     }
     if (state.game?.group_id) {
       await loadGameGroupPlayers();
@@ -3265,6 +3361,13 @@ async function startRealtime() {
     channel.on(
       "postgres_changes",
       { event: "*", schema: "public", table: "settlements", filter: `game_id=eq.${state.game.id}` },
+      refreshData
+    );
+  }
+  if (state.adjustmentsAvailable) {
+    channel.on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "settlement_adjustments", filter: `game_id=eq.${state.game.id}` },
       refreshData
     );
   }
@@ -3910,6 +4013,147 @@ async function updateGameSettings() {
   await refreshData();
 }
 
+function getPendingAdjustment(playerId) {
+  return Number(state.pendingSettleAdjustments.get(playerId) || 0);
+}
+
+function getPendingAdjustmentTotal() {
+  let total = 0;
+  state.pendingSettleAdjustments.forEach((amount) => {
+    total += Number(amount || 0);
+  });
+  return moneyRound(total);
+}
+
+function readSettleDraft() {
+  const rows = Array.from(elements.settleList?.querySelectorAll(".settle-row") || []);
+  const entries = [];
+  let submitted = 0;
+  let invalidInput = null;
+  rows.forEach((row) => {
+    const input = row.querySelector("input");
+    const playerId = row.dataset.playerId;
+    const amount = parseChipAmount(input?.value);
+    if (!Number.isFinite(amount) || amount < 0) {
+      if (!invalidInput) invalidInput = input;
+      return;
+    }
+    submitted += amount;
+    entries.push({ game_id: state.game.id, player_id: playerId, amount: moneyRound(amount) });
+  });
+  return { rows, entries, submitted: moneyRound(submitted), invalidInput };
+}
+
+function splitDiscrepancyAcrossPlayers(totalAmount, playerIds) {
+  if (!playerIds.length) return new Map();
+  const totalCents = toCents(totalAmount);
+  const base = Math.trunc(totalCents / playerIds.length);
+  let remainder = totalCents - base * playerIds.length;
+  const output = new Map();
+  playerIds.forEach((playerId) => {
+    let cents = base;
+    if (remainder !== 0) {
+      cents += remainder > 0 ? 1 : -1;
+      remainder += remainder > 0 ? -1 : 1;
+    }
+    output.set(playerId, fromCents(cents));
+  });
+  return output;
+}
+
+function getDiscrepancyEligiblePlayers(mode, draft) {
+  if (mode === "all") {
+    return draft.entries.map((entry) => entry.player_id);
+  }
+  const totals = buildBuyinTotals();
+  return draft.entries
+    .filter((entry) => {
+      const buyinTotal = Number(totals.get(entry.player_id) || 0);
+      const pending = getPendingAdjustment(entry.player_id);
+      const net = entry.amount - buyinTotal - pending;
+      return net > 0.01;
+    })
+    .map((entry) => entry.player_id);
+}
+
+function openDiscrepancyModal() {
+  if (!state.isHost || !state.game || !elements.discrepancyModal) return;
+  const draft = readSettleDraft();
+  if (draft.invalidInput || draft.entries.length !== draft.rows.length) {
+    setSettleError("Enter valid chip totals for every player first.");
+    setStatus("Enter valid chip totals for every player first.", "error");
+    draft.invalidInput?.focus();
+    return;
+  }
+  const { totalBuyins } = computeSummary();
+  const unresolved = moneyRound(totalBuyins - (draft.submitted + getPendingAdjustmentTotal()));
+  if (Math.abs(unresolved) < 0.01) {
+    setSettleError("No discrepancy remaining.");
+    setStatus("No discrepancy remaining.", "info");
+    return;
+  }
+  if (!state.adjustmentsAvailable) {
+    setSettleError("Add settlement_adjustments table in Supabase to use discrepancy split.");
+    setStatus("Run README SQL to enable discrepancy split.", "error");
+    return;
+  }
+  if (elements.discrepancyHint) {
+    const tone = unresolved > 0 ? "short" : "over";
+    elements.discrepancyHint.textContent = `Current discrepancy ${formatCurrency(
+      unresolved
+    )} (${tone}).`;
+  }
+  elements.discrepancyModal.classList.remove("hidden");
+}
+
+function closeDiscrepancyModal() {
+  if (!elements.discrepancyModal) return;
+  elements.discrepancyModal.classList.add("hidden");
+}
+
+function applyDiscrepancySplit(mode) {
+  const draft = readSettleDraft();
+  if (draft.invalidInput || draft.entries.length !== draft.rows.length) {
+    setSettleError("Enter valid chip totals for every player first.");
+    setStatus("Enter valid chip totals for every player first.", "error");
+    draft.invalidInput?.focus();
+    return;
+  }
+  const { totalBuyins } = computeSummary();
+  const unresolved = moneyRound(totalBuyins - (draft.submitted + getPendingAdjustmentTotal()));
+  if (Math.abs(unresolved) < 0.01) {
+    closeDiscrepancyModal();
+    return;
+  }
+  const eligibleIds = getDiscrepancyEligiblePlayers(mode, draft);
+  if (!eligibleIds.length) {
+    setSettleError(
+      mode === "positive"
+        ? "No players with positive net to split discrepancy."
+        : "No players available to split discrepancy."
+    );
+    setStatus("Could not apply discrepancy split.", "error");
+    return;
+  }
+  const split = splitDiscrepancyAcrossPlayers(unresolved, eligibleIds);
+  const nextMap = new Map(state.pendingSettleAdjustments);
+  split.forEach((amount, playerId) => {
+    const current = Number(nextMap.get(playerId) || 0);
+    const next = moneyRound(current + amount);
+    if (Math.abs(next) < 0.005) {
+      nextMap.delete(playerId);
+    } else {
+      nextMap.set(playerId, next);
+    }
+  });
+  state.pendingSettleAdjustments = nextMap;
+  closeDiscrepancyModal();
+  setSettleError("");
+  renderSettleList();
+  updateSettleRemaining();
+  setStatus(`Discrepancy split across ${eligibleIds.length} player(s).`);
+}
+
 function renderSettleList() {
   if (!elements.settleList) return;
   const existingValues = new Map();
@@ -3924,6 +4168,9 @@ function renderSettleList() {
   }
 
   elements.settleList.innerHTML = "";
+  if (elements.settleDiscrepancy) {
+    elements.settleDiscrepancy.disabled = !state.adjustmentsAvailable;
+  }
 
   if (state.players.length === 0) {
     const empty = document.createElement("p");
@@ -3944,6 +4191,13 @@ function renderSettleList() {
     row.className = "settle-row";
     row.dataset.playerId = player.id;
     const buyinTotal = totals.get(player.id) || 0;
+    const adjustment = getPendingAdjustment(player.id);
+    const adjustmentText =
+      Math.abs(adjustment) > 0.004
+        ? `<span class="settle-adjustment">Misc ${
+            adjustment >= 0 ? "loss" : "credit"
+          }: ${formatCurrency(Math.abs(adjustment))}</span>`
+        : "";
     const preset =
       existingValues.get(player.id) ??
       (settlementTotals.has(player.id) ? formatNumberValue(settlementTotals.get(player.id)) : "");
@@ -3951,6 +4205,7 @@ function renderSettleList() {
       <div class="settle-meta">
         <strong>${displayPlayerName(player)}</strong>
         <span>Buy-ins: ${formatCurrency(buyinTotal)}</span>
+        ${adjustmentText}
       </div>
       <div class="settle-input">
         <span>Chips remaining</span>
@@ -3976,7 +4231,8 @@ function updateSettleRemaining() {
       if (Number.isFinite(value)) submitted += value;
     });
   }
-  let remaining = submitted - totalBuyins;
+  const adjustmentTotal = getPendingAdjustmentTotal();
+  let remaining = submitted + adjustmentTotal - totalBuyins;
   if (Math.abs(remaining) < 0.01) remaining = 0;
   const display =
     remaining < 0 ? `-${formatCurrency(Math.abs(remaining))}` : formatCurrency(remaining);
@@ -4033,10 +4289,12 @@ async function openSettlePanel() {
     return;
   }
   await setSettleOpen(true);
+  state.pendingSettleAdjustments = new Map();
   setSettleError("");
   if (elements.settleModal) {
     elements.settleModal.classList.remove("hidden");
   }
+  closeDiscrepancyModal();
   renderSettleList();
 }
 
@@ -4047,6 +4305,8 @@ async function closeSettlePanel() {
   if (elements.settleModal) {
     elements.settleModal.classList.add("hidden");
   }
+  closeDiscrepancyModal();
+  state.pendingSettleAdjustments = new Map();
   setSettleError("");
 }
 
@@ -4369,6 +4629,7 @@ function clearCurrentGame() {
   state.players = [];
   state.buyins = [];
   state.settlements = [];
+  state.settlementAdjustments = [];
   state.joinRequests = [];
   state.isHost = false;
   state.canHost = false;
@@ -4378,12 +4639,14 @@ function clearCurrentGame() {
   state.dismissedJoinRequestId = null;
   state.playerJoinFeedbackText = "";
   state.playerJoinFeedbackTone = "info";
+  state.pendingSettleAdjustments = new Map();
   state.hostPlayersPage = 0;
   state.hostPlayersTopNonHostId = null;
   elements.gamePanel.classList.add("hidden");
   if (elements.sessionsPanel) elements.sessionsPanel.classList.add("hidden");
   if (elements.settledNotice) elements.settledNotice.classList.add("hidden");
   if (elements.settleModal) elements.settleModal.classList.add("hidden");
+  if (elements.discrepancyModal) elements.discrepancyModal.classList.add("hidden");
   if (elements.qrModal) elements.qrModal.classList.add("hidden");
   if (elements.confirmModal) elements.confirmModal.classList.add("hidden");
   if (elements.settlementSummary) elements.settlementSummary.classList.add("hidden");
@@ -4403,28 +4666,38 @@ async function submitSettlement(event) {
     return;
   }
 
-  const rows = Array.from(elements.settleList.querySelectorAll(".settle-row"));
-  const entries = [];
-  let settledTotal = 0;
-  for (const row of rows) {
-    const input = row.querySelector("input");
-    const playerId = row.dataset.playerId;
-    const amount = parseChipAmount(input.value);
-    if (!Number.isFinite(amount) || amount < 0) {
-      setSettleError("Enter valid chip totals for every player.");
-      setStatus("Enter valid chip totals for every player.", "error");
-      input.focus();
-      return;
-    }
-    settledTotal += amount;
-    entries.push({ game_id: state.game.id, player_id: playerId, amount });
+  const draft = readSettleDraft();
+  if (draft.invalidInput || draft.entries.length !== draft.rows.length) {
+    setSettleError("Enter valid chip totals for every player.");
+    setStatus("Enter valid chip totals for every player.", "error");
+    draft.invalidInput?.focus();
+    return;
   }
+  const entries = draft.entries;
+  const settledTotal = draft.submitted;
+  const adjustmentEntries = Array.from(state.pendingSettleAdjustments.entries())
+    .map(([playerId, amount]) => ({
+      game_id: state.game.id,
+      player_id: playerId,
+      amount: moneyRound(amount)
+    }))
+    .filter((entry) => Math.abs(entry.amount) > 0.004);
+  const adjustmentTotal = moneyRound(
+    adjustmentEntries.reduce((sum, entry) => sum + Number(entry.amount || 0), 0)
+  );
 
   const { totalBuyins } = computeSummary();
-  if (Math.abs(settledTotal - totalBuyins) > 0.01) {
+  const resolvedTotal = moneyRound(settledTotal + adjustmentTotal);
+  if (Math.abs(resolvedTotal - totalBuyins) > 0.01) {
     const message = `Count error: settlement ${formatCurrency(
-      settledTotal
+      resolvedTotal
     )} does not match pot ${formatCurrency(totalBuyins)}.`;
+    setSettleError(message);
+    setStatus(message, "error");
+    return;
+  }
+  if (adjustmentEntries.length && !state.adjustmentsAvailable) {
+    const message = "Run README SQL for settlement_adjustments before applying count discrepancy.";
     setSettleError(message);
     setStatus(message, "error");
     return;
@@ -4440,11 +4713,44 @@ async function submitSettlement(event) {
     return;
   }
 
+  if (state.adjustmentsAvailable) {
+    const { error: clearAdjustError } = await supabase
+      .from("settlement_adjustments")
+      .delete()
+      .eq("game_id", state.game.id);
+    if (clearAdjustError) {
+      if (clearAdjustError.code === "42P01") {
+        state.adjustmentsAvailable = false;
+        if (adjustmentEntries.length) {
+          const message = "Run README SQL for settlement_adjustments before applying count discrepancy.";
+          setSettleError(message);
+          setStatus(message, "error");
+          return;
+        }
+      } else {
+        setSettleError("Settlement failed. Please try again.");
+        setStatus("Settlement failed", "error");
+        return;
+      }
+    }
+  }
+
   const { error: settlementError } = await supabase.from("settlements").insert(entries);
   if (settlementError) {
     setSettleError("Settlement failed. Please try again.");
     setStatus("Settlement failed", "error");
     return;
+  }
+
+  if (adjustmentEntries.length) {
+    const { error: adjustmentError } = await supabase
+      .from("settlement_adjustments")
+      .insert(adjustmentEntries);
+    if (adjustmentError) {
+      setSettleError("Settlement failed. Please try again.");
+      setStatus("Settlement failed", "error");
+      return;
+    }
   }
 
   const settledAt = new Date().toISOString();
@@ -4461,6 +4767,8 @@ async function submitSettlement(event) {
 
   state.game.ended_at = settledAt;
   state.settlements = entries;
+  state.settlementAdjustments = adjustmentEntries;
+  state.pendingSettleAdjustments = new Map();
   recordRecentGame(state.game);
   setStatus("Settlement saved");
   await closeSettlePanel();
@@ -5192,6 +5500,11 @@ if (elements.settleCancel) {
     void closeSettlePanel();
   });
 }
+if (elements.settleDiscrepancy) {
+  elements.settleDiscrepancy.addEventListener("click", () => {
+    openDiscrepancyModal();
+  });
+}
 if (elements.settleForm) {
   elements.settleForm.addEventListener("submit", submitSettlement);
 }
@@ -5210,9 +5523,34 @@ if (elements.settleModal) {
     }
   });
 }
+if (elements.discrepancyCancel) {
+  elements.discrepancyCancel.addEventListener("click", () => {
+    closeDiscrepancyModal();
+  });
+}
+if (elements.discrepancyPositive) {
+  elements.discrepancyPositive.addEventListener("click", () => {
+    applyDiscrepancySplit("positive");
+  });
+}
+if (elements.discrepancyAll) {
+  elements.discrepancyAll.addEventListener("click", () => {
+    applyDiscrepancySplit("all");
+  });
+}
+if (elements.discrepancyModal) {
+  elements.discrepancyModal.addEventListener("click", (event) => {
+    if (event.target.dataset.action === "close") {
+      closeDiscrepancyModal();
+    }
+  });
+}
 
 window.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
+  if (elements.discrepancyModal && !elements.discrepancyModal.classList.contains("hidden")) {
+    closeDiscrepancyModal();
+  }
   if (elements.settleModal && !elements.settleModal.classList.contains("hidden")) {
     void closeSettlePanel();
   }

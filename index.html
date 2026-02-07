@@ -343,10 +343,32 @@
               </div>
               <div class="settle-buttons">
                 <button id="settleCancel" type="button" class="ghost">Cancel</button>
+                <button id="settleDiscrepancy" type="button" class="ghost">Count discrepancy</button>
                 <button type="submit" class="primary">Save settlement</button>
               </div>
             </div>
           </form>
+        </section>
+      </div>
+
+      <div id="discrepancyModal" class="modal hidden" role="dialog" aria-modal="true">
+        <div class="modal-backdrop" data-action="close"></div>
+        <section class="panel discrepancy-panel">
+          <div class="panel-title">
+            <h2>Resolve discrepancy</h2>
+            <p id="discrepancyHint" class="muted"></p>
+          </div>
+          <div class="discrepancy-options">
+            <button id="discrepancyPositive" type="button" class="ghost">
+              Split across players with positive net
+            </button>
+            <button id="discrepancyAll" type="button" class="ghost">
+              Split across all players (including busted)
+            </button>
+          </div>
+          <div class="roster-actions">
+            <button id="discrepancyCancel" type="button" class="ghost">Cancel</button>
+          </div>
         </section>
       </div>
 
