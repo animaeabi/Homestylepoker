@@ -650,28 +650,47 @@ body.theme-light .landing-ornament-suits {
 
 .sessions {
   display: grid;
-  gap: 18px;
-  margin-top: 22px;
+  gap: 20px;
+  margin-top: 24px;
 }
 
 .sessions-bar {
   display: flex;
   flex-wrap: nowrap;
   justify-content: space-between;
-  gap: 12px;
+  gap: 14px;
   align-items: center;
-  background: var(--surface-grad);
-  padding: 16px 20px;
+  background:
+    radial-gradient(circle at 10% 0%, rgba(255, 184, 84, 0.16), transparent 52%),
+    radial-gradient(circle at 88% 100%, rgba(60, 255, 218, 0.12), transparent 55%),
+    var(--surface-grad);
+  padding: 16px 22px;
   border-radius: 22px;
-  box-shadow: var(--surface-shadow);
+  box-shadow:
+    0 0 0 1px rgba(255, 188, 108, 0.16),
+    0 16px 32px rgba(8, 10, 11, 0.28);
   border: 1px solid var(--surface-border);
+  position: relative;
+  overflow: hidden;
+}
+
+.sessions-bar::after {
+  content: "";
+  position: absolute;
+  left: 22px;
+  right: 22px;
+  bottom: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 186, 104, 0.55), transparent);
+  opacity: 0.55;
+  pointer-events: none;
 }
 
 .sessions-bar h2 {
   margin: 0;
   font-family: "Cinzel", "Fraunces", serif;
-  font-size: 1.05rem;
-  letter-spacing: 0.1em;
+  font-size: 1.08rem;
+  letter-spacing: 0.11em;
   text-transform: uppercase;
 }
 
@@ -739,8 +758,28 @@ body.theme-light .settings-button:hover {
 
 .sessions-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 18px;
+  grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.sessions .landing-card {
+  padding: 18px;
+  border-radius: 20px;
+  gap: 12px;
+  background:
+    radial-gradient(circle at 12% 10%, rgba(255, 186, 102, 0.12), transparent 45%),
+    radial-gradient(circle at 86% 90%, rgba(60, 255, 218, 0.1), transparent 50%),
+    var(--surface-grad);
+  box-shadow:
+    0 0 0 1px rgba(255, 188, 108, 0.16),
+    0 14px 26px rgba(9, 11, 11, 0.26);
+}
+
+.sessions .landing-card h5 {
+  margin: 0 0 4px;
+  font-size: 1.02rem;
+  letter-spacing: 0.1em;
 }
 
 .landing-card {
@@ -1310,53 +1349,62 @@ select:focus-visible {
 }
 
 .recent-group {
-  border: 1px solid var(--surface-border);
+  border: 1px solid rgba(255, 188, 108, 0.2);
   border-radius: 14px;
   padding: 8px;
-  background: var(--surface-grad);
+  background: linear-gradient(155deg, rgba(11, 20, 18, 0.82), rgba(8, 17, 15, 0.72));
+  overflow: hidden;
 }
 
 .recent-group[open] {
-  box-shadow: 0 0 0 1px rgba(210, 166, 78, 0.2);
+  box-shadow:
+    0 0 0 1px rgba(210, 166, 78, 0.26),
+    0 8px 18px rgba(7, 9, 9, 0.3);
 }
 
 .recent-summary {
   display: flex;
   align-items: center;
-  justify-content: flex-start;
-  gap: 0;
+  justify-content: space-between;
+  gap: 12px;
   cursor: pointer;
-  padding: 11px 12px;
-  font-size: 1rem;
+  padding: 11px 13px;
+  font-size: 0.98rem;
+  font-weight: 700;
   font-family: inherit;
   color: var(--ink);
   list-style: none;
   position: relative;
-  border: none;
-  border-radius: 0;
-  background: transparent;
-  background-image:
-    linear-gradient(45deg, transparent 50%, var(--muted) 50%),
-    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
-  background-position:
-    calc(100% - 18px) calc(50% - 2px),
-    calc(100% - 12px) calc(50% - 2px);
-  background-size: 6px 6px;
-  background-repeat: no-repeat;
-  padding-right: 34px;
+  border: 1px solid rgba(255, 224, 160, 0.82);
+  border-radius: 12px;
+  background: linear-gradient(165deg, rgba(22, 48, 40, 0.76), rgba(14, 34, 28, 0.62));
+  padding-right: 38px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 234, 174, 0.1),
+    0 0 0 1px rgba(255, 198, 114, 0.55),
+    0 0 10px rgba(255, 188, 96, 0.42),
+    0 0 18px rgba(255, 170, 82, 0.26);
 }
 
 .recent-summary::-webkit-details-marker {
   display: none;
 }
 
-.recent-summary::after,
-.recent-summary::before {
-  content: none;
+.recent-summary::after {
+  content: "";
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid rgba(255, 232, 176, 0.9);
+  border-bottom: 2px solid rgba(255, 232, 176, 0.9);
+  transform: translateY(-70%) rotate(45deg);
+  transition: transform 0.18s ease;
 }
 
 .recent-group[open] > .recent-summary::after {
-  transform: none;
+  transform: translateY(-35%) rotate(-135deg);
 }
 
 .recent-summary strong {
@@ -1376,18 +1424,20 @@ select:focus-visible {
 .recent-group-actions {
   display: flex;
   justify-content: center;
-  padding: 8px 6px;
-  border-top: 1px solid rgba(210, 166, 78, 0.22);
-  border-bottom: 1px solid rgba(210, 166, 78, 0.22);
+  padding: 10px 8px;
+  border-top: 1px solid rgba(210, 166, 78, 0.2);
+  border-bottom: 1px solid rgba(210, 166, 78, 0.2);
+  background: linear-gradient(180deg, rgba(23, 52, 43, 0.64), rgba(15, 36, 30, 0.5));
 }
 
 .recent-group-actions .stats-btn {
-  min-width: 96px;
+  min-width: 124px;
   justify-content: center;
+  font-weight: 700;
 }
 
 .recent-group-list.scrollable {
-  max-height: calc(3 * 56px + 2 * 8px);
+  max-height: calc(3 * 60px + 2 * 8px);
   overflow-y: auto;
   padding-right: 4px;
   scrollbar-gutter: stable;
@@ -1398,8 +1448,8 @@ select:focus-visible {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  background: var(--row-bg);
-  border: 1px solid var(--row-border);
+  background: linear-gradient(155deg, rgba(23, 50, 42, 0.72), rgba(14, 34, 28, 0.58));
+  border: 1px solid rgba(255, 188, 108, 0.16);
   border-radius: 12px;
   padding: 10px 12px;
   font-size: 0.85rem;
@@ -1416,6 +1466,59 @@ select:focus-visible {
   color: var(--muted);
   font-size: 0.78rem;
   margin-top: 2px;
+}
+
+.recent-item:hover {
+  border-color: rgba(255, 188, 108, 0.28);
+  background: linear-gradient(155deg, rgba(27, 58, 48, 0.84), rgba(16, 40, 33, 0.68));
+}
+
+body.theme-light .sessions-bar {
+  background:
+    radial-gradient(circle at 10% 0%, rgba(212, 164, 68, 0.14), transparent 50%),
+    radial-gradient(circle at 88% 100%, rgba(31, 111, 92, 0.12), transparent 52%),
+    var(--surface-grad);
+  box-shadow:
+    0 0 0 1px rgba(31, 111, 92, 0.12),
+    0 14px 26px rgba(24, 26, 24, 0.1);
+}
+
+body.theme-light .sessions .landing-card {
+  background:
+    radial-gradient(circle at 12% 10%, rgba(212, 164, 68, 0.12), transparent 44%),
+    radial-gradient(circle at 86% 90%, rgba(31, 111, 92, 0.08), transparent 52%),
+    var(--surface-grad);
+  box-shadow:
+    0 0 0 1px rgba(31, 111, 92, 0.12),
+    0 12px 24px rgba(24, 26, 24, 0.09);
+}
+
+body.theme-light .recent-group {
+  background: linear-gradient(155deg, rgba(248, 245, 236, 0.86), rgba(241, 236, 223, 0.74));
+  border-color: rgba(31, 111, 92, 0.18);
+}
+
+body.theme-light .recent-summary {
+  background: linear-gradient(165deg, rgba(232, 246, 238, 0.9), rgba(223, 242, 233, 0.78));
+  border-color: rgba(212, 164, 68, 0.42);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 0 0 1px rgba(212, 164, 68, 0.15);
+}
+
+body.theme-light .recent-summary::after {
+  border-right-color: rgba(31, 111, 92, 0.7);
+  border-bottom-color: rgba(31, 111, 92, 0.7);
+}
+
+body.theme-light .recent-item {
+  background: linear-gradient(155deg, rgba(255, 255, 255, 0.88), rgba(245, 240, 228, 0.76));
+  border-color: rgba(31, 111, 92, 0.18);
+}
+
+body.theme-light .recent-item:hover {
+  border-color: rgba(31, 111, 92, 0.32);
+  background: linear-gradient(155deg, rgba(255, 255, 255, 0.95), rgba(248, 243, 231, 0.86));
 }
 
 .match-list {
@@ -3292,6 +3395,12 @@ body.theme-light .player-metrics > div {
   background: rgba(255, 255, 255, 0.62);
 }
 
+@media (max-width: 980px) {
+  .sessions-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 720px) {
   .player-panel {
     padding: 18px 16px 18px;
@@ -3892,12 +4001,36 @@ body:not(.theme-light) .footer-toggle input {
   .sessions-bar {
     flex-direction: row;
     align-items: center;
+    flex-wrap: nowrap;
+    gap: 10px;
   }
 
   .sessions-actions {
     width: auto;
+    margin-left: auto;
     justify-content: flex-end;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+    gap: 8px;
+  }
+
+  .sessions .landing-card {
+    padding: 16px;
+  }
+
+  .recent-summary {
+    font-size: 0.92rem;
+    padding: 10px 12px;
+    padding-right: 34px;
+  }
+
+  .sessions-bar h2 {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: 1rem;
+    letter-spacing: 0.08em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .host-layout {
