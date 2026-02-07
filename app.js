@@ -251,14 +251,20 @@ const hostKey = (code) => `poker_host_${code}`;
 const recentGamesKey = "poker_recent_games";
 const themeKey = "poker_theme";
 const lightsOffKey = "poker_lights_off";
-const suitCycle = ["♠", "♣", "♦", "♥", "😂", "😉", "🥂"];
-const initialSuitChar = "♣";
+const suitCycleRandom = ["♠", "♣", "♦", "♥", "😂", "😉"];
+const suitCycleIdleChar = "🥂";
 const emojiCycleSet = new Set(["😂", "😉", "🥂"]);
 const suitCycleDelayMs = 3600;
+const suitCycleStepMs = 2200;
+const suitCycleOffMs = 140;
+const suitCycleRoundsPerBurst = 2;
+const suitCyclePauseMs = 5 * 60 * 1000;
 const HOST_PLAYERS_PAGE_SIZE = 3;
 let suitCycleTimer = null;
 let suitCycleStartTimer = null;
+let suitCycleRestartTimer = null;
 let suitCyclePool = [];
+let suitCycleRoundsDone = 0;
 let lastAutoLightsOff = null;
 const deletePinKey = "poker_delete_pin_ok";
 const deletePin = "2/7";
@@ -363,6 +369,7 @@ function applyLightsOff(isOff) {
   if (elements.ornamentToggle) {
     elements.ornamentToggle.setAttribute("aria-pressed", isOff ? "true" : "false");
   }
+  clearSuitCycleTimers();
   if (!isOff) {
     resetOrnamentFlicker();
     restartHeaderAnimations();
@@ -381,6 +388,15 @@ function setBrandSuit(char) {
   elements.brandIcon.classList.toggle("is-emoji", emojiCycleSet.has(char));
 }
 
+function clearSuitCycleTimers() {
+  if (suitCycleTimer) clearTimeout(suitCycleTimer);
+  if (suitCycleStartTimer) clearTimeout(suitCycleStartTimer);
+  if (suitCycleRestartTimer) clearTimeout(suitCycleRestartTimer);
+  suitCycleTimer = null;
+  suitCycleStartTimer = null;
+  suitCycleRestartTimer = null;
+}
+
 function shuffleArray(values) {
   const copy = [...values];
   for (let i = copy.length - 1; i > 0; i -= 1) {
@@ -391,7 +407,7 @@ function shuffleArray(values) {
 }
 
 function refillSuitPool(lastChar) {
-  suitCyclePool = shuffleArray(suitCycle);
+  suitCyclePool = shuffleArray(suitCycleRandom);
   if (!lastChar || suitCyclePool.length < 2 || suitCyclePool[0] !== lastChar) return;
   const swapIndex = suitCyclePool.findIndex((char) => char !== lastChar);
   if (swapIndex > 0) {
@@ -399,40 +415,60 @@ function refillSuitPool(lastChar) {
   }
 }
 
-function getNextSuitChar() {
-  const current = elements.brandIcon?.textContent || "";
-  if (!suitCyclePool.length) {
-    refillSuitPool(current);
+function pauseSuitCycleAtIdle() {
+  if (!elements.brandIcon) return;
+  setBrandSuit(suitCycleIdleChar);
+  elements.brandIcon.classList.remove("suit-off");
+  suitCycleRestartTimer = setTimeout(() => {
+    if (document.body.classList.contains("lights-off")) return;
+    startSuitCycleBurst();
+  }, suitCyclePauseMs);
+}
+
+function startSuitCycleBurst() {
+  suitCyclePool = [];
+  suitCycleRoundsDone = 0;
+  runSuitCycleStep();
+}
+
+function runSuitCycleStep() {
+  if (!elements.brandIcon) return;
+  if (document.body.classList.contains("lights-off")) return;
+  if (document.hidden) {
+    suitCycleTimer = setTimeout(runSuitCycleStep, 1000);
+    return;
   }
-  return suitCyclePool.shift() || initialSuitChar;
+
+  if (!suitCyclePool.length) {
+    if (suitCycleRoundsDone >= suitCycleRoundsPerBurst) {
+      pauseSuitCycleAtIdle();
+      return;
+    }
+    refillSuitPool(elements.brandIcon.textContent || "");
+    suitCycleRoundsDone += 1;
+  }
+
+  elements.brandIcon.classList.add("suit-off");
+  suitCycleTimer = setTimeout(() => {
+    if (document.body.classList.contains("lights-off")) return;
+    setBrandSuit(suitCyclePool.shift() || suitCycleIdleChar);
+    elements.brandIcon.classList.remove("suit-off");
+    suitCycleTimer = setTimeout(runSuitCycleStep, suitCycleStepMs);
+  }, suitCycleOffMs);
 }
 
 function startSuitCycle() {
   if (!elements.brandIcon) return;
   const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  clearSuitCycleTimers();
+  setBrandSuit(suitCycleIdleChar);
+  elements.brandIcon.classList.remove("suit-off");
   if (reduceMotion) {
-    setBrandSuit(initialSuitChar);
     return;
   }
-  if (suitCycleTimer) clearInterval(suitCycleTimer);
-  if (suitCycleStartTimer) clearTimeout(suitCycleStartTimer);
-  suitCyclePool = [];
-  setBrandSuit(initialSuitChar);
   suitCycleStartTimer = setTimeout(() => {
-    suitCycleTimer = setInterval(() => {
-      if (document.hidden) return;
-      if (document.body.classList.contains("lights-off")) return;
-      if (elements.brandIcon) {
-        elements.brandIcon.classList.add("suit-off");
-      }
-      setTimeout(() => {
-        if (document.body.classList.contains("lights-off")) return;
-        setBrandSuit(getNextSuitChar());
-        if (elements.brandIcon) {
-          elements.brandIcon.classList.remove("suit-off");
-        }
-      }, 140);
-    }, 2200);
+    if (document.body.classList.contains("lights-off")) return;
+    startSuitCycleBurst();
   }, suitCycleDelayMs);
 }
 
