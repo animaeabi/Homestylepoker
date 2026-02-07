@@ -327,6 +327,25 @@ let nameSuggestionTimer = null;
 
 const safeTrim = (value) => (value || "").trim();
 
+function parseChipAmount(value) {
+  const text = safeTrim(String(value ?? ""));
+  if (!text) return NaN;
+  let normalized = text.replace(/\s+/g, "");
+  const hasComma = normalized.includes(",");
+  const hasDot = normalized.includes(".");
+  if (hasComma && hasDot) {
+    if (normalized.lastIndexOf(",") > normalized.lastIndexOf(".")) {
+      normalized = normalized.replace(/\./g, "").replace(",", ".");
+    } else {
+      normalized = normalized.replace(/,/g, "");
+    }
+  } else if (hasComma) {
+    normalized = normalized.replace(",", ".");
+  }
+  const amount = Number(normalized);
+  return Number.isFinite(amount) ? amount : NaN;
+}
+
 function normalizeName(name) {
   return safeTrim(name).replace(/\s+/g, " ").toLowerCase();
 }
@@ -3838,7 +3857,7 @@ async function submitPlayerChips() {
     setStatus("Settlement has not started yet.", "error");
     return;
   }
-  const amount = Number(elements.playerSettleAmount?.value);
+  const amount = parseChipAmount(elements.playerSettleAmount?.value);
   if (!Number.isFinite(amount) || amount < 0) {
     setStatus("Enter a valid chip total.", "error");
     return;
@@ -3935,7 +3954,7 @@ function renderSettleList() {
       </div>
       <div class="settle-input">
         <span>Chips remaining</span>
-        <input type="number" min="0" step="1" placeholder="0" />
+        <input type="number" min="0" step="0.01" inputmode="decimal" placeholder="0" />
       </div>
     `;
     const input = row.querySelector("input");
@@ -3953,7 +3972,7 @@ function updateSettleRemaining() {
   let submitted = 0;
   if (elements.settleList) {
     elements.settleList.querySelectorAll("input").forEach((input) => {
-      const value = Number(input.value);
+      const value = parseChipAmount(input.value);
       if (Number.isFinite(value)) submitted += value;
     });
   }
@@ -4390,7 +4409,7 @@ async function submitSettlement(event) {
   for (const row of rows) {
     const input = row.querySelector("input");
     const playerId = row.dataset.playerId;
-    const amount = Number(input.value);
+    const amount = parseChipAmount(input.value);
     if (!Number.isFinite(amount) || amount < 0) {
       setSettleError("Enter valid chip totals for every player.");
       setStatus("Enter valid chip totals for every player.", "error");
