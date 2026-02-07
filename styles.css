@@ -853,10 +853,10 @@ body.theme-light .settings-button:hover {
   border: 1px solid transparent;
   background-clip: padding-box;
   box-shadow:
-    0 0 0 1px rgba(208, 140, 90, 0.55),
-    0 10px 20px rgba(0, 0, 0, 0.35),
-    inset 0 1px 0 rgba(245, 186, 135, 0.14),
-    inset 0 -12px 18px rgba(100, 50, 30, 0.35);
+    0 0 0 1px rgba(208, 140, 90, 0.5),
+    0 10px 20px rgba(0, 0, 0, 0.31),
+    inset 0 1px 0 rgba(245, 186, 135, 0.12),
+    inset 0 -12px 18px rgba(100, 50, 30, 0.31);
   transform: translateZ(0);
 }
 
@@ -867,12 +867,12 @@ body.theme-light .settings-button:hover {
     rgba(244, 200, 160, 0.04) 18%,
     rgba(255, 255, 255, 0) 45%
   );
-  opacity: 0.06;
+  opacity: 0.055;
 }
 
 .lets-deal-toggle::after {
   background: radial-gradient(circle at 85% 25%, rgba(244, 200, 160, 0.14), rgba(244, 200, 160, 0) 40%);
-  opacity: 0.06;
+  opacity: 0.055;
 }
 .lets-deal-toggle::before,
 .deal-button::before {
@@ -988,7 +988,7 @@ body.theme-light .settings-button:hover {
 
 .deal-secondary {
   background: linear-gradient(140deg, #153127 0%, #10261f 55%, #0c1d17 100%);
-  color: #f2d39a;
+  color: #ffe8b9;
   border-color: rgba(210, 166, 78, 0.18);
   box-shadow: 0 8px 14px rgba(0, 0, 0, 0.28);
   filter: saturate(0.6);
