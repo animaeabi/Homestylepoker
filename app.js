@@ -1887,7 +1887,7 @@ function buildSummaryShareCanvas() {
         moneyIn,
         moneyOut,
         misc,
-        net: moneyOut - moneyIn - misc
+        net: moneyOut - moneyIn
       };
     });
 
@@ -1979,7 +1979,7 @@ function buildSummaryShareCanvas() {
   drawRight(formatCurrency(totalIn), colIn, y + 12);
   drawRight(formatCurrency(totalOut), colOut, y + 12);
   drawRight(formatCurrency(totalMisc), colMisc, y + 12);
-  const netTotal = totalOut - totalIn - totalMisc;
+  const netTotal = totalOut - totalIn;
   ctx.fillStyle = netTotal >= 0 ? pos : neg;
   drawRight(
     `${netTotal < 0 ? "-" : ""}${formatCurrency(Math.abs(netTotal))}`,
@@ -2749,7 +2749,7 @@ function renderSettlementSummary() {
         moneyIn,
         moneyOut,
         misc,
-        net: moneyOut - moneyIn - misc
+        net: moneyOut - moneyIn
       };
     });
 
@@ -2838,7 +2838,7 @@ function renderSettlementSummary() {
 
     const totalRow = document.createElement("div");
     totalRow.className = "settlement-total";
-    const totalNet = totalOut - totalIn - totalMisc;
+    const totalNet = totalOut - totalIn;
     const totalClass = totalNet >= 0 ? "money-pos" : "money-neg";
     totalRow.innerHTML = `
       <span>Total</span>
@@ -3116,7 +3116,7 @@ async function loadQuarterSummary() {
   ledger.forEach((entry, key) => {
     const gamesPlayed = gamesByKey.get(key);
     entry.games = gamesPlayed ? gamesPlayed.size : 0;
-    entry.net = entry.cashout - entry.buyins - entry.misc;
+    entry.net = entry.cashout - entry.buyins;
   });
 
   const rows = Array.from(ledger.values()).sort((a, b) => b.net - a.net);
