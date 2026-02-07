@@ -265,6 +265,7 @@ let suitCycleStartTimer = null;
 let suitCycleRestartTimer = null;
 let suitCyclePool = [];
 let suitCycleRoundsDone = 0;
+let suitCycleEnabled = false;
 let lastAutoLightsOff = null;
 const deletePinKey = "poker_delete_pin_ok";
 const deletePin = "2/7";
@@ -370,10 +371,16 @@ function applyLightsOff(isOff) {
     elements.ornamentToggle.setAttribute("aria-pressed", isOff ? "true" : "false");
   }
   clearSuitCycleTimers();
+  setBrandSuit(suitCycleIdleChar);
+  if (elements.brandIcon) {
+    elements.brandIcon.classList.remove("suit-off");
+  }
   if (!isOff) {
     resetOrnamentFlicker();
     restartHeaderAnimations();
-    startSuitCycle();
+    if (suitCycleEnabled) {
+      startSuitCycle();
+    }
   }
 }
 
@@ -457,13 +464,17 @@ function runSuitCycleStep() {
   }, suitCycleOffMs);
 }
 
-function startSuitCycle() {
+function startSuitCycle({ immediate = false } = {}) {
   if (!elements.brandIcon) return;
   const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
   clearSuitCycleTimers();
   setBrandSuit(suitCycleIdleChar);
   elements.brandIcon.classList.remove("suit-off");
   if (reduceMotion) {
+    return;
+  }
+  if (immediate) {
+    startSuitCycleBurst();
     return;
   }
   suitCycleStartTimer = setTimeout(() => {
@@ -4451,7 +4462,6 @@ initHeaderLights();
 void initGameName();
 initTitleFlicker();
 initOrnamentFlicker();
-startSuitCycle();
 
 // Event listeners
 if (elements.themeToggle) {
@@ -4588,6 +4598,12 @@ if (elements.hostTransferList) {
 
 if (elements.letsDealToggle) {
   elements.letsDealToggle.addEventListener("click", () => {
+    if (!suitCycleEnabled) {
+      suitCycleEnabled = true;
+      if (!document.body.classList.contains("lights-off")) {
+        startSuitCycle({ immediate: true });
+      }
+    }
     const isOpen = !elements.letsDealBody?.classList.contains("hidden");
     setLetsDealOpen(!isOpen);
   });
