@@ -1469,6 +1469,13 @@ function formatCurrency(amount) {
   return `${currency}${numeric.toFixed(2)}`;
 }
 
+function formatSignedCurrency(amount) {
+  const numeric = Number(amount) || 0;
+  if (Math.abs(numeric) < 0.005) return formatCurrency(0);
+  const sign = numeric > 0 ? "+" : "-";
+  return `${sign}${formatCurrency(Math.abs(numeric))}`;
+}
+
 function formatSkillScore(score) {
   const numeric = Number(score) || 0;
   const sign = numeric > 0 ? "+" : "";
@@ -1858,6 +1865,7 @@ function buildSummaryShareCanvas() {
   const line = isLight ? "rgba(0,0,0,0.12)" : "rgba(255,255,255,0.15)";
   const pos = isLight ? "#1f6f5c" : "#76e3c7";
   const neg = isLight ? "#a23a2a" : "#b24a3b";
+  const miscTone = isLight ? "#7a6b97" : "#a193bc";
 
   const buyinTotals = new Map();
   state.buyins.forEach((buyin) => {
@@ -1921,16 +1929,16 @@ function buildSummaryShareCanvas() {
   ctx.fillStyle = muted;
   ctx.font = "700 18px 'Manrope', Arial, sans-serif";
   const headerY = headerHeight - 20;
-  const colNet = width - padding;
-  const colMisc = colNet - 140;
-  const colOut = colMisc - 140;
+  const colMisc = width - padding;
+  const colNet = colMisc - 140;
+  const colOut = colNet - 140;
   const colIn = colOut - 140;
 
   ctx.fillText("Player", padding, headerY);
   ctx.fillText("In", colIn - 20, headerY);
   ctx.fillText("Out", colOut - 20, headerY);
-  ctx.fillText("Misc", colMisc - 30, headerY);
-  ctx.fillText("Net", colNet - 20, headerY);
+  ctx.fillText("Error share", colNet - 92, headerY);
+  ctx.fillText("Final", colMisc - 30, headerY);
 
   ctx.strokeStyle = line;
   ctx.beginPath();
@@ -1946,23 +1954,26 @@ function buildSummaryShareCanvas() {
   let y = headerHeight + 24;
   let totalIn = 0;
   let totalOut = 0;
-  let totalMisc = 0;
-
+  let totalErrorShare = 0;
   rows.forEach((row) => {
     totalIn += row.moneyIn;
     totalOut += row.moneyOut;
-    totalMisc += row.misc;
     ctx.fillStyle = ink;
     ctx.font = "600 24px 'Manrope', Arial, sans-serif";
     ctx.fillText(row.name, padding, y);
     ctx.font = "500 22px 'Manrope', Arial, sans-serif";
     ctx.fillStyle = muted;
     drawRight(formatCurrency(row.moneyIn), colIn, y);
+    ctx.fillStyle = muted;
     drawRight(formatCurrency(row.moneyOut), colOut, y);
-    drawRight(formatCurrency(row.misc || 0), colMisc, y);
-    ctx.fillStyle = row.net >= 0 ? pos : neg;
-    const netText = `${row.net < 0 ? "-" : ""}${formatCurrency(Math.abs(row.net))}`;
-    drawRight(netText, colNet, y);
+    const errorShare = moneyRound(Number(row.misc || 0));
+    const finalNet = moneyRound(Number(row.moneyOut || 0) + errorShare);
+    const netProfit = moneyRound(Number(row.net || 0));
+    totalErrorShare += errorShare;
+    ctx.fillStyle = Math.abs(errorShare) > 0.004 ? miscTone : muted;
+    drawRight(formatSignedCurrency(errorShare), colNet, y);
+    ctx.fillStyle = netProfit >= 0 ? pos : neg;
+    drawRight(formatCurrency(finalNet), colMisc, y);
     y += rowHeight;
   });
 
@@ -1978,12 +1989,13 @@ function buildSummaryShareCanvas() {
   ctx.fillStyle = muted;
   drawRight(formatCurrency(totalIn), colIn, y + 12);
   drawRight(formatCurrency(totalOut), colOut, y + 12);
-  drawRight(formatCurrency(totalMisc), colMisc, y + 12);
-  const netTotal = totalOut - totalIn;
+  const netTotal = moneyRound(totalOut + totalErrorShare);
+  ctx.fillStyle = Math.abs(totalErrorShare) > 0.004 ? miscTone : muted;
+  drawRight(formatSignedCurrency(moneyRound(totalErrorShare)), colNet, y + 12);
   ctx.fillStyle = netTotal >= 0 ? pos : neg;
   drawRight(
-    `${netTotal < 0 ? "-" : ""}${formatCurrency(Math.abs(netTotal))}`,
-    colNet,
+    formatCurrency(netTotal),
+    colMisc,
     y + 12
   );
 
@@ -2806,6 +2818,7 @@ function renderSettlementSummary() {
     list.className = "settlement-list";
     let totalIn = 0;
     let totalOut = 0;
+    let totalErrorShare = 0;
 
     const headerRow = document.createElement("div");
     headerRow.className = "settlement-row header";
@@ -2813,8 +2826,8 @@ function renderSettlementSummary() {
       <span>Player</span>
       <span>In</span>
       <span>Out</span>
-      <span>Misc</span>
-      <span>Net</span>
+      <span>Error share</span>
+      <span>Final</span>
     `;
     list.appendChild(headerRow);
 
@@ -2823,28 +2836,32 @@ function renderSettlementSummary() {
       row.className = "settlement-row";
       totalIn += entry.moneyIn;
       totalOut += entry.moneyOut;
-      const netClass = entry.net >= 0 ? "money-pos" : "money-neg";
+      const errorShare = moneyRound(Number(entry.misc || 0));
+      const finalNet = moneyRound(Number(entry.moneyOut || 0) + errorShare);
+      const netProfit = moneyRound(Number(entry.net || 0));
+      totalErrorShare += errorShare;
+      const netClass = netProfit >= 0 ? "money-pos" : "money-neg";
+      const errorClass = Math.abs(errorShare) > 0.004 ? "money-misc" : "";
       row.innerHTML = `
         <span>${entry.name || "Unknown"}</span>
         <strong>${formatCurrency(entry.moneyIn)}</strong>
         <strong>${formatCurrency(entry.moneyOut)}</strong>
-        <strong>${formatCurrency(entry.misc || 0)}</strong>
-        <strong class="${netClass}">${formatCurrency(entry.net)}</strong>
+        <strong class="${errorClass}">${formatSignedCurrency(errorShare)}</strong>
+        <strong class="${netClass}">${formatCurrency(finalNet)}</strong>
       `;
       list.appendChild(row);
     });
 
-    const totalMisc = rows.reduce((sum, entry) => sum + Number(entry.misc || 0), 0);
-
     const totalRow = document.createElement("div");
     totalRow.className = "settlement-total";
-    const totalNet = totalOut - totalIn;
+    const totalNet = moneyRound(totalOut + totalErrorShare);
     const totalClass = totalNet >= 0 ? "money-pos" : "money-neg";
+    const totalErrorClass = Math.abs(totalErrorShare) > 0.004 ? "money-misc" : "";
     totalRow.innerHTML = `
       <span>Total</span>
       <strong>${formatCurrency(totalIn)}</strong>
       <strong>${formatCurrency(totalOut)}</strong>
-      <strong>${formatCurrency(totalMisc)}</strong>
+      <strong class="${totalErrorClass}">${formatSignedCurrency(moneyRound(totalErrorShare))}</strong>
       <strong class="${totalClass}">${formatCurrency(totalNet)}</strong>
     `;
 
@@ -2877,12 +2894,15 @@ function renderQuarterSummary({ groupName, label, rows, transfers }) {
       <div>Games</div>
       <div>Buy-ins</div>
       <div>Cash-out</div>
-      <div>Misc</div>
+      <div>Error share</div>
       <div>Net</div>
     </div>
   `;
 
   rows.forEach((row) => {
+    const errorShare = Number(row.misc || 0);
+    const errorShareClass = Math.abs(errorShare) > 0.004 ? "money-misc" : "";
+    const netClass = Number(row.net || 0) >= 0 ? "money-pos" : "money-neg";
     const node = document.createElement("div");
     node.className = "summary-row";
     node.innerHTML = `
@@ -2890,8 +2910,8 @@ function renderQuarterSummary({ groupName, label, rows, transfers }) {
       <div>${row.games}</div>
       <div>${formatCurrency(row.buyins)}</div>
       <div>${formatCurrency(row.cashout)}</div>
-      <div>${formatCurrency(row.misc || 0)}</div>
-      <div>${formatCurrency(row.net)}</div>
+      <div class="${errorShareClass}">${formatSignedCurrency(errorShare)}</div>
+      <div class="${netClass}">${formatCurrency(row.net)}</div>
     `;
     table.appendChild(node);
   });
@@ -2923,22 +2943,27 @@ function renderQuarterSummary({ groupName, label, rows, transfers }) {
 }
 
 function computeTransfers(rows) {
-  const transferRows = rows.map((row) => ({ ...row }));
-  const imbalance = moneyRound(transferRows.reduce((sum, row) => sum + Number(row.net || 0), 0));
+  const transferRows = rows.map((row) => ({
+    ...row,
+    transferNet: Number((row.transferNet ?? row.net) || 0)
+  }));
+  const imbalance = moneyRound(
+    transferRows.reduce((sum, row) => sum + Number(row.transferNet || 0), 0)
+  );
   if (Math.abs(imbalance) > 0.01) {
     transferRows.push({
       name: "Discrepancy pool",
-      net: moneyRound(-imbalance)
+      transferNet: moneyRound(-imbalance)
     });
   }
   const winners = transferRows
-    .filter((row) => row.net > 0.01)
+    .filter((row) => row.transferNet > 0.01)
     .map((row) => ({ ...row }))
-    .sort((a, b) => b.net - a.net);
+    .sort((a, b) => b.transferNet - a.transferNet);
   const losers = transferRows
-    .filter((row) => row.net < -0.01)
+    .filter((row) => row.transferNet < -0.01)
     .map((row) => ({ ...row }))
-    .sort((a, b) => a.net - b.net);
+    .sort((a, b) => a.transferNet - b.transferNet);
 
   const transfers = [];
   let i = 0;
@@ -2946,13 +2971,13 @@ function computeTransfers(rows) {
   while (i < winners.length && j < losers.length) {
     const winner = winners[i];
     const loser = losers[j];
-    const amount = Math.min(winner.net, Math.abs(loser.net));
+    const amount = moneyRound(Math.min(winner.transferNet, Math.abs(loser.transferNet)));
     if (amount <= 0.01) break;
     transfers.push({ from: loser.name, to: winner.name, amount });
-    winner.net -= amount;
-    loser.net += amount;
-    if (winner.net <= 0.01) i += 1;
-    if (loser.net >= -0.01) j += 1;
+    winner.transferNet = moneyRound(winner.transferNet - amount);
+    loser.transferNet = moneyRound(loser.transferNet + amount);
+    if (winner.transferNet <= 0.01) i += 1;
+    if (loser.transferNet >= -0.01) j += 1;
   }
   return transfers;
 }
@@ -3116,7 +3141,9 @@ async function loadQuarterSummary() {
   ledger.forEach((entry, key) => {
     const gamesPlayed = gamesByKey.get(key);
     entry.games = gamesPlayed ? gamesPlayed.size : 0;
-    entry.net = entry.cashout - entry.buyins;
+    entry.adjustedOut = moneyRound(entry.cashout + entry.misc);
+    entry.net = moneyRound(entry.adjustedOut - entry.buyins);
+    entry.transferNet = entry.net;
   });
 
   const rows = Array.from(ledger.values()).sort((a, b) => b.net - a.net);

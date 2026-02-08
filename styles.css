@@ -3646,6 +3646,14 @@ body.theme-light .player-metrics > div {
   color: var(--accent-red);
 }
 
+.money-misc {
+  color: #a193bc;
+}
+
+body.theme-light .money-misc {
+  color: #7a6b97;
+}
+
 .table {
   display: grid;
   gap: 8px;
