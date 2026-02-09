@@ -5229,6 +5229,15 @@ if (elements.letsDealToggle) {
   });
 }
 
+function maybeCloseLetsDealOnOutsideInteraction(event) {
+  if (!elements.letsDealBody || elements.letsDealBody.classList.contains("hidden")) return;
+  if (elements.letsDealCard && elements.letsDealCard.contains(event.target)) return;
+  setLetsDealOpen(false);
+}
+
+document.addEventListener("pointerdown", maybeCloseLetsDealOnOutsideInteraction, true);
+document.addEventListener("click", maybeCloseLetsDealOnOutsideInteraction, true);
+
 if (elements.toggleGroups) {
   elements.toggleGroups.addEventListener("click", () => {
     const isOpen = !elements.groupsPanel?.classList.contains("hidden");
