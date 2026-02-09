@@ -231,6 +231,7 @@ const state = {
   dismissedJoinRequestId: null,
   playerJoinFeedbackText: "",
   playerJoinFeedbackTone: "info",
+  playerPulseRecentMs: {},
   pendingSettleAdjustments: new Map()
 };
 
@@ -2720,16 +2721,23 @@ function renderPlayerSeat() {
 
   if (elements.playerOthers) {
     const buyinCounts = new Map();
+    const latestBuyinMs = new Map();
+    const pulseRecentMs = state.playerPulseRecentMs || {};
     state.buyins.forEach((buyin) => {
       buyinCounts.set(buyin.player_id, (buyinCounts.get(buyin.player_id) || 0) + 1);
+      const stamp = new Date(buyin.created_at || 0).getTime();
+      if (Number.isFinite(stamp) && stamp > (latestBuyinMs.get(buyin.player_id) || 0)) {
+        latestBuyinMs.set(buyin.player_id, stamp);
+      }
     });
     const others = state.players
       .filter((item) => item.id !== player.id)
       .slice()
       .sort((a, b) => {
-        const countDiff = (buyinCounts.get(b.id) || 0) - (buyinCounts.get(a.id) || 0);
-        if (countDiff !== 0) return countDiff;
-        return displayPlayerName(a).localeCompare(displayPlayerName(b));
+        const recentDiff =
+          (pulseRecentMs[b.id] || latestBuyinMs.get(b.id) || 0) -
+          (pulseRecentMs[a.id] || latestBuyinMs.get(a.id) || 0);
+        return recentDiff;
       });
     if (!others.length) {
       if (elements.playerOthersLabel) {
@@ -3447,6 +3455,9 @@ async function refreshData() {
         throw joinRequestsRes.error;
       }
 
+      const previousBuyinIds = new Set(state.buyins.map((buyin) => buyin.id));
+      const previousPulseRecentMs = state.playerPulseRecentMs || {};
+
       state.game = gameRes.data;
       state.players = playersRes.data || [];
       state.buyins = buyinsRes.data || [];
@@ -3456,6 +3467,35 @@ async function refreshData() {
       state.settlementAdjustments = adjustmentsRes.error ? [] : adjustmentsRes.data || [];
       state.joinRequestsAvailable = !joinRequestsRes.error || joinRequestsRes.error.code !== "42P01";
       state.joinRequests = joinRequestsRes.error ? [] : joinRequestsRes.data || [];
+
+      const activePlayerIds = new Set(state.players.map((player) => player.id));
+      const pulseRecentMs = {};
+
+      state.buyins.forEach((buyin) => {
+        if (!buyin?.player_id || !activePlayerIds.has(buyin.player_id)) return;
+        const stamp = new Date(buyin.created_at || 0).getTime();
+        if (Number.isFinite(stamp) && stamp > (pulseRecentMs[buyin.player_id] || 0)) {
+          pulseRecentMs[buyin.player_id] = stamp;
+        }
+      });
+
+      Object.entries(previousPulseRecentMs).forEach(([playerId, ms]) => {
+        if (!activePlayerIds.has(playerId)) return;
+        const parsed = Number(ms);
+        if (!Number.isFinite(parsed)) return;
+        pulseRecentMs[playerId] = Math.max(pulseRecentMs[playerId] || 0, parsed);
+      });
+
+      const now = Date.now();
+      state.buyins.forEach((buyin) => {
+        if (!buyin?.id || !buyin?.player_id || !activePlayerIds.has(buyin.player_id)) return;
+        if (!previousBuyinIds.has(buyin.id)) {
+          pulseRecentMs[buyin.player_id] = now;
+        }
+      });
+
+      state.playerPulseRecentMs = pulseRecentMs;
+
       syncHostAccess();
       if (settlementsRes.error && settlementsRes.error.code === "42P01") {
         setStatus("Settlement table missing. Run the README SQL.", "error");
@@ -3598,7 +3638,6 @@ async function loadGameByCode(code, options = {}) {
     recordRecentGame(state.game);
   }
 
-  renderAll();
   await refreshData();
   await startRealtime();
   return data;
