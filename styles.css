@@ -3404,7 +3404,7 @@ body.theme-light .player-tile {
 
 .player-panel .panel-title h2 {
   letter-spacing: 0.12em;
-  font-size: 2.2rem;
+  font-size: 1.9rem;
   text-shadow: 0 0 14px rgba(255, 182, 102, 0.24);
 }
 
@@ -3582,6 +3582,10 @@ body.theme-light .player-tile {
   padding: 18px;
 }
 
+.player-panel .player-seat {
+  background: linear-gradient(165deg, rgba(6, 10, 9, 0.62), rgba(5, 9, 8, 0.44));
+}
+
 .player-panel .field input {
   border-radius: 14px;
   border: 1px solid rgba(210, 166, 78, 0.3);
@@ -3605,11 +3609,13 @@ body.theme-light .player-tile {
 
 .player-card {
   background:
-    radial-gradient(circle at 15% 18%, rgba(210, 166, 78, 0.18), transparent 56%),
-    linear-gradient(165deg, rgba(10, 16, 14, 0.88), rgba(8, 14, 12, 0.74));
+    radial-gradient(circle at 15% 18%, rgba(210, 166, 78, 0.12), transparent 56%),
+    linear-gradient(165deg, rgba(8, 13, 11, 0.95), rgba(6, 11, 10, 0.88));
   border: 1px solid rgba(210, 166, 78, 0.28);
   padding: 16px 18px;
   border-radius: 16px;
+  position: relative;
+  isolation: isolate;
   font-variant-numeric: tabular-nums;
   box-shadow:
     0 0 0 1px rgba(255, 198, 120, 0.28),
@@ -3618,6 +3624,25 @@ body.theme-light .player-tile {
     inset 0 1px 0 rgba(255, 239, 203, 0.1),
     0 10px 20px rgba(0, 0, 0, 0.24);
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  animation: playerCardOuterGlow 22s linear infinite;
+}
+
+.player-card::before {
+  content: "";
+  position: absolute;
+  inset: -8px;
+  border-radius: 22px;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 14% 22%, rgba(255, 196, 116, 0.36), transparent 56%),
+    radial-gradient(circle at 82% 28%, rgba(240, 130, 108, 0.32), transparent 58%),
+    radial-gradient(circle at 64% 88%, rgba(70, 238, 211, 0.36), transparent 62%);
+  background-size: 132% 132%, 136% 136%, 142% 142%;
+  background-position: 0% 0%, 100% 0%, 50% 100%;
+  filter: blur(13px) saturate(1.08);
+  opacity: 0.24;
+  animation: playerCardNeonShift 22s linear infinite;
 }
 
 
@@ -3679,6 +3704,87 @@ body.theme-light .player-tile {
   }
 }
 
+@keyframes playerCardNeonShift {
+  0% {
+    opacity: 0.22;
+    transform: translate3d(-1.2px, -1.2px, 0) scale(0.998);
+    background-position: 0% 0%, 100% 0%, 50% 100%;
+    filter: blur(13px) saturate(1.04) hue-rotate(0deg);
+  }
+  25% {
+    opacity: 0.28;
+    transform: translate3d(0, -0.4px, 0) scale(1.001);
+    background-position: 8% 5%, 92% 8%, 54% 94%;
+    filter: blur(13px) saturate(1.1) hue-rotate(12deg);
+  }
+  50% {
+    opacity: 0.34;
+    transform: translate3d(1.2px, 1px, 0) scale(1.004);
+    background-position: 12% 7%, 88% 12%, 56% 90%;
+    filter: blur(13px) saturate(1.12) hue-rotate(-10deg);
+  }
+  75% {
+    opacity: 0.28;
+    transform: translate3d(0.4px, 1px, 0) scale(1.001);
+    background-position: 7% 12%, 93% 10%, 52% 96%;
+    filter: blur(13px) saturate(1.08) hue-rotate(6deg);
+  }
+  100% {
+    opacity: 0.22;
+    transform: translate3d(-1.2px, -1.2px, 0) scale(0.998);
+    background-position: 0% 0%, 100% 0%, 50% 100%;
+    filter: blur(13px) saturate(1.04) hue-rotate(0deg);
+  }
+}
+
+@keyframes playerCardOuterGlow {
+  0% {
+    border-color: rgba(205, 173, 118, 0.34);
+    box-shadow:
+      0 0 0 1px rgba(245, 220, 170, 0.32),
+      0 0 24px rgba(255, 178, 114, 0.36),
+      0 0 28px rgba(90, 238, 211, 0.28),
+      inset 0 1px 0 rgba(255, 239, 203, 0.1),
+      0 10px 20px rgba(0, 0, 0, 0.24);
+  }
+  25% {
+    border-color: rgba(94, 226, 198, 0.56);
+    box-shadow:
+      0 0 0 1px rgba(132, 240, 216, 0.46),
+      0 0 20px rgba(246, 168, 122, 0.34),
+      0 0 50px rgba(74, 242, 212, 0.56),
+      inset 0 1px 0 rgba(255, 244, 221, 0.14),
+      0 10px 22px rgba(0, 0, 0, 0.26);
+  }
+  50% {
+    border-color: rgba(242, 142, 132, 0.62);
+    box-shadow:
+      0 0 0 1px rgba(252, 182, 168, 0.48),
+      0 0 50px rgba(248, 146, 124, 0.66),
+      0 0 24px rgba(82, 232, 203, 0.34),
+      inset 0 1px 0 rgba(255, 244, 221, 0.16),
+      0 10px 22px rgba(0, 0, 0, 0.26);
+  }
+  75% {
+    border-color: rgba(226, 174, 96, 0.56);
+    box-shadow:
+      0 0 0 1px rgba(255, 222, 158, 0.46),
+      0 0 44px rgba(255, 182, 110, 0.62),
+      0 0 30px rgba(78, 236, 207, 0.34),
+      inset 0 1px 0 rgba(255, 243, 217, 0.14),
+      0 10px 22px rgba(0, 0, 0, 0.25);
+  }
+  100% {
+    border-color: rgba(205, 173, 118, 0.34);
+    box-shadow:
+      0 0 0 1px rgba(245, 220, 170, 0.32),
+      0 0 24px rgba(255, 178, 114, 0.36),
+      0 0 28px rgba(90, 238, 211, 0.28),
+      inset 0 1px 0 rgba(255, 239, 203, 0.1),
+      0 10px 20px rgba(0, 0, 0, 0.24);
+  }
+}
+
 body.theme-light .player-panel {
   border-color: rgba(31, 111, 92, 0.24);
   background:
@@ -3702,6 +3808,10 @@ body.theme-light .player-panel .player-seat {
   border-color: rgba(31, 111, 92, 0.2);
 }
 
+body.theme-light .player-panel .player-seat {
+  background: linear-gradient(165deg, rgba(247, 241, 227, 0.7), rgba(234, 226, 209, 0.56));
+}
+
 body.theme-light .player-others {
   border-color: rgba(31, 111, 92, 0.18);
   background: linear-gradient(165deg, rgba(255, 255, 255, 0.62), rgba(244, 239, 229, 0.46));
@@ -3722,11 +3832,56 @@ body.theme-light .player-card {
     0 0 26px rgba(31, 111, 92, 0.2),
     inset 0 1px 0 rgba(255, 255, 255, 0.55),
     0 10px 18px rgba(27, 26, 23, 0.08);
+  animation: playerCardOuterGlowLight 22s linear infinite;
+}
+
+body.theme-light .player-card::before {
+  filter: blur(10px) saturate(1.02);
+  opacity: 0.24;
 }
 
 body.theme-light .player-metrics > div {
   border-color: rgba(31, 111, 92, 0.18);
   background: rgba(255, 255, 255, 0.62);
+}
+
+@keyframes playerCardOuterGlowLight {
+  0% {
+    border-color: rgba(31, 111, 92, 0.2);
+    box-shadow:
+      0 0 0 1px rgba(212, 164, 68, 0.2),
+      0 0 14px rgba(212, 164, 68, 0.18),
+      0 0 16px rgba(31, 111, 92, 0.14),
+      inset 0 1px 0 rgba(255, 255, 255, 0.55),
+      0 10px 18px rgba(27, 26, 23, 0.08);
+  }
+  50% {
+    border-color: rgba(49, 132, 110, 0.3);
+    box-shadow:
+      0 0 0 1px rgba(222, 173, 88, 0.24),
+      0 0 18px rgba(224, 156, 109, 0.24),
+      0 0 20px rgba(41, 132, 108, 0.2),
+      inset 0 1px 0 rgba(255, 255, 255, 0.58),
+      0 10px 18px rgba(27, 26, 23, 0.1);
+  }
+  100% {
+    border-color: rgba(31, 111, 92, 0.18);
+    box-shadow:
+      0 0 0 1px rgba(212, 164, 68, 0.24),
+      0 0 20px rgba(212, 164, 68, 0.24),
+      0 0 26px rgba(31, 111, 92, 0.2),
+      inset 0 1px 0 rgba(255, 255, 255, 0.55),
+      0 10px 18px rgba(27, 26, 23, 0.08);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .player-card {
+    animation: none;
+  }
+  .player-card::before {
+    animation: none;
+  }
 }
 
 @media (max-width: 980px) {
