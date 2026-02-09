@@ -186,6 +186,8 @@ const elements = {
   playerMatchList: $("#playerMatchList"),
   playerSeat: $("#playerSeat"),
   playerCard: $("#playerCard"),
+  playerOthersLabel: $("#playerOthersLabel"),
+  playerOthers: $("#playerOthers"),
   playerAddDefault: $("#playerAddDefault"),
   playerSettle: $("#playerSettle"),
   playerSettleAmount: $("#playerSettleAmount"),
@@ -2608,6 +2610,13 @@ function renderPlayerSeat() {
   if (isGameSettled()) {
     elements.playerJoin.classList.add("hidden");
     elements.playerSeat.classList.add("hidden");
+    if (elements.playerOthersLabel) {
+      elements.playerOthersLabel.classList.add("hidden");
+    }
+    if (elements.playerOthers) {
+      elements.playerOthers.classList.add("hidden");
+      elements.playerOthers.innerHTML = "";
+    }
     if (elements.playerSettledSummary) {
       elements.playerSettledSummary.classList.remove("hidden");
     }
@@ -2629,6 +2638,13 @@ function renderPlayerSeat() {
     elements.playerJoin.classList.remove("hidden");
     elements.playerSeat.classList.add("hidden");
     elements.playerBuyins.classList.add("hidden");
+    if (elements.playerOthersLabel) {
+      elements.playerOthersLabel.classList.add("hidden");
+    }
+    if (elements.playerOthers) {
+      elements.playerOthers.classList.add("hidden");
+      elements.playerOthers.innerHTML = "";
+    }
     if (elements.playerSettle) {
       elements.playerSettle.classList.add("hidden");
     }
@@ -2701,6 +2717,55 @@ function renderPlayerSeat() {
       </div>
     </div>
   `;
+
+  if (elements.playerOthers) {
+    const buyinCounts = new Map();
+    state.buyins.forEach((buyin) => {
+      buyinCounts.set(buyin.player_id, (buyinCounts.get(buyin.player_id) || 0) + 1);
+    });
+    const others = state.players
+      .filter((item) => item.id !== player.id)
+      .slice()
+      .sort((a, b) => {
+        const countDiff = (buyinCounts.get(b.id) || 0) - (buyinCounts.get(a.id) || 0);
+        if (countDiff !== 0) return countDiff;
+        return displayPlayerName(a).localeCompare(displayPlayerName(b));
+      });
+    if (!others.length) {
+      if (elements.playerOthersLabel) {
+        elements.playerOthersLabel.classList.add("hidden");
+      }
+      elements.playerOthers.classList.add("hidden");
+      elements.playerOthers.innerHTML = "";
+    } else {
+      const title = document.createElement("div");
+      title.className = "player-others-title";
+      const titleLeft = document.createElement("span");
+      titleLeft.textContent = "Players";
+      const titleRight = document.createElement("span");
+      titleRight.textContent = "Buy-ins";
+      title.append(titleLeft, titleRight);
+      const list = document.createElement("div");
+      list.className = "player-others-list";
+      others.forEach((entry) => {
+        const row = document.createElement("div");
+        row.className = "player-others-item";
+        const name = document.createElement("span");
+        name.className = "player-others-name";
+        name.textContent = displayPlayerName(entry);
+        const count = document.createElement("span");
+        count.className = "player-others-count";
+        count.textContent = String(buyinCounts.get(entry.id) || 0);
+        row.append(name, count);
+        list.appendChild(row);
+      });
+      elements.playerOthers.replaceChildren(title, list);
+      if (elements.playerOthersLabel) {
+        elements.playerOthersLabel.classList.remove("hidden");
+      }
+      elements.playerOthers.classList.remove("hidden");
+    }
+  }
 
   elements.playerAddDefault.textContent = `Add buy-in (${formatCurrency(
     state.game?.default_buyin || 0

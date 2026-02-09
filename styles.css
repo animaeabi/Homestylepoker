@@ -3298,6 +3298,83 @@ body.theme-light .player-tile {
   gap: 14px;
 }
 
+.player-others {
+  border: 1px solid rgba(210, 166, 78, 0.2);
+  border-radius: 12px;
+  padding: 8px 10px;
+  background: linear-gradient(165deg, rgba(7, 12, 10, 0.52), rgba(8, 14, 12, 0.42));
+  display: grid;
+  gap: 6px;
+  margin: 2px auto 0;
+  width: 75%;
+}
+
+.player-others-label {
+  width: 75%;
+  margin: 10px auto 0;
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: center;
+}
+
+.player-others-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: left;
+}
+
+.player-others-title span:last-child {
+  width: 56px;
+  text-align: center;
+}
+
+.player-others-list {
+  display: grid;
+  gap: 4px;
+  max-height: min(30vh, 140px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.player-others-list::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.player-others-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.78rem;
+  line-height: 1.2;
+}
+
+.player-others-name {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.player-others-count {
+  width: 56px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--ink);
+  text-align: center;
+}
+
 .player-panel .player-join,
 .player-panel .player-seat {
   background: linear-gradient(165deg, rgba(8, 14, 12, 0.38), rgba(10, 20, 18, 0.2));
@@ -3404,6 +3481,15 @@ body.theme-light .player-panel .player-join,
 body.theme-light .player-panel .player-seat {
   background: linear-gradient(165deg, rgba(255, 255, 255, 0.64), rgba(242, 237, 227, 0.44));
   border-color: rgba(31, 111, 92, 0.2);
+}
+
+body.theme-light .player-others {
+  border-color: rgba(31, 111, 92, 0.18);
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.62), rgba(244, 239, 229, 0.46));
+}
+
+body.theme-light .player-others-label {
+  color: rgba(31, 49, 44, 0.68);
 }
 
 body.theme-light .player-card {
