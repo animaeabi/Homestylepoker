@@ -2260,6 +2260,19 @@ function getDefaultBuyinValue() {
   return Number(state.game?.default_buyin) || 0;
 }
 
+function getHostNeutralBuyinCreatedAt(playerId) {
+  if (!playerId) return null;
+  const playerBuyins = state.buyins.filter((buyin) => buyin.player_id === playerId);
+  if (playerBuyins.length) {
+    const latest = playerBuyins
+      .slice()
+      .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))[0];
+    if (latest?.created_at) return latest.created_at;
+  }
+  const player = state.players.find((item) => item.id === playerId);
+  return player?.created_at || null;
+}
+
 function normalizeCount(value) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return null;
@@ -2302,11 +2315,16 @@ async function setPlayerBuyinCount(playerId, targetCount) {
   let error = null;
 
   if (diff > 0) {
-    const rows = Array.from({ length: diff }, () => ({
-      game_id: state.game.id,
-      player_id: playerId,
-      amount: defaultBuyin
-    }));
+    const neutralCreatedAt = getHostNeutralBuyinCreatedAt(playerId);
+    const rows = Array.from({ length: diff }, () => {
+      const row = {
+        game_id: state.game.id,
+        player_id: playerId,
+        amount: defaultBuyin
+      };
+      if (neutralCreatedAt) row.created_at = neutralCreatedAt;
+      return row;
+    });
     ({ error } = await supabase.from("buyins").insert(rows));
   } else {
     const idsToRemove = playerBuyins
@@ -3930,7 +3948,7 @@ async function updatePlayerName(playerId, name) {
   setStatus("Player updated");
 }
 
-async function addBuyin(playerId, amount) {
+async function addBuyin(playerId, amount, options = {}) {
   if (!supabase || !state.game) return;
   if (isGameSettled()) {
     setStatus("Game settled. Buy-ins are locked.", "error");
@@ -3943,9 +3961,14 @@ async function addBuyin(playerId, amount) {
   const numeric = Number(amount);
   if (!Number.isFinite(numeric) || numeric <= 0) return;
 
-  const { error } = await supabase
-    .from("buyins")
-    .insert({ game_id: state.game.id, player_id: playerId, amount: numeric });
+  const source = options.source || "host";
+  const payload = { game_id: state.game.id, player_id: playerId, amount: numeric };
+  if (source !== "self") {
+    const neutralCreatedAt = getHostNeutralBuyinCreatedAt(playerId);
+    if (neutralCreatedAt) payload.created_at = neutralCreatedAt;
+  }
+
+  const { error } = await supabase.from("buyins").insert(payload);
 
   if (error) {
     setStatus("Buy-in failed", "error");
@@ -4472,11 +4495,14 @@ async function approveJoinRequest(requestId) {
   if (seatId) {
     const hasBuyin = state.buyins.some((buyin) => buyin.player_id === seatId);
     if (!hasBuyin) {
-      const { error: buyinError } = await supabase.from("buyins").insert({
+      const payload = {
         game_id: state.game.id,
         player_id: seatId,
         amount: Number(state.game.default_buyin || 10)
-      });
+      };
+      const neutralCreatedAt = getHostNeutralBuyinCreatedAt(seatId);
+      if (neutralCreatedAt) payload.created_at = neutralCreatedAt;
+      const { error: buyinError } = await supabase.from("buyins").insert(payload);
       if (buyinError) {
         setStatus("Player approved, but default buy-in failed.", "error");
       }
@@ -5733,7 +5759,7 @@ elements.players.addEventListener("click", (event) => {
   }
 
   if (action === "add-default") {
-    addBuyin(playerId, state.game?.default_buyin || 0);
+    addBuyin(playerId, state.game?.default_buyin || 0, { source: "host" });
     return;
   }
 });
@@ -5844,7 +5870,7 @@ elements.playerName.addEventListener("input", () => {
 
 elements.playerAddDefault.addEventListener("click", () => {
   if (!state.playerId) return;
-  addBuyin(state.playerId, state.game?.default_buyin || 0);
+  addBuyin(state.playerId, state.game?.default_buyin || 0, { source: "self" });
 });
 
 if (elements.playerSubmitChips) {
