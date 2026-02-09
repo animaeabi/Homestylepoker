@@ -232,6 +232,7 @@ const state = {
   playerJoinFeedbackText: "",
   playerJoinFeedbackTone: "info",
   playerPulseRecentMs: {},
+  playerPulseExpanded: false,
   pendingSettleAdjustments: new Map()
 };
 
@@ -2659,6 +2660,7 @@ function renderPlayerSeat() {
       elements.playerOthers.classList.add("hidden");
       elements.playerOthers.innerHTML = "";
     }
+    state.playerPulseExpanded = false;
     if (elements.playerSettledSummary) {
       elements.playerSettledSummary.classList.remove("hidden");
     }
@@ -2687,6 +2689,7 @@ function renderPlayerSeat() {
       elements.playerOthers.classList.add("hidden");
       elements.playerOthers.innerHTML = "";
     }
+    state.playerPulseExpanded = false;
     if (elements.playerSettle) {
       elements.playerSettle.classList.add("hidden");
     }
@@ -2783,7 +2786,10 @@ function renderPlayerSeat() {
     if (!others.length) {
       if (elements.playerOthersLabel) {
         elements.playerOthersLabel.classList.add("hidden");
+        elements.playerOthersLabel.classList.remove("expanded");
+        elements.playerOthersLabel.setAttribute("aria-expanded", "false");
       }
+      state.playerPulseExpanded = false;
       elements.playerOthers.classList.add("hidden");
       elements.playerOthers.innerHTML = "";
     } else {
@@ -2810,9 +2816,20 @@ function renderPlayerSeat() {
       });
       elements.playerOthers.replaceChildren(title, list);
       if (elements.playerOthersLabel) {
+        elements.playerOthersLabel.innerHTML = `
+          <span class="pulse-left">
+            <span>Table pulse</span>
+            <span class="pulse-chevron" aria-hidden="true">&gt;</span>
+          </span>
+        `;
         elements.playerOthersLabel.classList.remove("hidden");
+        elements.playerOthersLabel.classList.toggle("expanded", state.playerPulseExpanded);
+        elements.playerOthersLabel.setAttribute(
+          "aria-expanded",
+          state.playerPulseExpanded ? "true" : "false"
+        );
       }
-      elements.playerOthers.classList.remove("hidden");
+      elements.playerOthers.classList.toggle("hidden", !state.playerPulseExpanded);
     }
   }
 
@@ -6210,6 +6227,21 @@ elements.playerAddDefault.addEventListener("click", () => {
 if (elements.playerSubmitChips) {
   elements.playerSubmitChips.addEventListener("click", () => {
     submitPlayerChips();
+  });
+}
+
+if (elements.playerOthersLabel) {
+  elements.playerOthersLabel.addEventListener("click", () => {
+    if (elements.playerOthersLabel.classList.contains("hidden")) return;
+    state.playerPulseExpanded = !state.playerPulseExpanded;
+    elements.playerOthersLabel.classList.toggle("expanded", state.playerPulseExpanded);
+    elements.playerOthersLabel.setAttribute(
+      "aria-expanded",
+      state.playerPulseExpanded ? "true" : "false"
+    );
+    if (elements.playerOthers) {
+      elements.playerOthers.classList.toggle("hidden", !state.playerPulseExpanded);
+    }
   });
 }
 
