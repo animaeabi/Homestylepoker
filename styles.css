@@ -23,8 +23,16 @@
   --row-bg: rgba(17, 31, 24, 0.85);
   --row-border: rgba(210, 166, 78, 0.12);
   --modal-max-height: calc(
-    100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 24px
+    100vh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 24px
   );
+}
+
+@supports (height: 100dvh) {
+  :root {
+    --modal-max-height: calc(
+      100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 24px
+    );
+  }
 }
 
 body.theme-light {
@@ -2192,11 +2200,12 @@ button:disabled {
 .modal {
   position: fixed;
   inset: 0;
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
   z-index: 60;
-  padding: max(12px, env(safe-area-inset-top, 0px)) 12px
-    calc(env(safe-area-inset-bottom, 0px) + 12px);
+  padding: max(10px, env(safe-area-inset-top, 0px) + 6px) 12px
+    max(18px, env(safe-area-inset-bottom, 0px) + 18px);
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
@@ -2217,6 +2226,12 @@ button:disabled {
   background: var(--surface-grad);
   border: 1px solid var(--surface-border);
   box-shadow: var(--surface-shadow);
+}
+
+.modal > section {
+  align-self: flex-start;
+  margin-top: 0;
+  margin-bottom: 0;
 }
 
 .summary-panel {
@@ -3593,6 +3608,12 @@ body.theme-light .player-metrics > div {
 .qr-panel {
   max-height: var(--modal-max-height);
   overflow: auto;
+}
+
+.roster-panel,
+.group-panel,
+.settle-panel {
+  padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px) + 10px);
 }
 
 .discrepancy-options {
