@@ -92,7 +92,7 @@ create index if not exists idx_join_requests_group_player_id on join_requests(gr
 ```
 
 - In Supabase, enable Realtime for `games`, `players`, `buyins`, `settlements`, `settlement_adjustments`, and `join_requests`.
-- Leave Row Level Security (RLS) **off** for the basic setup.
+- For quick local testing, you can leave Row Level Security (RLS) **off**.
 - If you created the tables earlier, run:
 
 ```sql
@@ -170,9 +170,77 @@ python3 -m http.server 8000
 
 Then open `http://localhost:8000`.
 
+## 4) Security hardening (production)
+
+Use this only when you are ready to require signed-in users.
+
+1. Enable Supabase Auth.
+2. Add ownership columns:
+
+```sql
+alter table groups add column if not exists owner_user_id uuid;
+alter table games add column if not exists owner_user_id uuid;
+
+create index if not exists idx_groups_owner_user_id on groups(owner_user_id);
+create index if not exists idx_games_owner_user_id on games(owner_user_id);
+```
+
+3. Enable RLS and add owner policies:
+
+```sql
+alter table groups enable row level security;
+alter table group_players enable row level security;
+alter table games enable row level security;
+alter table players enable row level security;
+alter table buyins enable row level security;
+alter table settlements enable row level security;
+alter table settlement_adjustments enable row level security;
+alter table join_requests enable row level security;
+
+create policy groups_owner_all on groups
+for all to authenticated
+using (owner_user_id = auth.uid())
+with check (owner_user_id = auth.uid());
+
+create policy games_owner_all on games
+for all to authenticated
+using (owner_user_id = auth.uid())
+with check (owner_user_id = auth.uid());
+
+create policy group_players_via_group_owner on group_players
+for all to authenticated
+using (exists (select 1 from groups g where g.id = group_players.group_id and g.owner_user_id = auth.uid()))
+with check (exists (select 1 from groups g where g.id = group_players.group_id and g.owner_user_id = auth.uid()));
+
+create policy players_via_game_owner on players
+for all to authenticated
+using (exists (select 1 from games g where g.id = players.game_id and g.owner_user_id = auth.uid()))
+with check (exists (select 1 from games g where g.id = players.game_id and g.owner_user_id = auth.uid()));
+
+create policy buyins_via_game_owner on buyins
+for all to authenticated
+using (exists (select 1 from games g where g.id = buyins.game_id and g.owner_user_id = auth.uid()))
+with check (exists (select 1 from games g where g.id = buyins.game_id and g.owner_user_id = auth.uid()));
+
+create policy settlements_via_game_owner on settlements
+for all to authenticated
+using (exists (select 1 from games g where g.id = settlements.game_id and g.owner_user_id = auth.uid()))
+with check (exists (select 1 from games g where g.id = settlements.game_id and g.owner_user_id = auth.uid()));
+
+create policy adjustments_via_game_owner on settlement_adjustments
+for all to authenticated
+using (exists (select 1 from games g where g.id = settlement_adjustments.game_id and g.owner_user_id = auth.uid()))
+with check (exists (select 1 from games g where g.id = settlement_adjustments.game_id and g.owner_user_id = auth.uid()));
+
+create policy join_requests_via_game_owner on join_requests
+for all to authenticated
+using (exists (select 1 from games g where g.id = join_requests.game_id and g.owner_user_id = auth.uid()))
+with check (exists (select 1 from games g where g.id = join_requests.game_id and g.owner_user_id = auth.uid()));
+```
+
 ## Notes
 
-- This basic version is open to anyone with the join link.
-- If you plan to host it publicly, add Supabase Auth or a lightweight server to enforce access.
+- Without Auth + RLS, anyone with the join link can write data.
+- For public use, apply section 4 and use authenticated users.
 - Cash-outs are handled via the settlement flow (final chip totals).
 - If you already created a `cashout` column, you can leave it; the app ignores it.

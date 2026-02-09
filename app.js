@@ -69,6 +69,13 @@ const elements = {
   lockPhraseClose: $("#lockPhraseClose"),
   lockPhraseCancel: $("#lockPhraseCancel"),
   lockPhraseSubmit: $("#lockPhraseSubmit"),
+  promptModal: $("#promptModal"),
+  promptTitle: $("#promptTitle"),
+  promptMessage: $("#promptMessage"),
+  promptInput: $("#promptInput"),
+  promptClose: $("#promptClose"),
+  promptCancel: $("#promptCancel"),
+  promptSubmit: $("#promptSubmit"),
   joinRequestModal: $("#joinRequestModal"),
   joinRequestMessage: $("#joinRequestMessage"),
   joinRequestClose: $("#joinRequestClose"),
@@ -236,6 +243,10 @@ let joinFlowName = "";
 let joinFlowHasList = false;
 let lockResolve = null;
 let confirmResolve = null;
+let promptResolve = null;
+let realtimeRefreshTimer = null;
+let refreshPromise = null;
+let refreshQueued = false;
 
 if (configMissing) {
   elements.configNotice.classList.remove("hidden");
@@ -269,6 +280,8 @@ const suitCycleOffMs = 140;
 const suitCycleRoundsPerBurst = 2;
 const suitCyclePauseMs = 5 * 60 * 1000;
 const HOST_PLAYERS_PAGE_SIZE = 3;
+const LOG_ROWS_LIMIT = 200;
+const REALTIME_REFRESH_DEBOUNCE_MS = 120;
 let suitCycleTimer = null;
 let suitCycleStartTimer = null;
 let suitCycleRestartTimer = null;
@@ -1136,7 +1149,12 @@ async function setGroupLockPhrase() {
   if (!supabase || !state.activeGroupId) return;
   const group = state.groups.find((item) => item.id === state.activeGroupId);
   if (!group) return;
-  const phrase = window.prompt("Set lock phrase");
+  const phrase = await openPromptModal({
+    title: "Set lock phrase",
+    message: `Create a phrase for "${group.name}".`,
+    placeholder: "Enter lock phrase",
+    submitLabel: "Save"
+  });
   if (phrase === null) return;
   if (!phrase.trim()) {
     setStatus("Enter a lock phrase.", "error");
@@ -1164,7 +1182,8 @@ async function removeGroupLockPhrase() {
   if (!supabase || !state.activeGroupId) return;
   const group = state.groups.find((item) => item.id === state.activeGroupId);
   if (!group) return;
-  if (!window.confirm("Remove lock phrase?")) return;
+  const confirmed = await openConfirmModal("Remove lock phrase?", "Remove");
+  if (!confirmed) return;
   const { error } = await supabase
     .from("groups")
     .update({ lock_phrase_hash: null })
@@ -1188,7 +1207,15 @@ async function renameActiveGroup() {
   if (!group) return;
   const unlocked = await ensureGroupUnlocked(group.id);
   if (!unlocked) return;
-  const nextName = safeTrim(window.prompt("New group name", group.name));
+  const nextName = safeTrim(
+    await openPromptModal({
+      title: "Rename group",
+      message: "Enter a new group name.",
+      placeholder: "Group name",
+      defaultValue: group.name,
+      submitLabel: "Rename"
+    })
+  );
   if (!nextName || nextName === group.name) return;
   const { error } = await supabase.from("groups").update({ name: nextName }).eq("id", group.id);
   if (error) {
@@ -1210,7 +1237,11 @@ async function deleteActiveGroup() {
   if (!group) return;
   const unlocked = await ensureGroupUnlocked(group.id);
   if (!unlocked) return;
-  if (!window.confirm(`Delete group "${group.name}"? This will remove all its players.`)) return;
+  const confirmed = await openConfirmModal(
+    `Delete group "${group.name}"? This will remove all its players.`,
+    "Delete group"
+  );
+  if (!confirmed) return;
   const { error } = await supabase.from("groups").delete().eq("id", group.id);
   if (error) {
     setStatus("Could not delete group", "error");
@@ -2700,7 +2731,8 @@ function renderLog() {
   );
   const rows = state.buyins
     .slice()
-    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+    .slice(0, LOG_ROWS_LIMIT);
 
   elements.logTable.innerHTML = "";
 
@@ -2965,14 +2997,14 @@ function computeTransfers(rows) {
     ...row,
     transferNet: Number((row.transferNet ?? row.net) || 0)
   }));
-  const imbalance = moneyRound(
-    transferRows.reduce((sum, row) => sum + Number(row.transferNet || 0), 0)
-  );
-  if (Math.abs(imbalance) > 0.01) {
-    transferRows.push({
-      name: "Discrepancy pool",
-      transferNet: moneyRound(-imbalance)
-    });
+  const imbalance = moneyRound(transferRows.reduce((sum, row) => sum + Number(row.transferNet || 0), 0));
+  if (Math.abs(imbalance) > 0.01 && transferRows.length) {
+    const candidates = transferRows.filter((row) =>
+      imbalance > 0 ? row.transferNet > 0.01 : row.transferNet < -0.01
+    );
+    const targetPool = candidates.length ? candidates : transferRows;
+    targetPool.sort((a, b) => Math.abs(b.transferNet) - Math.abs(a.transferNet));
+    targetPool[0].transferNet = moneyRound(targetPool[0].transferNet - imbalance);
   }
   const winners = transferRows
     .filter((row) => row.transferNet > 0.01)
@@ -3184,7 +3216,8 @@ async function deleteGameByCode(code) {
     ? "This will close the current game and delete it for everyone. Continue?"
     : `Delete ${label}? This cannot be undone.`;
 
-  if (!window.confirm(message)) return;
+  const confirmed = await openConfirmModal(message, "Delete");
+  if (!confirmed) return;
 
   if (currentGame) {
     clearCurrentGame();
@@ -3209,7 +3242,8 @@ async function deleteAllGames() {
   const authorized = await ensureDeletePin();
   if (!authorized) return;
 
-  if (!window.confirm("Delete ALL games? This cannot be undone.")) return;
+  const confirmed = await openConfirmModal("Delete ALL games? This cannot be undone.", "Erase all");
+  if (!confirmed) return;
 
   setStatus("Deleting all games…");
 
@@ -3307,75 +3341,101 @@ function renderHostRosterSuggestions() {
 
 async function refreshData() {
   if (!supabase || !state.game) return;
-  try {
-    const [gameRes, playersRes, buyinsRes, settlementsRes, adjustmentsRes, joinRequestsRes] = await Promise.all([
-      supabase.from("games").select("*").eq("id", state.game.id).single(),
-      supabase.from("players").select("*").eq("game_id", state.game.id).order("created_at"),
-      supabase.from("buyins").select("*").eq("game_id", state.game.id).order("created_at", { ascending: false }),
-      supabase
-        .from("settlements")
-        .select("*")
-        .eq("game_id", state.game.id)
-        .order("created_at", { ascending: false }),
-      supabase
-        .from("settlement_adjustments")
-        .select("*")
-        .eq("game_id", state.game.id)
-        .order("created_at", { ascending: false }),
-      supabase
-        .from("join_requests")
-        .select("*")
-        .eq("game_id", state.game.id)
-        .order("requested_at", { ascending: false })
-    ]);
-
-    if (gameRes.error) throw gameRes.error;
-    if (playersRes.error) throw playersRes.error;
-    if (buyinsRes.error) throw buyinsRes.error;
-    if (settlementsRes.error && settlementsRes.error.code !== "42P01") {
-      throw settlementsRes.error;
-    }
-    if (adjustmentsRes.error && adjustmentsRes.error.code !== "42P01") {
-      throw adjustmentsRes.error;
-    }
-    if (joinRequestsRes.error && joinRequestsRes.error.code !== "42P01") {
-      throw joinRequestsRes.error;
-    }
-
-    state.game = gameRes.data;
-    state.players = playersRes.data || [];
-    state.buyins = buyinsRes.data || [];
-    state.settlementsAvailable = !settlementsRes.error || settlementsRes.error.code !== "42P01";
-    state.settlements = settlementsRes.error ? [] : settlementsRes.data || [];
-    state.adjustmentsAvailable = !adjustmentsRes.error || adjustmentsRes.error.code !== "42P01";
-    state.settlementAdjustments = adjustmentsRes.error ? [] : adjustmentsRes.data || [];
-    state.joinRequestsAvailable = !joinRequestsRes.error || joinRequestsRes.error.code !== "42P01";
-    state.joinRequests = joinRequestsRes.error ? [] : joinRequestsRes.data || [];
-    syncHostAccess();
-    if (settlementsRes.error && settlementsRes.error.code === "42P01") {
-      setStatus("Settlement table missing. Run the README SQL.", "error");
-    }
-    if (adjustmentsRes.error && adjustmentsRes.error.code === "42P01") {
-      state.adjustmentsAvailable = false;
-    }
-    if (state.game?.group_id) {
-      await loadGameGroupPlayers();
-    } else {
-      state.gameGroupPlayers = [];
-      state.gameGroupPlayersGroupId = null;
-      state.joinRequests = [];
-      state.pendingJoinGroupPlayerId = null;
-    }
-    reconcilePendingJoinForPlayer();
-    if (state.isHost) {
-      recordRecentGame(state.game);
-    }
-    renderAll();
-    maybePromptHostJoinRequest();
-    setStatus("Synced");
-  } catch (err) {
-    setStatus("Sync failed", "error");
+  if (refreshPromise) {
+    refreshQueued = true;
+    return refreshPromise;
   }
+
+  refreshPromise = (async () => {
+    try {
+      const [gameRes, playersRes, buyinsRes, settlementsRes, adjustmentsRes, joinRequestsRes] = await Promise.all([
+        supabase.from("games").select("*").eq("id", state.game.id).single(),
+        supabase.from("players").select("*").eq("game_id", state.game.id).order("created_at"),
+        supabase.from("buyins").select("*").eq("game_id", state.game.id).order("created_at", { ascending: false }),
+        supabase
+          .from("settlements")
+          .select("*")
+          .eq("game_id", state.game.id)
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("settlement_adjustments")
+          .select("*")
+          .eq("game_id", state.game.id)
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("join_requests")
+          .select("*")
+          .eq("game_id", state.game.id)
+          .order("requested_at", { ascending: false })
+      ]);
+
+      if (gameRes.error) throw gameRes.error;
+      if (playersRes.error) throw playersRes.error;
+      if (buyinsRes.error) throw buyinsRes.error;
+      if (settlementsRes.error && settlementsRes.error.code !== "42P01") {
+        throw settlementsRes.error;
+      }
+      if (adjustmentsRes.error && adjustmentsRes.error.code !== "42P01") {
+        throw adjustmentsRes.error;
+      }
+      if (joinRequestsRes.error && joinRequestsRes.error.code !== "42P01") {
+        throw joinRequestsRes.error;
+      }
+
+      state.game = gameRes.data;
+      state.players = playersRes.data || [];
+      state.buyins = buyinsRes.data || [];
+      state.settlementsAvailable = !settlementsRes.error || settlementsRes.error.code !== "42P01";
+      state.settlements = settlementsRes.error ? [] : settlementsRes.data || [];
+      state.adjustmentsAvailable = !adjustmentsRes.error || adjustmentsRes.error.code !== "42P01";
+      state.settlementAdjustments = adjustmentsRes.error ? [] : adjustmentsRes.data || [];
+      state.joinRequestsAvailable = !joinRequestsRes.error || joinRequestsRes.error.code !== "42P01";
+      state.joinRequests = joinRequestsRes.error ? [] : joinRequestsRes.data || [];
+      syncHostAccess();
+      if (settlementsRes.error && settlementsRes.error.code === "42P01") {
+        setStatus("Settlement table missing. Run the README SQL.", "error");
+      }
+      if (adjustmentsRes.error && adjustmentsRes.error.code === "42P01") {
+        state.adjustmentsAvailable = false;
+      }
+      if (state.game?.group_id) {
+        await loadGameGroupPlayers();
+      } else {
+        state.gameGroupPlayers = [];
+        state.gameGroupPlayersGroupId = null;
+        state.joinRequests = [];
+        state.pendingJoinGroupPlayerId = null;
+      }
+      reconcilePendingJoinForPlayer();
+      if (state.isHost) {
+        recordRecentGame(state.game);
+      }
+      renderAll();
+      maybePromptHostJoinRequest();
+      setStatus("Synced");
+    } catch (err) {
+      setStatus("Sync failed", "error");
+    }
+  })();
+
+  try {
+    await refreshPromise;
+  } finally {
+    refreshPromise = null;
+  }
+
+  if (refreshQueued) {
+    refreshQueued = false;
+    return refreshData();
+  }
+}
+
+function scheduleRealtimeRefresh() {
+  if (realtimeRefreshTimer) return;
+  realtimeRefreshTimer = setTimeout(() => {
+    realtimeRefreshTimer = null;
+    void refreshData();
+  }, REALTIME_REFRESH_DEBOUNCE_MS);
 }
 
 async function startRealtime() {
@@ -3389,38 +3449,38 @@ async function startRealtime() {
     .on(
       "postgres_changes",
       { event: "*", schema: "public", table: "games", filter: `id=eq.${state.game.id}` },
-      refreshData
+      scheduleRealtimeRefresh
     )
     .on(
       "postgres_changes",
       { event: "*", schema: "public", table: "players", filter: `game_id=eq.${state.game.id}` },
-      refreshData
+      scheduleRealtimeRefresh
     )
     .on(
       "postgres_changes",
       { event: "*", schema: "public", table: "buyins", filter: `game_id=eq.${state.game.id}` },
-      refreshData
+      scheduleRealtimeRefresh
     );
 
   if (state.settlementsAvailable) {
     channel.on(
       "postgres_changes",
       { event: "*", schema: "public", table: "settlements", filter: `game_id=eq.${state.game.id}` },
-      refreshData
+      scheduleRealtimeRefresh
     );
   }
   if (state.adjustmentsAvailable) {
     channel.on(
       "postgres_changes",
       { event: "*", schema: "public", table: "settlement_adjustments", filter: `game_id=eq.${state.game.id}` },
-      refreshData
+      scheduleRealtimeRefresh
     );
   }
   if (state.joinRequestsAvailable) {
     channel.on(
       "postgres_changes",
       { event: "*", schema: "public", table: "join_requests", filter: `game_id=eq.${state.game.id}` },
-      refreshData
+      scheduleRealtimeRefresh
     );
   }
 
@@ -4412,6 +4472,40 @@ function closeConfirmModal(result) {
   }
 }
 
+function openPromptModal({
+  title = "Enter value",
+  message = "",
+  placeholder = "",
+  defaultValue = "",
+  submitLabel = "Save"
+} = {}) {
+  if (!elements.promptModal) return Promise.resolve(null);
+  if (promptResolve) {
+    promptResolve(null);
+    promptResolve = null;
+  }
+  if (elements.promptTitle) elements.promptTitle.textContent = title;
+  if (elements.promptMessage) elements.promptMessage.textContent = message;
+  if (elements.promptInput) {
+    elements.promptInput.value = defaultValue;
+    elements.promptInput.placeholder = placeholder;
+  }
+  if (elements.promptSubmit) elements.promptSubmit.textContent = submitLabel;
+  elements.promptModal.classList.remove("hidden");
+  setTimeout(() => elements.promptInput?.focus(), 0);
+  return new Promise((resolve) => {
+    promptResolve = resolve;
+  });
+}
+
+function closePromptModal(value = null) {
+  if (elements.promptModal) elements.promptModal.classList.add("hidden");
+  if (promptResolve) {
+    promptResolve(value);
+    promptResolve = null;
+  }
+}
+
 function normalizeJoinRequestStatus(status) {
   return safeTrim(status).toLowerCase();
 }
@@ -4673,6 +4767,10 @@ function clearCurrentGame() {
     supabase.removeChannel(state.channel);
     state.channel = null;
   }
+  if (realtimeRefreshTimer) {
+    clearTimeout(realtimeRefreshTimer);
+    realtimeRefreshTimer = null;
+  }
   if (state.game?.code) {
     clearStoredPlayer(state.game.code);
     clearPendingJoin(state.game.code);
@@ -4915,6 +5013,37 @@ if (elements.confirmModal) {
   elements.confirmModal.addEventListener("click", (event) => {
     if (event.target?.classList.contains("modal-backdrop")) {
       closeConfirmModal(false);
+    }
+  });
+}
+
+if (elements.promptClose) {
+  elements.promptClose.addEventListener("click", () => closePromptModal(null));
+}
+
+if (elements.promptCancel) {
+  elements.promptCancel.addEventListener("click", () => closePromptModal(null));
+}
+
+if (elements.promptSubmit) {
+  elements.promptSubmit.addEventListener("click", () => {
+    closePromptModal(safeTrim(elements.promptInput?.value));
+  });
+}
+
+if (elements.promptInput) {
+  elements.promptInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      elements.promptSubmit?.click();
+    }
+  });
+}
+
+if (elements.promptModal) {
+  elements.promptModal.addEventListener("click", (event) => {
+    if (event.target?.classList.contains("modal-backdrop")) {
+      closePromptModal(null);
     }
   });
 }
@@ -5457,7 +5586,8 @@ if (elements.groupPlayerList) {
     if (!playerId || !state.activeGroupId) return;
     const unlocked = await ensureGroupUnlocked(state.activeGroupId);
     if (!unlocked) return;
-    if (!window.confirm("Remove this player from the group?")) return;
+    const confirmed = await openConfirmModal("Remove this player from the group?", "Remove");
+    if (!confirmed) return;
     const { error } = await supabase.from("group_players").delete().eq("id", playerId);
     if (error) {
       setStatus("Could not delete player", "error");
@@ -5535,9 +5665,10 @@ if (elements.openLink) {
 }
 
 if (elements.leaveGame) {
-  elements.leaveGame.addEventListener("click", () => {
+  elements.leaveGame.addEventListener("click", async () => {
     if (!state.game) return;
-    if (!window.confirm("Leave this game and return home?")) return;
+    const confirmed = await openConfirmModal("Leave this game and return home?", "Leave");
+    if (!confirmed) return;
     clearCurrentGame();
     setStatus("Ready");
   });
@@ -5632,6 +5763,9 @@ window.addEventListener("keydown", (event) => {
     closeLockPhraseModal();
     if (lockResolve) lockResolve(null);
     lockResolve = null;
+  }
+  if (elements.promptModal && !elements.promptModal.classList.contains("hidden")) {
+    closePromptModal(null);
   }
   if (elements.hostTransferModal && !elements.hostTransferModal.classList.contains("hidden")) {
     closeHostTransferModal();

@@ -3605,9 +3605,14 @@ body.theme-light .player-metrics > div {
 .settings-panel,
 .join-request-panel,
 .confirm-panel,
+.prompt-panel,
 .qr-panel {
   max-height: var(--modal-max-height);
   overflow: auto;
+}
+
+.prompt-panel {
+  width: min(92vw, 520px);
 }
 
 .roster-panel,
