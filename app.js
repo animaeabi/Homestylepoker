@@ -1034,6 +1034,44 @@ async function fetchGroupPlayers(groupId) {
   return data || [];
 }
 
+async function fetchGroupPlayerGameCounts(groupId, groupPlayers) {
+  const counts = new Map();
+  if (!supabase || !groupId || !Array.isArray(groupPlayers) || !groupPlayers.length) {
+    return counts;
+  }
+  const groupPlayerIds = groupPlayers.map((player) => player.id).filter(Boolean);
+  if (!groupPlayerIds.length) return counts;
+
+  const { data: groupGames, error: gamesError } = await supabase
+    .from("games")
+    .select("id")
+    .eq("group_id", groupId);
+  if (gamesError || !groupGames?.length) return counts;
+
+  const gameIds = groupGames.map((game) => game.id).filter(Boolean);
+  if (!gameIds.length) return counts;
+
+  const { data: seats, error: seatsError } = await supabase
+    .from("players")
+    .select("group_player_id,game_id")
+    .in("game_id", gameIds)
+    .in("group_player_id", groupPlayerIds);
+  if (seatsError || !seats?.length) return counts;
+
+  const seen = new Set();
+  seats.forEach((seat) => {
+    const groupPlayerId = seat.group_player_id;
+    const gameId = seat.game_id;
+    if (!groupPlayerId || !gameId) return;
+    const dedupeKey = `${groupPlayerId}:${gameId}`;
+    if (seen.has(dedupeKey)) return;
+    seen.add(dedupeKey);
+    counts.set(groupPlayerId, (counts.get(groupPlayerId) || 0) + 1);
+  });
+
+  return counts;
+}
+
 async function loadGameGroupPlayers() {
   if (!supabase || !state.game?.group_id) {
     state.gameGroupPlayers = [];
@@ -1283,27 +1321,21 @@ function renderRosterList() {
   }
 
   state.roster.forEach((player) => {
-    const row = document.createElement("div");
-    row.className = "roster-row";
-    if (!player.active) {
-      row.classList.add("inactive");
-    }
-    row.dataset.playerId = player.id;
-
-    row.innerHTML = `
-      <div>
-        <strong>${player.name}</strong>
-      </div>
-      <div class="roster-actions">
-        ${
-          player.isHost
-            ? `<span class="host-check">✓ Host</span>`
-            : `<button class="ghost small" data-action="toggle">${player.active ? "✕" : "Undo"}</button>`
-        }
-      </div>
+    const tile = document.createElement("button");
+    tile.type = "button";
+    tile.className = "roster-row";
+    if (player.active) tile.classList.add("selected");
+    if (player.isHost) tile.classList.add("is-host");
+    tile.dataset.playerId = player.id;
+    tile.dataset.action = "toggle";
+    tile.setAttribute("aria-pressed", player.active ? "true" : "false");
+    tile.innerHTML = `
+      <strong>${player.name}</strong>
+      <span class="roster-tile-meta">
+        ${player.isHost ? "Host" : player.active ? "Playing" : "Not playing"}
+      </span>
     `;
-
-    elements.rosterList.appendChild(row);
+    elements.rosterList.appendChild(tile);
   });
 }
 
@@ -1337,15 +1369,24 @@ async function openRosterModal(groupId) {
 
   await getOrCreateGroupPlayer(groupId, hostName);
   const groupPlayers = await fetchGroupPlayers(groupId);
+  const gameCounts = await fetchGroupPlayerGameCounts(groupId, groupPlayers);
+  const sortedGroupPlayers = groupPlayers.slice().sort((a, b) => {
+    const aIsHost = normalizeName(a.name) === hostNormalized;
+    const bIsHost = normalizeName(b.name) === hostNormalized;
+    if (aIsHost !== bIsHost) return aIsHost ? -1 : 1;
+    const countDiff = (gameCounts.get(b.id) || 0) - (gameCounts.get(a.id) || 0);
+    if (countDiff !== 0) return countDiff;
+    return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+  });
   if (elements.rosterTitle) {
-    elements.rosterTitle.textContent = group ? `${group.name} roster` : "Who's playing?";
+    elements.rosterTitle.textContent = group ? group.name : "Group";
   }
 
-  state.roster = groupPlayers.map((player) => ({
+  state.roster = sortedGroupPlayers.map((player) => ({
     id: player.id,
     name: player.name,
     isHost: normalizeName(player.name) === hostNormalized,
-    active: true
+    active: normalizeName(player.name) === hostNormalized
   }));
 
   if (!state.roster.some((player) => player.isHost)) {
@@ -2781,18 +2822,31 @@ function renderPlayerSeat() {
 
   if (elements.playerSettleAmount && elements.playerSettleStatus) {
     const currentValue = elements.playerSettleAmount.value;
+    const hasSubmitted = state.settlements.some((settlement) => settlement.player_id === player.id);
     const settledTotal = state.settlements
       .filter((settlement) => settlement.player_id === player.id)
       .reduce((sum, settlement) => sum + Number(settlement.amount || 0), 0);
-    if (settling && settledTotal > 0) {
+    if (settling && hasSubmitted) {
       elements.playerSettleAmount.value = formatNumberValue(settledTotal);
       elements.playerSettleStatus.textContent = "Submitted — waiting for host to finalize.";
+      elements.playerSettleAmount.disabled = true;
+      if (elements.playerSubmitChips) {
+        elements.playerSubmitChips.disabled = true;
+      }
     } else if (settling) {
       elements.playerSettleAmount.value = currentValue || "";
       elements.playerSettleStatus.textContent = "Enter your remaining chips.";
+      elements.playerSettleAmount.disabled = false;
+      if (elements.playerSubmitChips) {
+        elements.playerSubmitChips.disabled = false;
+      }
     } else {
       elements.playerSettleAmount.value = "";
       elements.playerSettleStatus.textContent = "";
+      elements.playerSettleAmount.disabled = true;
+      if (elements.playerSubmitChips) {
+        elements.playerSubmitChips.disabled = true;
+      }
     }
   }
   updateGameBarToolsVisibility();
@@ -3656,6 +3710,11 @@ async function createGame(options = {}) {
   const defaultBuyIn = Number(elements.newBuyIn.value) || 10;
   const groupId = safeTrim(elements.gameGroup?.value) || null;
   const roster = options.roster || null;
+  const orderedRoster = Array.isArray(roster)
+    ? roster
+        .slice()
+        .sort((a, b) => (a.isHost === b.isHost ? 0 : a.isHost ? -1 : 1))
+    : null;
   let code = generateCode();
 
   let result = await supabase
@@ -3693,10 +3752,10 @@ async function createGame(options = {}) {
   recordRecentGame(state.game);
   saveLastGroup(state.game.group_id || "");
 
-  if (roster && roster.length) {
-    const hostEntry = roster.find((player) => player.isHost) || null;
+  if (orderedRoster && orderedRoster.length) {
+    const hostEntry = orderedRoster.find((player) => player.isHost) || null;
     const seen = new Set();
-    const playersPayload = roster
+    const playersPayload = orderedRoster
       .map((player) => {
         const normalized = normalizeName(player.name);
         if (!normalized || seen.has(normalized)) return null;
@@ -4174,16 +4233,44 @@ async function submitPlayerChips() {
     setStatus("Settlement has not started yet.", "error");
     return;
   }
+  const alreadySubmitted = state.settlements.some((settlement) => settlement.player_id === state.playerId);
+  if (alreadySubmitted) {
+    if (elements.playerSettleStatus) {
+      elements.playerSettleStatus.textContent = "Submitted — waiting for host to finalize.";
+    }
+    if (elements.playerSettleAmount) {
+      elements.playerSettleAmount.disabled = true;
+    }
+    if (elements.playerSubmitChips) {
+      elements.playerSubmitChips.disabled = true;
+    }
+    return;
+  }
   const amount = parseChipAmount(elements.playerSettleAmount?.value);
   if (!Number.isFinite(amount) || amount < 0) {
     setStatus("Enter a valid chip total.", "error");
     return;
   }
+  if (elements.playerSettleAmount) {
+    elements.playerSettleAmount.disabled = true;
+  }
+  if (elements.playerSubmitChips) {
+    elements.playerSubmitChips.disabled = true;
+  }
   const ok = await saveSettlementForPlayer(state.playerId, amount);
   if (ok && elements.playerSettleStatus) {
     elements.playerSettleStatus.textContent = "Submitted — waiting for host to finalize.";
   }
-  if (ok) setStatus("Chips submitted");
+  if (ok) {
+    setStatus("Chips submitted");
+    return;
+  }
+  if (elements.playerSettleAmount) {
+    elements.playerSettleAmount.disabled = false;
+  }
+  if (elements.playerSubmitChips) {
+    elements.playerSubmitChips.disabled = false;
+  }
 }
 
 
@@ -5722,9 +5809,7 @@ if (elements.rosterCancel) {
 
 if (elements.rosterList) {
   elements.rosterList.addEventListener("click", (event) => {
-    const button = event.target.closest("button[data-action='toggle']");
-    if (!button) return;
-    const row = button.closest(".roster-row");
+    const row = event.target.closest(".roster-row[data-action='toggle']");
     if (!row) return;
     const playerId = row.dataset.playerId;
     const player = state.roster.find((entry) => entry.id === playerId);
@@ -5736,7 +5821,9 @@ if (elements.rosterList) {
 
 if (elements.rosterStart) {
   elements.rosterStart.addEventListener("click", async () => {
-    const activeRoster = state.roster.filter((player) => player.active || player.isHost);
+    const activeRoster = state.roster
+      .filter((player) => player.active || player.isHost)
+      .sort((a, b) => (a.isHost === b.isHost ? 0 : a.isHost ? -1 : 1));
     if (!activeRoster.length) {
       setStatus("Select at least one player.", "error");
       return;
