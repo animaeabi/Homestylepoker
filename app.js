@@ -1603,12 +1603,6 @@ function applyPlayerBuyinPulse() {
   if (elements.playerPanel) {
     elements.playerPanel.classList.toggle("buyin-success", active);
   }
-  if (elements.playerCard) {
-    elements.playerCard.classList.toggle("buyin-success", active);
-  }
-  if (elements.playerAddDefault) {
-    elements.playerAddDefault.classList.toggle("buyin-success", active);
-  }
 
   if (playerBuyinPulseTimer) {
     clearTimeout(playerBuyinPulseTimer);
@@ -1619,8 +1613,6 @@ function applyPlayerBuyinPulse() {
   const remainingMs = Math.max(0, Number(state.playerBuyinPulseUntil || 0) - Date.now());
   playerBuyinPulseTimer = setTimeout(() => {
     if (elements.playerPanel) elements.playerPanel.classList.remove("buyin-success");
-    if (elements.playerCard) elements.playerCard.classList.remove("buyin-success");
-    if (elements.playerAddDefault) elements.playerAddDefault.classList.remove("buyin-success");
     playerBuyinPulseTimer = null;
   }, remainingMs + 24);
 }
