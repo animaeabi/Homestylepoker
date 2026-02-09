@@ -233,6 +233,8 @@ const state = {
   playerJoinFeedbackTone: "info",
   playerPulseRecentMs: {},
   playerPulseExpanded: false,
+  playerBuyinPulseUntil: 0,
+  playerBuyinPulsePlayerId: null,
   pendingSettleAdjustments: new Map()
 };
 
@@ -286,6 +288,11 @@ const suitCyclePauseMs = 5 * 60 * 1000;
 const HOST_PLAYERS_PAGE_SIZE = 3;
 const LOG_ROWS_LIMIT = 200;
 const REALTIME_REFRESH_DEBOUNCE_MS = 120;
+const PLAYER_BUYIN_PULSE_MS = 950;
+const POT_TICKER_MIN_MS = 320;
+const POT_TICKER_MAX_MS = 820;
+const PARALLAX_MAX_X = 10;
+const PARALLAX_MAX_Y = 14;
 let suitCycleTimer = null;
 let suitCycleStartTimer = null;
 let suitCycleRestartTimer = null;
@@ -293,6 +300,16 @@ let suitCyclePool = [];
 let suitCycleRoundsDone = 0;
 let suitCycleEnabled = false;
 let lastAutoLightsOff = null;
+let playerBuyinPulseTimer = null;
+let potTickerRaf = null;
+let potTickerClassTimer = null;
+let potTickerCurrent = null;
+let parallaxRaf = null;
+let parallaxPointerX = 0;
+let parallaxPointerY = 0;
+let parallaxScrollY = 0;
+let parallaxCurrentX = 0;
+let parallaxCurrentY = 0;
 const deletePinKey = "poker_delete_pin_ok";
 const deletePin = "2/7";
 const lastGroupKey = "poker_last_group";
@@ -1566,6 +1583,186 @@ function formatDateTime(iso) {
   return new Date(iso).toLocaleString();
 }
 
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function triggerPlayerBuyinPulse(playerId) {
+  if (!playerId) return;
+  state.playerBuyinPulsePlayerId = playerId;
+  state.playerBuyinPulseUntil = Date.now() + PLAYER_BUYIN_PULSE_MS;
+  applyPlayerBuyinPulse();
+}
+
+function applyPlayerBuyinPulse() {
+  const active =
+    Boolean(state.playerId) &&
+    state.playerBuyinPulsePlayerId === state.playerId &&
+    Date.now() < Number(state.playerBuyinPulseUntil || 0);
+
+  if (elements.playerPanel) {
+    elements.playerPanel.classList.toggle("buyin-success", active);
+  }
+  if (elements.playerCard) {
+    elements.playerCard.classList.toggle("buyin-success", active);
+  }
+  if (elements.playerAddDefault) {
+    elements.playerAddDefault.classList.toggle("buyin-success", active);
+  }
+
+  if (playerBuyinPulseTimer) {
+    clearTimeout(playerBuyinPulseTimer);
+    playerBuyinPulseTimer = null;
+  }
+  if (!active) return;
+
+  const remainingMs = Math.max(0, Number(state.playerBuyinPulseUntil || 0) - Date.now());
+  playerBuyinPulseTimer = setTimeout(() => {
+    if (elements.playerPanel) elements.playerPanel.classList.remove("buyin-success");
+    if (elements.playerCard) elements.playerCard.classList.remove("buyin-success");
+    if (elements.playerAddDefault) elements.playerAddDefault.classList.remove("buyin-success");
+    playerBuyinPulseTimer = null;
+  }, remainingMs + 24);
+}
+
+function flashPotChip() {
+  if (!elements.gamePotChip) return;
+  elements.gamePotChip.classList.remove("pot-ticking");
+  void elements.gamePotChip.offsetWidth;
+  elements.gamePotChip.classList.add("pot-ticking");
+  if (potTickerClassTimer) {
+    clearTimeout(potTickerClassTimer);
+  }
+  potTickerClassTimer = setTimeout(() => {
+    elements.gamePotChip?.classList.remove("pot-ticking");
+    potTickerClassTimer = null;
+  }, 560);
+}
+
+function animateGamePotValue(nextAmount, options = {}) {
+  if (!elements.gamePotValue) return;
+  const immediate = Boolean(options.immediate);
+  const target = moneyRound(Number(nextAmount) || 0);
+
+  if (potTickerCurrent === null || immediate || document.hidden) {
+    if (potTickerRaf) cancelAnimationFrame(potTickerRaf);
+    potTickerRaf = null;
+    potTickerCurrent = target;
+    elements.gamePotValue.textContent = formatCurrency(target);
+    return;
+  }
+
+  if (Math.abs(target - potTickerCurrent) < 0.005) {
+    elements.gamePotValue.textContent = formatCurrency(target);
+    potTickerCurrent = target;
+    return;
+  }
+
+  if (potTickerRaf) cancelAnimationFrame(potTickerRaf);
+  const start = potTickerCurrent;
+  const delta = target - start;
+  const duration = clamp(
+    Math.abs(delta) * 140 + 220,
+    POT_TICKER_MIN_MS,
+    POT_TICKER_MAX_MS
+  );
+  flashPotChip();
+  const startedAt = performance.now();
+
+  const step = (now) => {
+    const t = clamp((now - startedAt) / duration, 0, 1);
+    const eased = 1 - Math.pow(1 - t, 3);
+    const value = moneyRound(start + delta * eased);
+    elements.gamePotValue.textContent = formatCurrency(value);
+    if (t < 1) {
+      potTickerRaf = requestAnimationFrame(step);
+      return;
+    }
+    potTickerRaf = null;
+    potTickerCurrent = target;
+    elements.gamePotValue.textContent = formatCurrency(target);
+  };
+
+  potTickerRaf = requestAnimationFrame(step);
+}
+
+function queueParallaxFrame() {
+  if (parallaxRaf || !document.body) return;
+  parallaxRaf = requestAnimationFrame(() => {
+    const targetX = clamp(parallaxPointerX, -PARALLAX_MAX_X, PARALLAX_MAX_X);
+    const targetY = clamp(parallaxPointerY + parallaxScrollY, -PARALLAX_MAX_Y, PARALLAX_MAX_Y);
+    parallaxCurrentX += (targetX - parallaxCurrentX) * 0.12;
+    parallaxCurrentY += (targetY - parallaxCurrentY) * 0.12;
+    document.body.style.setProperty("--felt-parallax-x", `${parallaxCurrentX.toFixed(2)}px`);
+    document.body.style.setProperty("--felt-parallax-y", `${parallaxCurrentY.toFixed(2)}px`);
+    parallaxRaf = null;
+
+    if (
+      Math.abs(targetX - parallaxCurrentX) > 0.08 ||
+      Math.abs(targetY - parallaxCurrentY) > 0.08
+    ) {
+      queueParallaxFrame();
+    }
+  });
+}
+
+function initFeltParallax() {
+  if (!document.body) return;
+  document.body.style.setProperty("--felt-parallax-x", "0px");
+  document.body.style.setProperty("--felt-parallax-y", "0px");
+  const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  if (reduceMotion) return;
+
+  window.addEventListener(
+    "pointermove",
+    (event) => {
+      const width = Math.max(1, window.innerWidth || 1);
+      const height = Math.max(1, window.innerHeight || 1);
+      const xNorm = (event.clientX / width - 0.5) * 2;
+      const yNorm = (event.clientY / height - 0.5) * 2;
+      parallaxPointerX = xNorm * PARALLAX_MAX_X;
+      parallaxPointerY = yNorm * PARALLAX_MAX_Y * 0.65;
+      queueParallaxFrame();
+    },
+    { passive: true }
+  );
+
+  window.addEventListener(
+    "pointerleave",
+    () => {
+      parallaxPointerX = 0;
+      parallaxPointerY = 0;
+      queueParallaxFrame();
+    },
+    { passive: true }
+  );
+
+  window.addEventListener(
+    "scroll",
+    () => {
+      const scrollY = window.scrollY || window.pageYOffset || 0;
+      parallaxScrollY = clamp(scrollY * 0.012, -3.2, 3.2);
+      queueParallaxFrame();
+    },
+    { passive: true }
+  );
+
+  window.addEventListener(
+    "deviceorientation",
+    (event) => {
+      if (typeof event.gamma !== "number" || typeof event.beta !== "number") return;
+      parallaxPointerX = clamp((event.gamma / 45) * PARALLAX_MAX_X, -PARALLAX_MAX_X, PARALLAX_MAX_X);
+      parallaxPointerY = clamp(
+        ((event.beta - 45) / 45) * (PARALLAX_MAX_Y * 0.35),
+        -PARALLAX_MAX_Y,
+        PARALLAX_MAX_Y
+      );
+      queueParallaxFrame();
+    },
+    { passive: true }
+  );
+}
+
 function formatShortDate(iso) {
   if (!iso) return "—";
   return new Date(iso).toLocaleDateString(undefined, {
@@ -2515,9 +2712,7 @@ function renderSummary() {
     node.innerHTML = `<span>${card.label}</span><strong>${card.value}</strong>`;
     elements.summary.appendChild(node);
   });
-  if (elements.gamePotValue) {
-    elements.gamePotValue.textContent = formatCurrency(totalBuyins);
-  }
+  animateGamePotValue(totalBuyins);
   updateGameBarToolsVisibility();
 }
 
@@ -2651,6 +2846,9 @@ function renderPlayers() {
 
 function renderPlayerSeat() {
   if (isGameSettled()) {
+    state.playerBuyinPulseUntil = 0;
+    state.playerBuyinPulsePlayerId = null;
+    applyPlayerBuyinPulse();
     elements.playerJoin.classList.add("hidden");
     elements.playerSeat.classList.add("hidden");
     if (elements.playerOthersLabel) {
@@ -2670,6 +2868,9 @@ function renderPlayerSeat() {
   const settling = isSettleOpen();
   const player = state.players.find((item) => item.id === state.playerId);
   if (!player) {
+    state.playerBuyinPulseUntil = 0;
+    state.playerBuyinPulsePlayerId = null;
+    applyPlayerBuyinPulse();
     const waitingApproval = Boolean(state.game?.group_id && state.pendingJoinGroupPlayerId);
     if (state.playerId && state.game) {
       clearStoredPlayer(state.game.code);
@@ -2866,6 +3067,7 @@ function renderPlayerSeat() {
       }
     }
   }
+  applyPlayerBuyinPulse();
   updateGameBarToolsVisibility();
 }
 
@@ -3528,6 +3730,7 @@ async function refreshData() {
 
       const previousBuyinIds = new Set(state.buyins.map((buyin) => buyin.id));
       const previousPulseRecentMs = state.playerPulseRecentMs || {};
+      const hasPriorBuyins = previousBuyinIds.size > 0;
 
       state.game = gameRes.data;
       state.players = playersRes.data || [];
@@ -3541,6 +3744,7 @@ async function refreshData() {
 
       const activePlayerIds = new Set(state.players.map((player) => player.id));
       const pulseRecentMs = {};
+      let hasNewBuyinForCurrentPlayer = false;
 
       state.buyins.forEach((buyin) => {
         if (!buyin?.player_id || !activePlayerIds.has(buyin.player_id)) return;
@@ -3562,10 +3766,16 @@ async function refreshData() {
         if (!buyin?.id || !buyin?.player_id || !activePlayerIds.has(buyin.player_id)) return;
         if (!previousBuyinIds.has(buyin.id)) {
           pulseRecentMs[buyin.player_id] = now;
+          if (hasPriorBuyins && state.playerId && buyin.player_id === state.playerId) {
+            hasNewBuyinForCurrentPlayer = true;
+          }
         }
       });
 
       state.playerPulseRecentMs = pulseRecentMs;
+      if (hasNewBuyinForCurrentPlayer) {
+        triggerPlayerBuyinPulse(state.playerId);
+      }
 
       syncHostAccess();
       if (settlementsRes.error && settlementsRes.error.code === "42P01") {
@@ -4213,6 +4423,10 @@ async function addBuyin(playerId, amount, options = {}) {
   if (error) {
     setStatus("Buy-in failed", "error");
     return;
+  }
+
+  if (playerId && state.playerId && playerId === state.playerId) {
+    triggerPlayerBuyinPulse(playerId);
   }
 
   await refreshData();
@@ -4998,9 +5212,25 @@ function clearCurrentGame() {
   state.dismissedJoinRequestId = null;
   state.playerJoinFeedbackText = "";
   state.playerJoinFeedbackTone = "info";
+  state.playerBuyinPulseUntil = 0;
+  state.playerBuyinPulsePlayerId = null;
   state.pendingSettleAdjustments = new Map();
   state.hostPlayersPage = 0;
   state.hostPlayersTopNonHostId = null;
+  if (playerBuyinPulseTimer) {
+    clearTimeout(playerBuyinPulseTimer);
+    playerBuyinPulseTimer = null;
+  }
+  if (potTickerRaf) {
+    cancelAnimationFrame(potTickerRaf);
+    potTickerRaf = null;
+  }
+  if (potTickerClassTimer) {
+    clearTimeout(potTickerClassTimer);
+    potTickerClassTimer = null;
+  }
+  potTickerCurrent = null;
+  applyPlayerBuyinPulse();
   elements.gamePanel.classList.add("hidden");
   if (elements.sessionsPanel) elements.sessionsPanel.classList.add("hidden");
   if (elements.settledNotice) elements.settledNotice.classList.add("hidden");
@@ -5152,6 +5382,7 @@ buildQuarterOptions();
 buildStatsRanges();
 initTheme();
 initHeaderLights();
+initFeltParallax();
 void initGameName();
 initTitleFlicker();
 initOrnamentFlicker();
