@@ -707,7 +707,10 @@ function formatCheatExample(example) {
 
 function renderPlayerCheatSheet() {
   if (!elements.playerCheatContent) return;
-  const quickOrder = POKER_CHEAT_SHEET.map((entry) => `${entry.rank}. ${entry.hand}`).join("  >  ");
+  const cheatLadder = POKER_CHEAT_SHEET.map(
+    (entry) =>
+      `<span class="cheat-ladder-chip" data-rank="${entry.rank}" title="${entry.hand}" aria-label="${entry.rank}: ${entry.hand}">${entry.rank}</span>`
+  ).join("");
   const cheatCards = POKER_CHEAT_SHEET.map(
     (entry) => `
       <article class="cheat-card" data-rank="${entry.rank}" aria-label="Rank ${entry.rank}: ${entry.hand}">
@@ -722,9 +725,11 @@ function renderPlayerCheatSheet() {
   ).join("");
   elements.playerCheatContent.innerHTML = `
     <section class="cheat-intro">
-      <p class="cheat-title">Fast order (best to lowest)</p>
-      <p class="cheat-order">${quickOrder}</p>
-      <p class="cheat-tip">Tip: higher rank wins. If same rank, compare highest card in that hand type.</p>
+      <p class="cheat-title">Hand rank map</p>
+      <div class="cheat-ladder" role="list" aria-label="Best to lowest hand ranks">
+        ${cheatLadder}
+      </div>
+      <p class="cheat-tip">Lower number wins. Tie: highest card decides.</p>
     </section>
     <div class="cheat-grid" role="list">
       ${cheatCards}

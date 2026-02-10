@@ -2328,11 +2328,114 @@ button:disabled {
   font-weight: 700;
 }
 
-.cheat-order {
-  margin: 0;
-  font-size: 0.82rem;
-  line-height: 1.45;
-  color: rgba(246, 241, 233, 0.96);
+.cheat-ladder {
+  display: grid;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.cheat-ladder-chip {
+  --chip-accent-rgb: 255, 196, 116;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: visible;
+  height: 26px;
+  border-radius: 999px;
+  border: 1px solid rgba(210, 166, 78, 0.28);
+  background:
+    radial-gradient(circle at 30% 20%, rgba(var(--chip-accent-rgb), 0.25), transparent 60%),
+    linear-gradient(160deg, rgba(9, 14, 12, 0.56), rgba(8, 13, 11, 0.46));
+  color: rgba(246, 241, 233, 0.94);
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.cheat-ladder-chip::after {
+  content: ">";
+  position: absolute;
+  right: -14px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(170deg, #ffb900, #ff9800);
+  color: #2c1b03;
+  font-size: 0.9rem;
+  font-weight: 800;
+  box-shadow: 0 0 0 1px rgba(255, 214, 130, 0.35);
+  pointer-events: none;
+  z-index: 3;
+}
+
+.cheat-ladder-chip[data-rank="10"]::after {
+  display: none;
+}
+
+.cheat-ladder-chip[data-rank="1"],
+.cheat-ladder-chip[data-rank="2"] {
+  --chip-accent-rgb: 255, 205, 122;
+}
+
+.cheat-ladder-chip[data-rank="3"],
+.cheat-ladder-chip[data-rank="4"] {
+  --chip-accent-rgb: 255, 132, 168;
+}
+
+.cheat-ladder-chip[data-rank="5"],
+.cheat-ladder-chip[data-rank="6"] {
+  --chip-accent-rgb: 94, 236, 210;
+}
+
+.cheat-ladder-chip[data-rank="7"],
+.cheat-ladder-chip[data-rank="8"] {
+  --chip-accent-rgb: 149, 183, 255;
+}
+
+.cheat-ladder-chip[data-rank="9"],
+.cheat-ladder-chip[data-rank="10"] {
+  --chip-accent-rgb: 202, 165, 250;
+}
+
+@media (max-width: 520px) {
+  .cheat-ladder {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .cheat-ladder-chip::after {
+    right: -12px;
+    width: 16px;
+    height: 16px;
+    font-size: 0.82rem;
+  }
+
+  .cheat-ladder-chip[data-rank="5"]::after {
+    display: none;
+  }
+
+  .cheat-example {
+    font-size: 0.72rem;
+    padding: 5px 7px;
+  }
+
+  .cheat-token {
+    margin-right: 0.16em;
+    padding: 0 0.04em;
+  }
+
+  .cheat-token.is-ten {
+    padding-right: 0.02em;
+  }
+
+  .cheat-suit {
+    margin-left: 0.07em;
+  }
 }
 
 .cheat-tip {
@@ -2439,12 +2542,12 @@ button:disabled {
   white-space: nowrap;
   align-items: center;
   justify-content: center;
-  gap: 3px;
+  gap: 0;
   align-self: flex-start;
   justify-self: stretch;
   width: 100%;
   min-height: 38px;
-  padding: 5px 6px;
+  padding: 5px 8px;
   border-radius: 999px;
   border: 1px solid rgba(210, 166, 78, 0.55);
   background: linear-gradient(145deg, rgba(230, 196, 109, 0.72), rgba(198, 140, 56, 0.64));
@@ -2461,6 +2564,7 @@ button:disabled {
   width: 0.92em;
   font-size: 0.96em;
   line-height: 1;
+  margin-left: 0.08em;
   filter: saturate(1.02) brightness(1.16);
   font-weight: 700;
   text-shadow: 0 0 2px rgba(0, 0, 0, 0.14);
@@ -2470,13 +2574,14 @@ button:disabled {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 1px;
-  min-width: 1.76em;
-  margin-right: 0;
+  gap: 0;
+  min-width: auto;
+  padding: 0 0.05em;
+  margin-right: 0.2em;
 }
 
 .cheat-token.is-ten {
-  min-width: 2.22em;
+  padding-right: 0.03em;
 }
 
 .cheat-rank-text {
@@ -4136,8 +4241,16 @@ body.theme-light .cheat-title {
   color: rgba(31, 49, 44, 0.68);
 }
 
-body.theme-light .cheat-order {
+body.theme-light .cheat-ladder-chip {
+  border-color: rgba(31, 111, 92, 0.28);
+  background:
+    radial-gradient(circle at 30% 20%, rgba(var(--chip-accent-rgb), 0.24), transparent 60%),
+    linear-gradient(165deg, rgba(248, 243, 233, 0.9), rgba(238, 230, 214, 0.8));
   color: rgba(27, 26, 23, 0.9);
+}
+
+body.theme-light .cheat-ladder-chip::after {
+  box-shadow: 0 0 0 1px rgba(176, 122, 36, 0.35);
 }
 
 body.theme-light .cheat-tip {
