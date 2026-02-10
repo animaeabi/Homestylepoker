@@ -3404,7 +3404,7 @@ body.theme-light .player-tile {
 
 .player-panel .panel-title h2 {
   letter-spacing: 0.12em;
-  font-size: 1.9rem;
+  font-size: 1.62rem;
   text-shadow: 0 0 14px rgba(255, 182, 102, 0.24);
 }
 
@@ -3660,9 +3660,24 @@ body.theme-light .player-tile {
 }
 
 .player-seat-name {
-  font-size: 1.45rem;
+  font-family: "Cinzel", "Fraunces", serif;
+  font-size: 1.68rem;
   line-height: 1.15;
   letter-spacing: 0.02em;
+  color: #ffd2a3;
+  text-rendering: geometricPrecision;
+  text-shadow:
+    0 0 1px rgba(255, 230, 200, 0.95),
+    0 0 6px rgba(255, 170, 90, 0.55),
+    0 0 10px rgba(230, 80, 30, 0.4);
+}
+
+body.theme-light .player-seat-name {
+  color: #6a2f12;
+  text-shadow:
+    0 0 1px rgba(255, 235, 200, 0.42),
+    0 0 5px rgba(230, 110, 50, 0.24),
+    0 0 8px rgba(190, 60, 24, 0.18);
 }
 
 .player-metrics {
@@ -3896,7 +3911,7 @@ body.theme-light .player-metrics > div {
   }
 
   .player-panel .panel-title h2 {
-    font-size: 1.95rem;
+    font-size: 1.66rem;
   }
 
   .player-panel .primary {
@@ -3919,7 +3934,7 @@ body.theme-light .player-metrics > div {
   }
 
   .player-seat-name {
-    font-size: 1.3rem;
+    font-size: 1.5rem;
   }
 }
 

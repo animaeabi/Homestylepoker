@@ -2941,7 +2941,6 @@ function renderPlayerSeat() {
   }
   elements.playerCard.innerHTML = `
     <div class="player-card-head">
-      <span class="player-seat-label">Your seat</span>
       <strong class="player-seat-name">${displayPlayerName(player)}</strong>
     </div>
     <div class="player-metrics">
