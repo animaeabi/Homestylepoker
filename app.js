@@ -293,19 +293,19 @@ const POKER_CHEAT_SHEET = [
     rank: 2,
     hand: "Straight Flush",
     description: "Five cards in sequence, all of the same suit.",
-    example: "9♡ 8♡ 7♡ 6♡ 5♡"
+    example: "9♥ 8♥ 7♥ 6♥ 5♥"
   },
   {
     rank: 3,
     hand: "Four of a Kind",
     description: "All four cards of the same rank.",
-    example: "J♣ J♢ J♡ J♠ 7♢"
+    example: "J♣ J♦ J♥ J♠ 7♦"
   },
   {
     rank: 4,
     hand: "Full House",
     description: "Three of a kind with a pair.",
-    example: "Q♠ Q♡ Q♢ 4♣ 4♠"
+    example: "Q♠ Q♥ Q♦ 4♣ 4♠"
   },
   {
     rank: 5,
@@ -317,31 +317,31 @@ const POKER_CHEAT_SHEET = [
     rank: 6,
     hand: "Straight",
     description: "Five cards in sequence, but not of the same suit.",
-    example: "8♠ 7♢ 6♡ 5♣ 4♠"
+    example: "8♠ 7♦ 6♥ 5♣ 4♠"
   },
   {
     rank: 7,
     hand: "Three of a Kind",
     description: "Three cards of the same rank.",
-    example: "5♢ 5♣ 5♠ K♡ 3♢"
+    example: "5♦ 5♣ 5♠ K♥ 3♦"
   },
   {
     rank: 8,
     hand: "Two Pair",
     description: "Two different pairs in one hand.",
-    example: "10♠ 10♣ 3♢ 3♠ A♣"
+    example: "10♠ 10♣ 3♦ 3♠ A♣"
   },
   {
     rank: 9,
     hand: "One Pair",
     description: "Two cards of the same rank.",
-    example: "A♢ A♡ 9♠ 6♣ 4♠"
+    example: "A♦ A♥ 9♠ 6♣ 4♠"
   },
   {
     rank: 10,
     hand: "High Card",
     description: "No matches; ranked by the highest card held.",
-    example: "A♠ Q♢ 10♣ 7♡ 5♢"
+    example: "A♠ Q♦ 10♣ 7♥ 5♦"
   }
 ];
 const suitCycleIdleChar = "🥂";
@@ -677,33 +677,57 @@ function closeJoinPlayerModal() {
   elements.joinPlayerModal.classList.add("hidden");
 }
 
+function formatCheatExample(example) {
+  const suitClass = {
+    "♠": "spade",
+    "♥": "heart",
+    "♦": "diamond",
+    "♣": "club"
+  };
+  const suitGlyph = {
+    "♠": "♠️",
+    "♥": "♥️",
+    "♦": "♦️",
+    "♣": "♣️"
+  };
+  return example
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((card) => {
+      const match = card.match(/^(10|[2-9JQKA])([♠♥♦♣])$/u);
+      if (!match) {
+        return `<span class="cheat-token"><span class="cheat-rank-text">${card}</span></span>`;
+      }
+      const [, rank, suit] = match;
+      const rankClass = rank.length > 1 ? " is-ten" : "";
+      return `<span class="cheat-token${rankClass}"><span class="cheat-rank-text">${rank}</span><span class="cheat-suit ${suitClass[suit]}">${suitGlyph[suit]}</span></span>`;
+    })
+    .join("");
+}
+
 function renderPlayerCheatSheet() {
   if (!elements.playerCheatContent) return;
-  const cheatRows = POKER_CHEAT_SHEET.map(
+  const quickOrder = POKER_CHEAT_SHEET.map((entry) => `${entry.rank}. ${entry.hand}`).join("  >  ");
+  const cheatCards = POKER_CHEAT_SHEET.map(
     (entry) => `
-      <tr>
-        <td>${entry.rank}</td>
-        <td>${entry.hand}</td>
-        <td>${entry.description}</td>
-        <td>${entry.example}</td>
-      </tr>
+      <article class="cheat-card" data-rank="${entry.rank}" aria-label="Rank ${entry.rank}: ${entry.hand}">
+        <div class="cheat-card-head">
+          <span class="cheat-rank">${entry.rank}</span>
+          <h3>${entry.hand}</h3>
+        </div>
+        <p class="cheat-desc">${entry.description}</p>
+        <p class="cheat-example">${formatCheatExample(entry.example)}</p>
+      </article>
     `
   ).join("");
   elements.playerCheatContent.innerHTML = `
-    <div class="player-cheat-table-wrap">
-      <table class="player-cheat-table">
-        <thead>
-          <tr>
-            <th>Rank</th>
-            <th>Hand</th>
-            <th>Description</th>
-            <th>Example</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${cheatRows}
-        </tbody>
-      </table>
+    <section class="cheat-intro">
+      <p class="cheat-title">Fast order (best to lowest)</p>
+      <p class="cheat-order">${quickOrder}</p>
+      <p class="cheat-tip">Tip: higher rank wins. If same rank, compare highest card in that hand type.</p>
+    </section>
+    <div class="cheat-grid" role="list">
+      ${cheatCards}
     </div>
   `;
 }
