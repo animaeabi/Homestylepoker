@@ -188,6 +188,10 @@ const elements = {
   playerCard: $("#playerCard"),
   playerOthersLabel: $("#playerOthersLabel"),
   playerOthers: $("#playerOthers"),
+  playerCheatLabel: $("#playerCheatLabel"),
+  playerCheatModal: $("#playerCheatModal"),
+  playerCheatClose: $("#playerCheatClose"),
+  playerCheatContent: $("#playerCheatContent"),
   playerAddDefault: $("#playerAddDefault"),
   playerSettle: $("#playerSettle"),
   playerSettleAmount: $("#playerSettleAmount"),
@@ -278,6 +282,68 @@ const recentGamesKey = "poker_recent_games";
 const themeKey = "poker_theme";
 const lightsOffKey = "poker_lights_off";
 const suitCycleRandom = ["♠", "♣", "♦", "♥", "😂", "😉"];
+const POKER_CHEAT_SHEET = [
+  {
+    rank: 1,
+    hand: "Royal Flush",
+    description: "The best possible hand; A, K, Q, J, 10 of the same suit.",
+    example: "A♠ K♠ Q♠ J♠ 10♠"
+  },
+  {
+    rank: 2,
+    hand: "Straight Flush",
+    description: "Five cards in sequence, all of the same suit.",
+    example: "9♡ 8♡ 7♡ 6♡ 5♡"
+  },
+  {
+    rank: 3,
+    hand: "Four of a Kind",
+    description: "All four cards of the same rank.",
+    example: "J♣ J♢ J♡ J♠ 7♢"
+  },
+  {
+    rank: 4,
+    hand: "Full House",
+    description: "Three of a kind with a pair.",
+    example: "Q♠ Q♡ Q♢ 4♣ 4♠"
+  },
+  {
+    rank: 5,
+    hand: "Flush",
+    description: "Any five cards of the same suit, not in sequence.",
+    example: "K♣ J♣ 8♣ 4♣ 2♣"
+  },
+  {
+    rank: 6,
+    hand: "Straight",
+    description: "Five cards in sequence, but not of the same suit.",
+    example: "8♠ 7♢ 6♡ 5♣ 4♠"
+  },
+  {
+    rank: 7,
+    hand: "Three of a Kind",
+    description: "Three cards of the same rank.",
+    example: "5♢ 5♣ 5♠ K♡ 3♢"
+  },
+  {
+    rank: 8,
+    hand: "Two Pair",
+    description: "Two different pairs in one hand.",
+    example: "10♠ 10♣ 3♢ 3♠ A♣"
+  },
+  {
+    rank: 9,
+    hand: "One Pair",
+    description: "Two cards of the same rank.",
+    example: "A♢ A♡ 9♠ 6♣ 4♠"
+  },
+  {
+    rank: 10,
+    hand: "High Card",
+    description: "No matches; ranked by the highest card held.",
+    example: "A♠ Q♢ 10♣ 7♡ 5♢"
+  }
+];
 const suitCycleIdleChar = "🥂";
 const emojiCycleSet = new Set(["😂", "😉", "🥂"]);
 const suitCycleDelayMs = 3600;
@@ -609,6 +675,48 @@ function openJoinPlayerModal() {
 function closeJoinPlayerModal() {
   if (!elements.joinPlayerModal) return;
   elements.joinPlayerModal.classList.add("hidden");
+}
+
+function renderPlayerCheatSheet() {
+  if (!elements.playerCheatContent) return;
+  const cheatRows = POKER_CHEAT_SHEET.map(
+    (entry) => `
+      <tr>
+        <td>${entry.rank}</td>
+        <td>${entry.hand}</td>
+        <td>${entry.description}</td>
+        <td>${entry.example}</td>
+      </tr>
+    `
+  ).join("");
+  elements.playerCheatContent.innerHTML = `
+    <div class="player-cheat-table-wrap">
+      <table class="player-cheat-table">
+        <thead>
+          <tr>
+            <th>Rank</th>
+            <th>Hand</th>
+            <th>Description</th>
+            <th>Example</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${cheatRows}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function openPlayerCheatModal() {
+  if (!elements.playerCheatModal) return;
+  renderPlayerCheatSheet();
+  elements.playerCheatModal.classList.remove("hidden");
+}
+
+function closePlayerCheatModal() {
+  if (!elements.playerCheatModal) return;
+  elements.playerCheatModal.classList.add("hidden");
 }
 
 async function fetchActiveGamesByGroups(groupIds) {
@@ -2850,7 +2958,11 @@ function renderPlayerSeat() {
       elements.playerOthers.classList.add("hidden");
       elements.playerOthers.innerHTML = "";
     }
+    if (elements.playerCheatLabel) {
+      elements.playerCheatLabel.classList.add("hidden");
+    }
     state.playerPulseExpanded = false;
+    closePlayerCheatModal();
     if (elements.playerSettledSummary) {
       elements.playerSettledSummary.classList.remove("hidden");
     }
@@ -2882,7 +2994,11 @@ function renderPlayerSeat() {
       elements.playerOthers.classList.add("hidden");
       elements.playerOthers.innerHTML = "";
     }
+    if (elements.playerCheatLabel) {
+      elements.playerCheatLabel.classList.add("hidden");
+    }
     state.playerPulseExpanded = false;
+    closePlayerCheatModal();
     if (elements.playerSettle) {
       elements.playerSettle.classList.add("hidden");
     }
@@ -3023,6 +3139,11 @@ function renderPlayerSeat() {
       }
       elements.playerOthers.classList.toggle("hidden", !state.playerPulseExpanded);
     }
+  }
+
+  if (elements.playerCheatLabel) {
+    elements.playerCheatLabel.classList.remove("hidden");
+    elements.playerCheatLabel.setAttribute("aria-expanded", "false");
   }
 
   elements.playerAddDefault.textContent = `Add buy-in (${formatCurrency(
@@ -5229,6 +5350,7 @@ function clearCurrentGame() {
   if (elements.discrepancyModal) elements.discrepancyModal.classList.add("hidden");
   if (elements.qrModal) elements.qrModal.classList.add("hidden");
   if (elements.confirmModal) elements.confirmModal.classList.add("hidden");
+  if (elements.playerCheatModal) elements.playerCheatModal.classList.add("hidden");
   if (elements.settlementSummary) elements.settlementSummary.classList.add("hidden");
   if (elements.playerSettledSummary) elements.playerSettledSummary.classList.add("hidden");
   elements.landing.classList.remove("hidden");
@@ -5834,6 +5956,18 @@ if (elements.joinPlayerModal) {
   });
 }
 
+if (elements.playerCheatClose) {
+  elements.playerCheatClose.addEventListener("click", closePlayerCheatModal);
+}
+
+if (elements.playerCheatModal) {
+  elements.playerCheatModal.addEventListener("click", (event) => {
+    if (event.target.dataset.action === "close") {
+      closePlayerCheatModal();
+    }
+  });
+}
+
 if (elements.lockPhraseModal) {
   elements.lockPhraseModal.addEventListener("click", (event) => {
     if (event.target.dataset.action === "close") {
@@ -6195,6 +6329,9 @@ window.addEventListener("keydown", (event) => {
   if (elements.joinPlayerModal && !elements.joinPlayerModal.classList.contains("hidden")) {
     closeJoinPlayerModal();
   }
+  if (elements.playerCheatModal && !elements.playerCheatModal.classList.contains("hidden")) {
+    closePlayerCheatModal();
+  }
   if (elements.statsModal && !elements.statsModal.classList.contains("hidden")) {
     closeStatsModal();
   }
@@ -6464,6 +6601,13 @@ if (elements.playerOthersLabel) {
     if (elements.playerOthers) {
       elements.playerOthers.classList.toggle("hidden", !state.playerPulseExpanded);
     }
+  });
+}
+
+if (elements.playerCheatLabel) {
+  elements.playerCheatLabel.addEventListener("click", () => {
+    if (elements.playerCheatLabel.classList.contains("hidden")) return;
+    openPlayerCheatModal();
   });
 }
 

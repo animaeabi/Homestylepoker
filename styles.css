@@ -2297,6 +2297,19 @@ button:disabled {
   overflow: auto;
 }
 
+.player-cheat-modal-panel {
+  position: relative;
+  z-index: 1;
+  width: min(94vw, 860px);
+  max-height: var(--modal-max-height);
+  overflow: auto;
+}
+
+.player-cheat-content {
+  display: grid;
+  gap: 10px;
+}
+
 .join-player-panel {
   position: relative;
   z-index: 1;
@@ -3518,6 +3531,83 @@ body.theme-light .player-tile {
   transform: scaleX(-1);
 }
 
+.player-cheat-label {
+  grid-column: 1 / 2;
+  justify-self: start;
+  align-self: start;
+  margin-top: 16px;
+  text-align: left;
+}
+
+.player-cheat-label .cheat-chevron {
+  display: inline-block;
+  transform-origin: 50% 50%;
+  transition: transform 0.2s ease;
+}
+
+.player-cheat-label > span:first-child {
+  text-decoration-line: underline;
+  text-decoration-color: rgba(214, 202, 176, 0.65);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.player-cheat-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+
+.player-cheat-table {
+  width: 100%;
+  min-width: 670px;
+  border-collapse: collapse;
+  font-size: 0.74rem;
+  line-height: 1.35;
+}
+
+.player-cheat-table thead th {
+  text-align: left;
+  font-size: 0.66rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(214, 202, 176, 0.86);
+  padding: 8px 8px;
+  border-bottom: 1px solid rgba(210, 166, 78, 0.22);
+  background: rgba(255, 196, 116, 0.06);
+}
+
+.player-cheat-table tbody td {
+  padding: 8px 8px;
+  border-bottom: 1px solid rgba(210, 166, 78, 0.12);
+  vertical-align: top;
+  color: rgba(246, 241, 233, 0.95);
+}
+
+.player-cheat-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.player-cheat-table th:nth-child(1),
+.player-cheat-table td:nth-child(1) {
+  width: 52px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.player-cheat-table th:nth-child(2),
+.player-cheat-table td:nth-child(2) {
+  width: 142px;
+  white-space: nowrap;
+}
+
+.player-cheat-table th:nth-child(4),
+.player-cheat-table td:nth-child(4) {
+  width: 190px;
+  white-space: nowrap;
+}
+
 .player-others-title {
   display: flex;
   align-items: center;
@@ -3834,6 +3924,25 @@ body.theme-light .player-others {
 
 body.theme-light .player-others-label {
   color: rgba(31, 49, 44, 0.68);
+}
+
+body.theme-light .player-cheat-modal-panel {
+  background:
+    radial-gradient(circle at 16% 12%, rgba(212, 164, 68, 0.08), transparent 56%),
+    radial-gradient(circle at 86% 88%, rgba(31, 111, 92, 0.08), transparent 54%),
+    var(--surface-grad);
+  border-color: rgba(31, 111, 92, 0.24);
+}
+
+body.theme-light .player-cheat-table thead th {
+  color: rgba(31, 49, 44, 0.74);
+  border-bottom-color: rgba(31, 111, 92, 0.24);
+  background: rgba(31, 111, 92, 0.08);
+}
+
+body.theme-light .player-cheat-table tbody td {
+  color: rgba(27, 26, 23, 0.9);
+  border-bottom-color: rgba(31, 111, 92, 0.16);
 }
 
 body.theme-light .player-card {

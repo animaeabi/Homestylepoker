@@ -259,6 +259,10 @@
                   <span class="pulse-chevron" aria-hidden="true">&gt;</span>
                 </button>
                 <div id="playerOthers" class="player-others hidden"></div>
+                <button id="playerCheatLabel" class="player-others-label player-cheat-label hidden" type="button" aria-haspopup="dialog" aria-controls="playerCheatModal">
+                  <span>Poker Cheat Sheet</span>
+                  <span class="cheat-chevron" aria-hidden="true">&gt;</span>
+                </button>
               </div>
               <div id="playerSettle" class="player-settle hidden">
                 <label class="field">
@@ -585,6 +589,20 @@
               </section>
             </div>
           </div>
+        </section>
+      </div>
+
+      <div id="playerCheatModal" class="modal hidden" role="dialog" aria-modal="true">
+        <div class="modal-backdrop" data-action="close"></div>
+        <section class="panel player-cheat-modal-panel">
+          <div class="panel-title summary-header">
+            <div>
+              <h2>Poker Cheat Sheet</h2>
+              <p class="muted">Quick hand rankings and examples.</p>
+            </div>
+            <button id="playerCheatClose" class="ghost" type="button">Close</button>
+          </div>
+          <div id="playerCheatContent" class="player-cheat-content"></div>
         </section>
       </div>
 
