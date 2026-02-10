@@ -794,6 +794,28 @@ function toggleCheatCard(card) {
   setCheatCardFlipped(card, next);
 }
 
+function syncCheatFrontHeights() {
+  if (!elements.playerCheatContent) return;
+  const cards = Array.from(elements.playerCheatContent.querySelectorAll(".cheat-card"));
+  if (!cards.length) return;
+  cards.forEach((card) => card.style.removeProperty("--cheat-front-min"));
+  for (let i = 0; i < cards.length; i += 2) {
+    const leftCard = cards[i];
+    const rightCard = cards[i + 1];
+    if (!leftCard) continue;
+    const leftFront = leftCard.querySelector(".cheat-card-front");
+    const rightFront = rightCard?.querySelector(".cheat-card-front");
+    if (!leftFront) continue;
+    const leftHeight = leftFront.scrollHeight;
+    const rightHeight = rightFront ? rightFront.scrollHeight : leftHeight;
+    const rowHeight = Math.max(leftHeight, rightHeight);
+    leftCard.style.setProperty("--cheat-front-min", `${rowHeight}px`);
+    if (rightCard) {
+      rightCard.style.setProperty("--cheat-front-min", `${rowHeight}px`);
+    }
+  }
+}
+
 function renderPlayerCheatSheet() {
   if (!elements.playerCheatContent) return;
   const cheatCards = POKER_CHEAT_SHEET.map(
@@ -823,7 +845,10 @@ function renderPlayerCheatSheet() {
   elements.playerCheatContent.innerHTML = `
     <section class="cheat-intro">
       <p class="cheat-title">Hand rank map</p>
-      <p class="cheat-tip">Below are all hand ranks from strongest to weakest. Tap any card to flip and view odds, risks, rewards, and quick play guidance.</p>
+      <ul class="cheat-points">
+        <li>All hand ranks are listed below from strongest to weakest.</li>
+        <li>Tap any card to flip and view odds, risk/reward, and quick play guidance.</li>
+      </ul>
     </section>
     <div class="cheat-grid" role="list">
       ${cheatCards}
@@ -835,6 +860,8 @@ function openPlayerCheatModal() {
   if (!elements.playerCheatModal) return;
   renderPlayerCheatSheet();
   elements.playerCheatModal.classList.remove("hidden");
+  requestAnimationFrame(syncCheatFrontHeights);
+  setTimeout(syncCheatFrontHeights, 80);
 }
 
 function closePlayerCheatModal() {
@@ -6105,6 +6132,11 @@ if (elements.playerCheatContent) {
     toggleCheatCard(card);
   });
 }
+
+window.addEventListener("resize", () => {
+  if (!elements.playerCheatModal || elements.playerCheatModal.classList.contains("hidden")) return;
+  requestAnimationFrame(syncCheatFrontHeights);
+});
 
 if (elements.lockPhraseModal) {
   elements.lockPhraseModal.addEventListener("click", (event) => {
