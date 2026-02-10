@@ -344,6 +344,68 @@ const POKER_CHEAT_SHEET = [
     example: "A♠ Q♦ 10♣ 7♥ 5♦"
   }
 ];
+const CHEAT_CARD_INSIGHTS = {
+  1: {
+    odds: "1 in 649,740",
+    reward: "Nuts: maximum value",
+    risk: "None by showdown",
+    play: "Bet big for value"
+  },
+  2: {
+    odds: "1 in 72,193",
+    reward: "Near-nuts strength",
+    risk: "Only higher straight flush",
+    play: "Build pot early"
+  },
+  3: {
+    odds: "1 in 4,165",
+    reward: "Huge showdown value",
+    risk: "Higher quads or straight flush",
+    play: "Keep betting streets"
+  },
+  4: {
+    odds: "1 in 694",
+    reward: "Very strong made hand",
+    risk: "Bigger full house or quads",
+    play: "Value-bet, avoid slowplay"
+  },
+  5: {
+    odds: "1 in 509",
+    reward: "Strong non-paired board hand",
+    risk: "Paired boards and higher flush",
+    play: "Value-bet, watch board pairs"
+  },
+  6: {
+    odds: "1 in 255",
+    reward: "Solid showdown value",
+    risk: "Higher straight or flush",
+    play: "Size bets carefully"
+  },
+  7: {
+    odds: "1 in 47",
+    reward: "Can win big pots",
+    risk: "Draw-heavy boards improve rivals",
+    play: "Charge draws now"
+  },
+  8: {
+    odds: "1 in 21",
+    reward: "Good value hand",
+    risk: "Straights, flushes, full houses",
+    play: "Bet for value, avoid greed"
+  },
+  9: {
+    odds: "1 in 2.37",
+    reward: "Most common made hand",
+    risk: "Kicker problems and overpairs",
+    play: "Thin value, fold to heavy action"
+  },
+  10: {
+    odds: "1 in 2.00",
+    reward: "Wins small uncontested pots",
+    risk: "Any pair beats it",
+    play: "Use as selective bluff-catcher"
+  }
+};
 const suitCycleIdleChar = "🥂";
 const emojiCycleSet = new Set(["😂", "😉", "🥂"]);
 const suitCycleDelayMs = 3600;
@@ -685,10 +747,10 @@ function formatCheatExample(example) {
     "♣": "club"
   };
   const suitGlyph = {
-    "♠": "♠️",
-    "♥": "♥️",
-    "♦": "♦️",
-    "♣": "♣️"
+    "♠": "♠",
+    "♥": "♥",
+    "♦": "♦",
+    "♣": "♣"
   };
   return example
     .split(/\s+/)
@@ -705,31 +767,63 @@ function formatCheatExample(example) {
     .join("");
 }
 
+function renderCheatInsightRows(entry) {
+  const insight = CHEAT_CARD_INSIGHTS[entry.rank];
+  if (!insight) return "";
+  return `
+    <ul class="cheat-insight-list" aria-label="Rank ${entry.rank} details">
+      <li><span>Odds</span><strong>${insight.odds}</strong></li>
+      <li><span>Reward</span><strong>${insight.reward}</strong></li>
+      <li><span>Risk</span><strong>${insight.risk}</strong></li>
+      <li><span>Play</span><strong>${insight.play}</strong></li>
+    </ul>
+  `;
+}
+
+function setCheatCardFlipped(card, flipped) {
+  if (!card) return;
+  card.classList.toggle("is-flipped", Boolean(flipped));
+  card.setAttribute("aria-pressed", flipped ? "true" : "false");
+  const back = card.querySelector(".cheat-card-back");
+  if (back) back.setAttribute("aria-hidden", flipped ? "false" : "true");
+}
+
+function toggleCheatCard(card) {
+  if (!card) return;
+  const next = !card.classList.contains("is-flipped");
+  setCheatCardFlipped(card, next);
+}
+
 function renderPlayerCheatSheet() {
   if (!elements.playerCheatContent) return;
-  const cheatLadder = POKER_CHEAT_SHEET.map(
-    (entry) =>
-      `<span class="cheat-ladder-chip" data-rank="${entry.rank}" title="${entry.hand}" aria-label="${entry.rank}: ${entry.hand}">${entry.rank}</span>`
-  ).join("");
   const cheatCards = POKER_CHEAT_SHEET.map(
     (entry) => `
-      <article class="cheat-card" data-rank="${entry.rank}" aria-label="Rank ${entry.rank}: ${entry.hand}">
-        <div class="cheat-card-head">
-          <span class="cheat-rank">${entry.rank}</span>
-          <h3>${entry.hand}</h3>
+      <article class="cheat-card" data-rank="${entry.rank}" role="button" tabindex="0" aria-pressed="false" aria-label="Rank ${entry.rank}: ${entry.hand}. Tap for details">
+        <div class="cheat-card-flip">
+          <div class="cheat-card-face cheat-card-front">
+            <div class="cheat-card-head">
+              <span class="cheat-rank">${entry.rank}</span>
+              <h3>${entry.hand}</h3>
+            </div>
+            <p class="cheat-desc">${entry.description}</p>
+            <p class="cheat-example">${formatCheatExample(entry.example)}</p>
+          </div>
+          <div class="cheat-card-face cheat-card-back" aria-hidden="true">
+            <div class="cheat-card-head">
+              <span class="cheat-rank">${entry.rank}</span>
+              <h3>${entry.hand}</h3>
+            </div>
+            ${renderCheatInsightRows(entry)}
+            <p class="cheat-example">${formatCheatExample(entry.example)}</p>
+          </div>
         </div>
-        <p class="cheat-desc">${entry.description}</p>
-        <p class="cheat-example">${formatCheatExample(entry.example)}</p>
       </article>
     `
   ).join("");
   elements.playerCheatContent.innerHTML = `
     <section class="cheat-intro">
       <p class="cheat-title">Hand rank map</p>
-      <div class="cheat-ladder" role="list" aria-label="Best to lowest hand ranks">
-        ${cheatLadder}
-      </div>
-      <p class="cheat-tip">Lower number wins. Tie: highest card decides.</p>
+      <p class="cheat-tip">Below are all hand ranks from strongest to weakest. Tap any card to flip and view odds, risks, rewards, and quick play guidance.</p>
     </section>
     <div class="cheat-grid" role="list">
       ${cheatCards}
@@ -5994,6 +6088,21 @@ if (elements.playerCheatModal) {
     if (event.target.dataset.action === "close") {
       closePlayerCheatModal();
     }
+  });
+}
+
+if (elements.playerCheatContent) {
+  elements.playerCheatContent.addEventListener("click", (event) => {
+    const card = event.target.closest(".cheat-card");
+    if (!card) return;
+    toggleCheatCard(card);
+  });
+  elements.playerCheatContent.addEventListener("keydown", (event) => {
+    const card = event.target.closest(".cheat-card");
+    if (!card) return;
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    toggleCheatCard(card);
   });
 }
 

@@ -2425,7 +2425,7 @@ button:disabled {
   }
 
   .cheat-token {
-    margin-right: 0.16em;
+    margin-right: 0.18em;
     padding: 0 0.04em;
   }
 
@@ -2434,7 +2434,15 @@ button:disabled {
   }
 
   .cheat-suit {
-    margin-left: 0.07em;
+    min-width: 0.94em;
+    font-size: 1.16em;
+    margin-left: 0.1em;
+  }
+
+  .cheat-card.is-flipped .cheat-example {
+    font-size: 0.64rem;
+    padding: 4px 6px;
+    min-height: 32px;
   }
 }
 
@@ -2467,6 +2475,105 @@ button:disabled {
   background:
     radial-gradient(circle at 85% 18%, rgba(var(--cheat-accent-rgb), 0.22), transparent 56%),
     linear-gradient(165deg, rgba(7, 12, 10, 0.58), rgba(8, 14, 12, 0.46));
+  perspective: 1200px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.cheat-card:focus-visible {
+  outline: 2px solid rgba(255, 214, 130, 0.6);
+  outline-offset: 2px;
+}
+
+.cheat-card-flip {
+  display: grid;
+  transform-style: preserve-3d;
+  transition: transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.cheat-card.is-flipped .cheat-card-flip {
+  animation: cheatCardFlipIn 240ms ease-out;
+}
+
+.cheat-card-face {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+}
+
+.cheat-card-back {
+  display: none;
+}
+
+.cheat-card:not(.is-flipped) .cheat-card-front {
+  display: grid;
+}
+
+.cheat-card.is-flipped .cheat-card-front {
+  display: none;
+}
+
+.cheat-card.is-flipped .cheat-card-back {
+  display: grid;
+  animation: cheatCardBackReveal 240ms ease-out;
+}
+
+@keyframes cheatCardBackReveal {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes cheatCardFlipIn {
+  from {
+    transform: rotateX(8deg) scale(0.995);
+  }
+  to {
+    transform: rotateX(0deg) scale(1);
+  }
+}
+
+.cheat-flip-hint {
+  margin: 0;
+  font-size: 0.66rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(214, 202, 176, 0.7);
+}
+
+.cheat-insight-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+
+.cheat-insight-list li {
+  display: grid;
+  grid-template-columns: 70px 1fr;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 0.72rem;
+  line-height: 1.3;
+}
+
+.cheat-insight-list li span {
+  color: rgba(214, 202, 176, 0.82);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.cheat-insight-list li strong {
+  font-weight: 700;
+  color: rgba(246, 241, 233, 0.94);
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .cheat-card[data-rank="1"],
@@ -2561,13 +2668,16 @@ button:disabled {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 0.92em;
-  font-size: 0.96em;
+  width: auto;
+  min-width: 0.98em;
+  font-size: 1.2em;
   line-height: 1;
-  margin-left: 0.08em;
-  filter: saturate(1.02) brightness(1.16);
+  margin-left: 0.13em;
+  font-family: "Times New Roman", "Noto Sans Symbols 2", "Segoe UI Symbol", serif;
+  font-variant-emoji: text;
+  filter: none;
   font-weight: 700;
-  text-shadow: 0 0 2px rgba(0, 0, 0, 0.14);
+  text-shadow: none;
 }
 
 .cheat-token {
@@ -2577,7 +2687,7 @@ button:disabled {
   gap: 0;
   min-width: auto;
   padding: 0 0.05em;
-  margin-right: 0.2em;
+  margin-right: 0.18em;
 }
 
 .cheat-token.is-ten {
@@ -2596,16 +2706,20 @@ button:disabled {
   margin-right: 0;
 }
 
+.cheat-card.is-flipped .cheat-example {
+  font-size: 0.68rem;
+  padding: 4px 7px;
+  min-height: 34px;
+}
+
 .cheat-suit.heart,
 .cheat-suit.diamond {
-  color: #f1c7d0;
-  text-shadow: 0 0 1px rgba(255, 177, 196, 0.1);
+  color: #b00020;
 }
 
 .cheat-suit.spade,
 .cheat-suit.club {
-  color: #fff4dd;
-  text-shadow: 0 0 3px rgba(255, 236, 193, 0.2);
+  color: #111111;
 }
 
 .join-player-panel {
@@ -4264,6 +4378,10 @@ body.theme-light .cheat-card {
     linear-gradient(165deg, rgba(255, 255, 255, 0.76), rgba(244, 239, 229, 0.58));
 }
 
+body.theme-light .cheat-card:focus-visible {
+  outline-color: rgba(176, 122, 36, 0.45);
+}
+
 body.theme-light .cheat-rank {
   border-color: rgba(31, 111, 92, 0.28);
   background: rgba(31, 111, 92, 0.1);
@@ -4278,6 +4396,18 @@ body.theme-light .cheat-desc {
   color: rgba(57, 53, 47, 0.82);
 }
 
+body.theme-light .cheat-flip-hint {
+  color: rgba(80, 72, 58, 0.72);
+}
+
+body.theme-light .cheat-insight-list li span {
+  color: rgba(80, 72, 58, 0.84);
+}
+
+body.theme-light .cheat-insight-list li strong {
+  color: rgba(27, 26, 23, 0.9);
+}
+
 body.theme-light .cheat-example {
   color: rgba(40, 28, 14, 0.94);
   border-color: rgba(176, 122, 36, 0.5);
@@ -4287,14 +4417,12 @@ body.theme-light .cheat-example {
 
 body.theme-light .cheat-suit.heart,
 body.theme-light .cheat-suit.diamond {
-  color: #b86a78;
-  text-shadow: none;
+  color: #9f001c;
 }
 
 body.theme-light .cheat-suit.spade,
 body.theme-light .cheat-suit.club {
-  color: #695328;
-  text-shadow: none;
+  color: #111111;
 }
 
 body.theme-light .player-card {
