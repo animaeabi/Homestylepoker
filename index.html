@@ -122,8 +122,11 @@
       <section id="gamePanel" class="game hidden">
         <div class="game-bar">
           <div class="game-info">
-            <div>
+            <div class="game-title-row">
               <h2 id="gameTitle">Loading…</h2>
+              <button id="playerTrendTrigger" class="player-trend-trigger hidden" type="button" aria-haspopup="dialog" aria-controls="playerTrendModal">
+                <span id="playerPanelHeading">My Performance</span>
+              </button>
             </div>
             <div class="info-chip">
               Code
@@ -230,7 +233,6 @@
 
           <section id="playerPanel" class="panel player-panel">
             <div class="panel-title" id="playerPanelTitle">
-              <h2 id="playerPanelHeading">Player</h2>
               <p id="playerPanelSubtitle">Join once, tap to add buy-ins.</p>
             </div>
             <div id="hostModeDock" class="host-mode-dock hidden">
@@ -605,6 +607,19 @@
             <button id="playerCheatClose" class="ghost" type="button">Close</button>
           </div>
           <div id="playerCheatContent" class="player-cheat-content"></div>
+        </section>
+      </div>
+
+      <div id="playerTrendModal" class="modal hidden" role="dialog" aria-modal="true">
+        <div class="modal-backdrop" data-action="close"></div>
+        <section class="panel player-trend-panel">
+          <div class="panel-title summary-header">
+            <div>
+              <h2>My Performance</h2>
+            </div>
+            <button id="playerTrendClose" class="ghost" type="button">Close</button>
+          </div>
+          <div id="playerTrendContent" class="player-trend-content"></div>
         </section>
       </div>
 

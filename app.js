@@ -178,6 +178,7 @@ const elements = {
   settingsClose: $("#settingsClose"),
   playerPanel: $("#playerPanel"),
   playerPanelTitle: $("#playerPanelTitle"),
+  playerTrendTrigger: $("#playerTrendTrigger"),
   playerPanelHeading: $("#playerPanelHeading"),
   playerPanelSubtitle: $("#playerPanelSubtitle"),
   playerJoin: $("#playerJoin"),
@@ -193,6 +194,9 @@ const elements = {
   playerCheatModal: $("#playerCheatModal"),
   playerCheatClose: $("#playerCheatClose"),
   playerCheatContent: $("#playerCheatContent"),
+  playerTrendModal: $("#playerTrendModal"),
+  playerTrendClose: $("#playerTrendClose"),
+  playerTrendContent: $("#playerTrendContent"),
   playerAddDefault: $("#playerAddDefault"),
   playerLeave: $("#playerLeave"),
   playerSettle: $("#playerSettle"),
@@ -561,6 +565,15 @@ function displayPlayerName(player) {
   return isHostPlayer(player) ? `${base} (Host)` : base;
 }
 
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function applyTheme(theme) {
   const mode = theme === "light" ? "light" : "dark";
   document.body.classList.toggle("theme-light", mode === "light");
@@ -915,6 +928,890 @@ function openPlayerCheatModal() {
 function closePlayerCheatModal() {
   if (!elements.playerCheatModal) return;
   elements.playerCheatModal.classList.add("hidden");
+}
+
+function buildPlayerTrendIdentity() {
+  const player = state.players.find((item) => item.id === state.playerId);
+  if (!player) return null;
+  const baseName = stripHostSuffix(player.name || "Player");
+  return {
+    name: baseName,
+    normalized: normalizeName(baseName),
+    groupPlayerId: player.group_player_id || null
+  };
+}
+
+async function loadPlayerTrendRows() {
+  if (!supabase) {
+    return { rows: [], identity: null, comparisonSeries: [], error: "Live data unavailable." };
+  }
+  const identity = buildPlayerTrendIdentity();
+  if (!identity) {
+    return { rows: [], identity: null, comparisonSeries: [], error: "Join a seat to see your trend." };
+  }
+
+  const { data: settledGames, error: settledGamesError } = await supabase
+    .from("games")
+    .select("id,name,created_at,ended_at")
+    .not("ended_at", "is", null)
+    .order("ended_at", { ascending: true });
+  if (settledGamesError) {
+    return { rows: [], identity, comparisonSeries: [], error: "Could not load settled games." };
+  }
+
+  const games = settledGames || [];
+  if (!games.length) {
+    return { rows: [], identity, comparisonSeries: [], error: null };
+  }
+  const gameIds = games.map((game) => game.id);
+  const gameById = new Map(games.map((game) => [game.id, game]));
+
+  const { data: players, error: playersError } = await supabase
+    .from("players")
+    .select("id,game_id,name,group_player_id")
+    .in("game_id", gameIds);
+  if (playersError) {
+    return { rows: [], identity, comparisonSeries: [], error: "Could not load player history." };
+  }
+
+  const normalizedToGroupIds = new Map();
+  (players || []).forEach((player) => {
+    if (!player.group_player_id) return;
+    const normalized = normalizeName(stripHostSuffix(player.name || ""));
+    if (!normalizedToGroupIds.has(normalized)) {
+      normalizedToGroupIds.set(normalized, new Set());
+    }
+    normalizedToGroupIds.get(normalized).add(player.group_player_id);
+  });
+  const resolveSeriesKey = (player) => {
+    if (player?.group_player_id) return `gp:${player.group_player_id}`;
+    const normalized = normalizeName(stripHostSuffix(player?.name || ""));
+    const groupIds = normalizedToGroupIds.get(normalized);
+    if (groupIds && groupIds.size === 1) {
+      return `gp:${Array.from(groupIds)[0]}`;
+    }
+    return `name:${normalized}`;
+  };
+
+  const matchingPlayers = (players || []).filter((player) => {
+    if (identity.groupPlayerId) {
+      if (player.group_player_id === identity.groupPlayerId) return true;
+      return !player.group_player_id && normalizeName(stripHostSuffix(player.name || "")) === identity.normalized;
+    }
+    return normalizeName(stripHostSuffix(player.name || "")) === identity.normalized;
+  });
+  if (!matchingPlayers.length) {
+    return { rows: [], identity, comparisonSeries: [], error: null };
+  }
+
+  const matchingGameIds = Array.from(
+    new Set(matchingPlayers.map((player) => player.game_id).filter(Boolean))
+  );
+  if (!matchingGameIds.length) {
+    return { rows: [], identity, comparisonSeries: [], error: null };
+  }
+
+  const playersInScope = (players || []).filter((player) => matchingGameIds.includes(player.game_id));
+  const playerById = new Map(playersInScope.map((player) => [player.id, player]));
+  const currentKey = matchingPlayers.length ? resolveSeriesKey(matchingPlayers[0]) : null;
+
+  const [buyinsRes, settlementsRes, adjustmentsRes] = await Promise.all([
+    supabase
+      .from("buyins")
+      .select("game_id,player_id,amount")
+      .in("game_id", matchingGameIds),
+    supabase
+      .from("settlements")
+      .select("game_id,player_id,amount")
+      .in("game_id", matchingGameIds),
+    supabase
+      .from("settlement_adjustments")
+      .select("game_id,player_id,amount")
+      .in("game_id", matchingGameIds)
+  ]);
+
+  if (buyinsRes.error || settlementsRes.error) {
+    return { rows: [], identity, comparisonSeries: [], error: "Could not load trend details." };
+  }
+  if (adjustmentsRes.error && !isMissingTableError(adjustmentsRes.error)) {
+    return { rows: [], identity, comparisonSeries: [], error: "Could not load discrepancy history." };
+  }
+
+  const rowsByKeyByGame = new Map();
+  const ensureSeriesRow = (key, gameId) => {
+    if (!rowsByKeyByGame.has(key)) rowsByKeyByGame.set(key, new Map());
+    const byGame = rowsByKeyByGame.get(key);
+    if (!byGame.has(gameId)) {
+      const game = gameById.get(gameId) || {};
+      const stamp = game.ended_at || game.created_at;
+      byGame.set(gameId, {
+        gameId,
+        gameName: safeTrim(game.name) || "Game",
+        settledAt: stamp || null,
+        buyins: 0,
+        cashout: 0,
+        errorShare: 0,
+        final: 0,
+        net: 0,
+        cumulative: 0
+      });
+    }
+    return byGame.get(gameId);
+  };
+
+  const seriesMeta = new Map();
+  playersInScope.forEach((player) => {
+    const key = resolveSeriesKey(player);
+    if (!seriesMeta.has(key)) {
+      seriesMeta.set(key, {
+        key,
+        name: stripHostSuffix(player.name || "Player")
+      });
+    }
+  });
+
+  const rowByGame = new Map();
+  const ensureRow = (gameId) => {
+    if (!rowByGame.has(gameId)) {
+      const game = gameById.get(gameId) || {};
+      const stamp = game.ended_at || game.created_at;
+      rowByGame.set(gameId, {
+        gameId,
+        gameName: safeTrim(game.name) || "Game",
+        settledAt: stamp || null,
+        buyins: 0,
+        cashout: 0,
+        errorShare: 0,
+        final: 0,
+        net: 0,
+        cumulative: 0
+      });
+    }
+    return rowByGame.get(gameId);
+  };
+
+  matchingGameIds.forEach((gameId) => ensureRow(gameId));
+  (buyinsRes.data || []).forEach((buyin) => {
+    const player = playerById.get(buyin.player_id);
+    if (!player) return;
+    const key = resolveSeriesKey(player);
+    const amount = Number(buyin.amount || 0);
+    const seriesRow = ensureSeriesRow(key, buyin.game_id);
+    seriesRow.buyins += amount;
+    if (key === currentKey) {
+      const row = ensureRow(buyin.game_id);
+      row.buyins += amount;
+    }
+  });
+  (settlementsRes.data || []).forEach((settlement) => {
+    const player = playerById.get(settlement.player_id);
+    if (!player) return;
+    const key = resolveSeriesKey(player);
+    const amount = Number(settlement.amount || 0);
+    const seriesRow = ensureSeriesRow(key, settlement.game_id);
+    seriesRow.cashout += amount;
+    if (key === currentKey) {
+      const row = ensureRow(settlement.game_id);
+      row.cashout += amount;
+    }
+  });
+  if (!adjustmentsRes.error) {
+    (adjustmentsRes.data || []).forEach((adjustment) => {
+      const player = playerById.get(adjustment.player_id);
+      if (!player) return;
+      const key = resolveSeriesKey(player);
+      const amount = Number(adjustment.amount || 0);
+      const seriesRow = ensureSeriesRow(key, adjustment.game_id);
+      seriesRow.errorShare += amount;
+      if (key === currentKey) {
+        const row = ensureRow(adjustment.game_id);
+        row.errorShare += amount;
+      }
+    });
+  }
+
+  const rows = Array.from(rowByGame.values())
+    .sort((a, b) => new Date(a.settledAt || 0).getTime() - new Date(b.settledAt || 0).getTime())
+    .map((row) => ({
+      ...row,
+      buyins: moneyRound(row.buyins),
+      cashout: moneyRound(row.cashout),
+      errorShare: moneyRound(row.errorShare)
+    }));
+
+  let cumulative = 0;
+  rows.forEach((row) => {
+    row.final = moneyRound(row.cashout + row.errorShare);
+    row.net = moneyRound(row.final - row.buyins);
+    cumulative = moneyRound(cumulative + row.net);
+    row.cumulative = cumulative;
+  });
+
+  const rawSeries = [];
+  rowsByKeyByGame.forEach((byGame, key) => {
+    const meta = seriesMeta.get(key);
+    const seriesRows = matchingGameIds
+      .map((gameId) => {
+        const existing = byGame.get(gameId);
+        if (existing) return existing;
+        const game = gameById.get(gameId) || {};
+        return {
+          gameId,
+          gameName: safeTrim(game.name) || "Game",
+          settledAt: game.ended_at || game.created_at || null,
+          buyins: 0,
+          cashout: 0,
+          errorShare: 0,
+          final: 0,
+          net: 0,
+          cumulative: 0
+        };
+      })
+      .sort((a, b) => new Date(a.settledAt || 0).getTime() - new Date(b.settledAt || 0).getTime())
+      .map((row) => ({
+        ...row,
+        buyins: moneyRound(row.buyins),
+        cashout: moneyRound(row.cashout),
+        errorShare: moneyRound(row.errorShare)
+      }));
+
+    let seriesCumulative = 0;
+    seriesRows.forEach((row) => {
+      row.final = moneyRound(row.cashout + row.errorShare);
+      row.net = moneyRound(row.final - row.buyins);
+      seriesCumulative = moneyRound(seriesCumulative + row.net);
+      row.cumulative = seriesCumulative;
+    });
+
+    if (!seriesRows.length) return;
+    rawSeries.push({
+      key,
+      name: meta?.name || "Player",
+      isCurrent: key === currentKey,
+      rows: seriesRows,
+      totalNet: moneyRound(seriesRows.reduce((sum, row) => sum + row.net, 0))
+    });
+  });
+
+  const mergedByName = new Map();
+  rawSeries.forEach((series) => {
+    const mergeKey = normalizeName(stripHostSuffix(series.name || "Player"));
+    if (!mergedByName.has(mergeKey)) {
+      mergedByName.set(mergeKey, {
+        key: series.key,
+        name: series.name,
+        isCurrent: series.isCurrent,
+        rows: series.rows.map((row) => ({ ...row })),
+        totalNet: series.totalNet
+      });
+      return;
+    }
+    const target = mergedByName.get(mergeKey);
+    target.isCurrent = target.isCurrent || series.isCurrent;
+    target.rows = target.rows.map((row, index) => {
+      const other = series.rows[index];
+      if (!other) return row;
+      return {
+        ...row,
+        buyins: moneyRound(row.buyins + other.buyins),
+        cashout: moneyRound(row.cashout + other.cashout),
+        errorShare: moneyRound(row.errorShare + other.errorShare)
+      };
+    });
+    let rolling = 0;
+    target.rows.forEach((row) => {
+      row.final = moneyRound(row.cashout + row.errorShare);
+      row.net = moneyRound(row.final - row.buyins);
+      rolling = moneyRound(rolling + row.net);
+      row.cumulative = rolling;
+    });
+    target.totalNet = moneyRound(target.rows.reduce((sum, row) => sum + row.net, 0));
+  });
+
+  const comparisonSeries = Array.from(mergedByName.values());
+
+  comparisonSeries.sort((a, b) => {
+    if (a.isCurrent && !b.isCurrent) return -1;
+    if (!a.isCurrent && b.isCurrent) return 1;
+    return a.name.localeCompare(b.name);
+  });
+
+  return { rows, identity, comparisonSeries, error: null };
+}
+
+function buildSmoothSvgPath(points) {
+  if (!Array.isArray(points) || !points.length) return "";
+  if (points.length === 1) {
+    return `M ${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)}`;
+  }
+  let d = `M ${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)}`;
+  for (let i = 0; i < points.length - 1; i += 1) {
+    const p0 = points[Math.max(0, i - 1)];
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    const p3 = points[Math.min(points.length - 1, i + 2)];
+    const cp1x = p1.x + (p2.x - p0.x) / 6;
+    const cp1y = p1.y + (p2.y - p0.y) / 6;
+    const cp2x = p2.x - (p3.x - p1.x) / 6;
+    const cp2y = p2.y - (p3.y - p1.y) / 6;
+    d += ` C ${cp1x.toFixed(2)} ${cp1y.toFixed(2)}, ${cp2x.toFixed(2)} ${cp2y.toFixed(2)}, ${p2.x.toFixed(2)} ${p2.y.toFixed(2)}`;
+  }
+  return d;
+}
+
+function animateSignedCurrencyText(targetEl, amount, suffix = "", duration = 700) {
+  if (!targetEl) return;
+  const finalText = `${formatSignedCurrency(amount)}${suffix}`;
+  const reduceMotion =
+    typeof window !== "undefined" &&
+    window.matchMedia &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (reduceMotion) {
+    targetEl.textContent = finalText;
+    return;
+  }
+  const start = performance.now();
+  const from = 0;
+  const delta = Number(amount) - from;
+  const easeOut = (t) => 1 - (1 - t) ** 3;
+  const tick = (now) => {
+    const progress = Math.min(1, (now - start) / duration);
+    const eased = easeOut(progress);
+    const value = moneyRound(from + delta * eased);
+    targetEl.textContent = `${formatSignedCurrency(value)}${suffix}`;
+    if (progress < 1) {
+      requestAnimationFrame(tick);
+    }
+  };
+  requestAnimationFrame(tick);
+}
+
+function renderPlayerTrendContent(payload) {
+  if (!elements.playerTrendContent) return;
+  elements.playerTrendContent.innerHTML = "";
+  const { rows, identity, comparisonSeries, error } = payload;
+
+  if (error) {
+    const message = document.createElement("p");
+    message.className = "muted";
+    message.textContent = error;
+    elements.playerTrendContent.appendChild(message);
+    return;
+  }
+
+  if (!rows.length) {
+    const empty = document.createElement("p");
+    empty.className = "muted";
+    empty.textContent = "No settled games yet for this seat.";
+    elements.playerTrendContent.appendChild(empty);
+    return;
+  }
+
+  const seatName = identity?.name || "Player";
+  const recentLimit = Math.min(9, rows.length);
+  const recentRows = rows.slice(-recentLimit);
+  const overallNet = moneyRound(recentRows.reduce((sum, row) => sum + row.net, 0));
+
+  const weekThreshold = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const weekNet = moneyRound(
+    rows.reduce((sum, row) => {
+      if (!row.settledAt) return sum;
+      return new Date(row.settledAt).getTime() >= weekThreshold ? sum + row.net : sum;
+    }, 0)
+  );
+  const wins = recentRows.filter((row) => row.net > 0.004).length;
+  const losses = recentRows.filter((row) => row.net < -0.004).length;
+  const breakEven = recentRows.length - wins - losses;
+  const avgPerGame = recentRows.length ? moneyRound(overallNet / recentRows.length) : 0;
+
+  let bestStreak = 0;
+  let worstStreak = 0;
+  let winRun = 0;
+  let lossRun = 0;
+  rows.forEach((row) => {
+    if (row.net > 0.004) {
+      winRun += 1;
+      lossRun = 0;
+      bestStreak = Math.max(bestStreak, winRun);
+      return;
+    }
+    if (row.net < -0.004) {
+      lossRun += 1;
+      winRun = 0;
+      worstStreak = Math.max(worstStreak, lossRun);
+      return;
+    }
+    winRun = 0;
+    lossRun = 0;
+  });
+
+  const biggestWin = moneyRound(Math.max(0, ...rows.map((row) => row.net)));
+  const biggestLoss = moneyRound(Math.min(0, ...rows.map((row) => row.net)));
+  const biggestWinRow = rows.reduce((best, row) => (row.net > best.net ? row : best), {
+    net: -Infinity,
+    settledAt: null
+  });
+  const biggestLossRow = rows.reduce((best, row) => (row.net < best.net ? row : best), {
+    net: Infinity,
+    settledAt: null
+  });
+  const latestRow = rows[rows.length - 1] || null;
+
+  const mergeSeriesForCompare = (list) => {
+    const merged = new Map();
+    (list || []).forEach((series) => {
+      const normalized = normalizeName(stripHostSuffix(series.name || "Player"));
+      if (!normalized) return;
+      if (!merged.has(normalized)) {
+        merged.set(normalized, {
+          key: series.key,
+          name: stripHostSuffix(series.name || "Player"),
+          isCurrent: !!series.isCurrent,
+          rows: (series.rows || []).map((row) => ({ ...row }))
+        });
+        return;
+      }
+      const target = merged.get(normalized);
+      target.isCurrent = target.isCurrent || !!series.isCurrent;
+      const rowMap = new Map(target.rows.map((row) => [row.gameId, { ...row }]));
+      (series.rows || []).forEach((row) => {
+        const existing = rowMap.get(row.gameId);
+        if (existing) {
+          existing.buyins = moneyRound((existing.buyins || 0) + (row.buyins || 0));
+          existing.cashout = moneyRound((existing.cashout || 0) + (row.cashout || 0));
+          existing.errorShare = moneyRound((existing.errorShare || 0) + (row.errorShare || 0));
+          existing.final = moneyRound((existing.final || 0) + (row.final || 0));
+          existing.net = moneyRound((existing.net || 0) + (row.net || 0));
+          return;
+        }
+        rowMap.set(row.gameId, { ...row });
+      });
+      target.rows = Array.from(rowMap.values()).sort(
+        (a, b) => new Date(a.settledAt || 0).getTime() - new Date(b.settledAt || 0).getTime()
+      );
+    });
+    return Array.from(merged.values());
+  };
+
+  const mergedComparisonSeries = mergeSeriesForCompare(comparisonSeries);
+
+  const formatOrdinal = (value) => {
+    const mod100 = value % 100;
+    if (mod100 >= 11 && mod100 <= 13) return `${value}th`;
+    const mod10 = value % 10;
+    if (mod10 === 1) return `${value}st`;
+    if (mod10 === 2) return `${value}nd`;
+    if (mod10 === 3) return `${value}rd`;
+    return `${value}th`;
+  };
+
+  let latestPosition = "—";
+  if (latestRow && mergedComparisonSeries.length) {
+    const peers = mergedComparisonSeries
+      .map((series) => ({
+        isCurrent: !!series.isCurrent,
+        row: (series.rows || []).find((item) => item.gameId === latestRow.gameId)
+      }))
+      .filter((item) => item.row);
+    const me = peers.find((item) => item.isCurrent);
+    if (me) {
+      const betterCount = peers.filter((item) => item.row.net > me.row.net + 0.0001).length;
+      latestPosition = `${formatOrdinal(betterCount + 1)} / ${peers.length}`;
+    }
+  }
+
+  const hero = document.createElement("section");
+  hero.className = "player-trend-hero";
+  hero.innerHTML = `
+    <p class="player-trend-hero-name">👤 ${escapeHtml(seatName)}</p>
+    <h3 class="${overallNet >= 0 ? "money-pos" : "money-neg"} player-trend-overall-value">${formatSignedCurrency(overallNet)} Overall</h3>
+    <p class="player-trend-hero-sub">Last ${recentRows.length} games</p>
+    <ul class="player-trend-hero-facts">
+      <li class="player-trend-week ${weekNet >= 0 ? "is-pos" : "is-neg"}">${weekNet >= 0 ? "▲" : "▼"} ${formatSignedCurrency(weekNet)} this week</li>
+      <li>${wins} Wins / ${losses} Losses / ${breakEven} Break-even</li>
+    </ul>
+  `;
+  elements.playerTrendContent.appendChild(hero);
+  animateSignedCurrencyText(
+    hero.querySelector(".player-trend-overall-value"),
+    overallNet,
+    " Overall"
+  );
+
+  const signedClass = (value) => {
+    const n = Number(value || 0);
+    if (n > 0.004) return "money-pos";
+    if (n < -0.004) return "money-neg";
+    return "";
+  };
+
+  const personalTrend = [];
+  let rollingIn = 0;
+  let rollingOut = 0;
+  let rollingNet = 0;
+  recentRows.forEach((row) => {
+    rollingIn = moneyRound(rollingIn + row.buyins);
+    rollingOut = moneyRound(rollingOut + row.final);
+    rollingNet = moneyRound(rollingNet + row.net);
+    personalTrend.push({
+      ...row,
+      cumulativeIn: rollingIn,
+      cumulativeOut: rollingOut,
+      cumulativeRecent: rollingNet
+    });
+  });
+
+  if (personalTrend.length) {
+    const values = personalTrend.flatMap((row) => [row.cumulativeIn, row.cumulativeOut, row.cumulativeRecent]);
+    let valueMin = Math.min(0, ...values);
+    let valueMax = Math.max(0, ...values);
+    if (Math.abs(valueMax - valueMin) < 0.0001) {
+      valueMin -= 1;
+      valueMax += 1;
+    }
+    const valueSpan = valueMax - valueMin;
+    const width = Math.max(320, personalTrend.length * 44);
+    const height = 154;
+    const padX = 20;
+    const padY = 14;
+    const plotHeight = height - padY * 2;
+    const xStep = personalTrend.length > 1 ? (width - padX * 2) / (personalTrend.length - 1) : 0;
+    const toX = (index) => padX + index * xStep;
+    const toY = (value) => padY + ((valueMax - value) / valueSpan) * plotHeight;
+    const zeroY = toY(0);
+    const pointsIn = personalTrend.map((row, index) => ({
+      x: toX(index),
+      y: toY(row.cumulativeIn)
+    }));
+    const pointsOut = personalTrend.map((row, index) => ({
+      x: toX(index),
+      y: toY(row.cumulativeOut)
+    }));
+    const pointsNet = personalTrend.map((row, index) => ({
+      x: toX(index),
+      y: toY(row.cumulativeRecent)
+    }));
+    const linePathIn = buildSmoothSvgPath(pointsIn);
+    const linePathOut = buildSmoothSvgPath(pointsOut);
+    const linePathNet = buildSmoothSvgPath(pointsNet);
+    const inColor = "#f6c96c";
+    const outColor = "#66f0bf";
+    const netColor = overallNet >= 0 ? "#9de6cb" : "#ff9a92";
+    const initialIndex = pointsIn.length - 1;
+    const initialPointIn = pointsIn[initialIndex];
+    const initialPointOut = pointsOut[initialIndex];
+
+    const personalChart = document.createElement("section");
+    personalChart.className = "player-trend-chart-shell player-trend-chart-shell-personal";
+    personalChart.innerHTML = `
+      <p class="player-trend-caption">Perfomance Trend</p>
+      <div class="player-trend-mini-legend">
+        <span><i class="trend-chip trend-chip-in"></i>In</span>
+        <span><i class="trend-chip trend-chip-out"></i>Out</span>
+      </div>
+      <div class="player-trend-chart-scroll">
+        <svg class="player-trend-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Your cumulative in and out trend">
+          <line x1="${padX}" y1="${zeroY.toFixed(2)}" x2="${width - padX}" y2="${zeroY.toFixed(2)}" class="trend-zero-line"></line>
+          <text x="${(padX + 3).toFixed(2)}" y="${(zeroY - 4).toFixed(2)}" class="trend-zero-label">$0</text>
+          ${linePathNet ? `<path d="${linePathNet}" class="trend-line trend-line-net" style="stroke:${netColor};"></path>` : ""}
+          ${linePathIn ? `<path d="${linePathIn}" class="trend-line trend-line-in" style="stroke:${inColor};"></path>` : ""}
+          ${linePathOut ? `<path d="${linePathOut}" class="trend-line trend-line-out is-current" style="stroke:${outColor};"></path>` : ""}
+          <line x1="${initialPointOut ? initialPointOut.x.toFixed(2) : padX}" y1="${padY}" x2="${initialPointOut ? initialPointOut.x.toFixed(2) : padX}" y2="${height - padY}" class="trend-focus-line"></line>
+          <circle cx="${initialPointIn ? initialPointIn.x.toFixed(2) : padX}" cy="${initialPointIn ? initialPointIn.y.toFixed(2) : zeroY.toFixed(2)}" r="4.2" class="trend-focus-point trend-focus-point-in" style="fill:${inColor};"></circle>
+          <circle cx="${initialPointOut ? initialPointOut.x.toFixed(2) : padX}" cy="${initialPointOut ? initialPointOut.y.toFixed(2) : zeroY.toFixed(2)}" r="4.8" class="trend-focus-point trend-focus-point-out is-current" style="fill:${outColor};"></circle>
+          <rect x="${padX}" y="${padY}" width="${(width - padX * 2).toFixed(2)}" height="${plotHeight.toFixed(2)}" class="trend-touch-overlay"></rect>
+        </svg>
+      </div>
+      <div class="player-trend-axis">
+        <span>${personalTrend[0]?.settledAt ? formatShortDate(personalTrend[0].settledAt) : ""}</span>
+        <span>${personalTrend[personalTrend.length - 1]?.settledAt ? formatShortDate(personalTrend[personalTrend.length - 1].settledAt) : ""}</span>
+      </div>
+      <div class="player-trend-touch-meta">
+        <span class="player-trend-touch-game"></span>
+        <strong class="player-trend-touch-net"></strong>
+      </div>
+    `;
+    const overlay = personalChart.querySelector(".trend-touch-overlay");
+    const focusLine = personalChart.querySelector(".trend-focus-line");
+    const focusPointIn = personalChart.querySelector(".trend-focus-point-in");
+    const focusPointOut = personalChart.querySelector(".trend-focus-point-out");
+    const touchGame = personalChart.querySelector(".player-trend-touch-game");
+    const touchNet = personalChart.querySelector(".player-trend-touch-net");
+    const maxIndex = pointsOut.length - 1;
+    const setPersonalFocus = (rawIndex) => {
+      const index = Math.min(maxIndex, Math.max(0, Number(rawIndex) || 0));
+      const pointIn = pointsIn[index];
+      const pointOut = pointsOut[index];
+      if (!pointIn || !pointOut) return;
+      const row = personalTrend[index];
+      if (focusLine) {
+        focusLine.setAttribute("x1", pointOut.x.toFixed(2));
+        focusLine.setAttribute("x2", pointOut.x.toFixed(2));
+      }
+      if (focusPointIn) {
+        focusPointIn.setAttribute("cx", pointIn.x.toFixed(2));
+        focusPointIn.setAttribute("cy", pointIn.y.toFixed(2));
+      }
+      if (focusPointOut) {
+        focusPointOut.setAttribute("cx", pointOut.x.toFixed(2));
+        focusPointOut.setAttribute("cy", pointOut.y.toFixed(2));
+      }
+      if (touchGame) {
+        touchGame.textContent = `${row.gameName} · ${row.settledAt ? formatShortDate(row.settledAt) : "Settled"}`;
+      }
+      if (touchNet) {
+        touchNet.className = `player-trend-touch-net ${row.cumulativeRecent >= 0 ? "money-pos" : "money-neg"}`;
+        touchNet.textContent = `In ${formatCurrency(row.cumulativeIn)} · Out ${formatCurrency(row.cumulativeOut)} · Net ${formatSignedCurrency(row.cumulativeRecent)}`;
+      }
+    };
+    setPersonalFocus(initialIndex);
+    if (overlay && maxIndex > 0) {
+      const focusFromClientX = (clientX) => {
+        const rect = overlay.getBoundingClientRect();
+        if (!rect.width) return;
+        const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+        const index = Math.round(ratio * maxIndex);
+        setPersonalFocus(index);
+      };
+      overlay.addEventListener("pointermove", (event) => focusFromClientX(event.clientX));
+      overlay.addEventListener("pointerdown", (event) => focusFromClientX(event.clientX));
+      overlay.addEventListener(
+        "touchmove",
+        (event) => {
+          if (!event.touches?.length) return;
+          focusFromClientX(event.touches[0].clientX);
+        },
+        { passive: true }
+      );
+    }
+    elements.playerTrendContent.appendChild(personalChart);
+  }
+
+  const lastCard = document.createElement("section");
+  lastCard.className = "player-trend-last";
+  if (latestRow) {
+    lastCard.innerHTML = `
+      <p class="player-trend-caption">Last session · ${latestRow.settledAt ? formatShortDate(latestRow.settledAt) : "Settled"}</p>
+      <div class="player-trend-last-grid">
+        <div><span>Result</span><strong class="${signedClass(latestRow.net)}">${formatSignedCurrency(latestRow.net)}</strong></div>
+        <div><span>Buy-in</span><strong>${formatCurrency(latestRow.buyins)}</strong></div>
+        <div><span>Cash-out</span><strong class="${signedClass(latestRow.final)}">${formatCurrency(latestRow.final)}</strong></div>
+        <div><span>Position</span><strong>${latestPosition}</strong></div>
+      </div>
+    `;
+  } else {
+    lastCard.innerHTML = `<p class="muted">No recent session yet.</p>`;
+  }
+  elements.playerTrendContent.appendChild(lastCard);
+
+  const strength = document.createElement("section");
+  strength.className = "player-trend-strength";
+  strength.innerHTML = `
+    <p class="player-trend-caption">Strength breakdown</p>
+    <div class="player-trend-strength-grid">
+      <div><span>Biggest win</span><strong class="${signedClass(biggestWin)}">${formatSignedCurrency(biggestWin)}</strong><em>${biggestWinRow?.settledAt ? `Occurred ${formatShortDate(biggestWinRow.settledAt)}` : "—"}</em></div>
+      <div><span>Biggest loss</span><strong class="${signedClass(biggestLoss)}">${formatSignedCurrency(biggestLoss)}</strong><em>${biggestLossRow?.settledAt ? `Occurred ${formatShortDate(biggestLossRow.settledAt)}` : "—"}</em></div>
+      <div><span>Best streak</span><strong>${bestStreak} Wins</strong></div>
+      <div><span>Worst streak</span><strong>${worstStreak} Losses</strong></div>
+      <div><span>Avg / game</span><strong class="${signedClass(avgPerGame)}">${formatSignedCurrency(avgPerGame)}</strong></div>
+    </div>
+  `;
+  elements.playerTrendContent.appendChild(strength);
+
+  const compareRows = recentRows;
+  const compareGameIds = compareRows.map((row) => row.gameId);
+  const comparePalette = [
+    "#66f0bf",
+    "#ffd47f",
+    "#ff9d78",
+    "#7db2ff",
+    "#c7a4ff",
+    "#ff7cb2",
+    "#9fe37c",
+    "#73e7ff",
+    "#f8c06a",
+    "#ffabda",
+    "#9bdcff",
+    "#d8f48f"
+  ];
+
+  const compareSeriesRaw = mergedComparisonSeries
+    .map((series) => {
+      const rowsWindow = compareGameIds.map((gameId) => {
+        const existing = (series.rows || []).find((row) => row.gameId === gameId);
+        if (existing) return existing;
+        const game = compareRows.find((row) => row.gameId === gameId);
+        return {
+          gameId,
+          gameName: game?.gameName || "Game",
+          settledAt: game?.settledAt || null,
+          net: 0
+        };
+      });
+      let running = 0;
+      rowsWindow.forEach((row) => {
+        running = moneyRound(running + Number(row.net || 0));
+        row.cumulativeWindow = running;
+      });
+      return {
+        ...series,
+        rowsWindow,
+        totalNetWindow: moneyRound(rowsWindow.reduce((sum, row) => sum + Number(row.net || 0), 0))
+      };
+    })
+    .filter((series) => series.rowsWindow.length > 0)
+    .filter((series) =>
+      series.isCurrent || series.rowsWindow.some((row) => Math.abs(Number(row.net || 0)) > 0.004)
+    );
+
+  const compareSeries = compareSeriesRaw
+    .sort((a, b) => {
+      if (a.isCurrent && !b.isCurrent) return -1;
+      if (!a.isCurrent && b.isCurrent) return 1;
+      return b.totalNetWindow - a.totalNetWindow;
+    })
+    .map((series, index) => ({
+      ...series,
+      color: series.isCurrent ? comparePalette[0] : comparePalette[(index % (comparePalette.length - 1)) + 1]
+    }));
+
+  if (compareSeries.length > 1 && compareRows.length > 1) {
+    const compareSection = document.createElement("section");
+    compareSection.className = "player-trend-compare";
+    compareSection.innerHTML = `
+      <button type="button" class="player-trend-compare-toggle" aria-expanded="false">
+        <span>Compare with Table</span>
+        <span class="player-trend-compare-chevron">▾</span>
+      </button>
+      <div class="player-trend-compare-body hidden"></div>
+    `;
+
+    const values = compareSeries.flatMap((series) =>
+      series.rowsWindow.map((row) => row.cumulativeWindow)
+    );
+    let minValue = Math.min(0, ...values);
+    let maxValue = Math.max(0, ...values);
+    if (Math.abs(maxValue - minValue) < 0.0001) {
+      minValue -= 1;
+      maxValue += 1;
+    }
+    const valueSpan = maxValue - minValue;
+    const width = Math.max(360, compareRows.length * 48);
+    const height = 188;
+    const padX = 20;
+    const padY = 16;
+    const plotHeight = height - padY * 2;
+    const xStep = compareRows.length > 1 ? (width - padX * 2) / (compareRows.length - 1) : 0;
+    const toX = (index) => padX + index * xStep;
+    const toY = (value) => padY + ((maxValue - value) / valueSpan) * plotHeight;
+    const zeroY = toY(0);
+
+    compareSeries.forEach((series) => {
+      series.points = series.rowsWindow.map((row, index) => ({
+        x: toX(index),
+        y: toY(row.cumulativeWindow)
+      }));
+      series.path = buildSmoothSvgPath(series.points);
+    });
+
+    const body = compareSection.querySelector(".player-trend-compare-body");
+    const toggle = compareSection.querySelector(".player-trend-compare-toggle");
+    const chevron = compareSection.querySelector(".player-trend-compare-chevron");
+    if (body) {
+      body.innerHTML = `
+        <div class="player-trend-chart-shell">
+          <p class="player-trend-caption">Table trend (${compareRows.length} games)</p>
+          <div class="player-trend-chart-scroll">
+            <svg class="player-trend-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Table comparison trend chart">
+              <line x1="${padX}" y1="${zeroY.toFixed(2)}" x2="${width - padX}" y2="${zeroY.toFixed(2)}" class="trend-zero-line"></line>
+              ${compareSeries
+                .map(
+                  (series) =>
+                    `<path data-series-key="${escapeHtml(series.key)}" d="${series.path}" class="trend-line${series.isCurrent ? " is-current" : ""}" style="stroke:${series.color};"></path>`
+                )
+                .join("")}
+              ${compareSeries
+                .map((series) => {
+                  const point = series.points[series.points.length - 1];
+                  if (!point) return "";
+                  return `<circle data-series-key="${escapeHtml(series.key)}" cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="${series.isCurrent ? 4.8 : 3.4}" class="trend-focus-point${series.isCurrent ? " is-current" : ""}" style="fill:${series.color};"></circle>`;
+                })
+                .join("")}
+            </svg>
+          </div>
+          <div class="player-trend-axis">
+            <span>${compareRows[0]?.settledAt ? formatShortDate(compareRows[0].settledAt) : ""}</span>
+            <span>${compareRows[compareRows.length - 1]?.settledAt ? formatShortDate(compareRows[compareRows.length - 1].settledAt) : ""}</span>
+          </div>
+          <div class="player-trend-legend">
+            ${compareSeries
+              .map(
+                (series) =>
+                  `<button type="button" data-series-key="${escapeHtml(series.key)}" class="player-trend-legend-btn${series.isCurrent ? " is-current" : ""}">
+                    <i style="background:${series.color};"></i>${escapeHtml(series.name)}
+                  </button>`
+              )
+              .join("")}
+          </div>
+          <p class="player-trend-hint">Tap a name to isolate a line.</p>
+        </div>
+      `;
+
+      let isolatedSeriesKey = null;
+      const legendButtons = Array.from(body.querySelectorAll(".player-trend-legend-btn"));
+      const applyVisibility = () => {
+        const visibleKeys = isolatedSeriesKey
+          ? new Set([isolatedSeriesKey])
+          : new Set(compareSeries.map((series) => series.key));
+        body.querySelectorAll("[data-series-key]").forEach((el) => {
+          const key = el.getAttribute("data-series-key");
+          const visible = visibleKeys.has(key);
+          el.classList.toggle("is-hidden", !visible);
+          el.classList.toggle("is-dim", !!isolatedSeriesKey && !visible);
+        });
+        legendButtons.forEach((btn) => {
+          const key = btn.getAttribute("data-series-key");
+          const active = visibleKeys.has(key);
+          btn.classList.toggle("is-active", active);
+          btn.classList.toggle("is-muted", !!isolatedSeriesKey && !active);
+        });
+      };
+      legendButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+          const key = button.getAttribute("data-series-key");
+          isolatedSeriesKey = isolatedSeriesKey === key ? null : key;
+          applyVisibility();
+        });
+      });
+      applyVisibility();
+    }
+
+    toggle?.addEventListener("click", () => {
+      const isOpen = !body.classList.contains("hidden");
+      body.classList.toggle("hidden", isOpen);
+      toggle.setAttribute("aria-expanded", isOpen ? "false" : "true");
+      chevron.textContent = isOpen ? "▾" : "▴";
+    });
+
+    elements.playerTrendContent.appendChild(compareSection);
+  }
+}
+
+async function openPlayerTrendModal() {
+  if (!elements.playerTrendModal || !elements.playerTrendContent) return;
+  if (!state.playerId) return;
+  elements.playerTrendContent.innerHTML = `<p class="muted">Loading profit trend…</p>`;
+  elements.playerTrendModal.classList.remove("hidden");
+  elements.playerTrendTrigger?.setAttribute("aria-expanded", "true");
+  const payload = await loadPlayerTrendRows();
+  if (!elements.playerTrendModal || elements.playerTrendModal.classList.contains("hidden")) return;
+  renderPlayerTrendContent(payload);
+}
+
+function closePlayerTrendModal() {
+  if (!elements.playerTrendModal) return;
+  elements.playerTrendModal.classList.add("hidden");
+  elements.playerTrendTrigger?.setAttribute("aria-expanded", "false");
 }
 
 async function fetchActiveGamesByGroups(groupIds) {
@@ -2639,6 +3536,10 @@ function applyHostMode() {
   if (elements.playerPanel) {
     elements.playerPanel.classList.toggle("hidden", state.isHost);
   }
+  if (state.isHost) {
+    closePlayerCheatModal();
+    closePlayerTrendModal();
+  }
   if (elements.copyLink) {
     elements.copyLink.classList.toggle("hidden", !state.isHost);
   }
@@ -2668,7 +3569,7 @@ function applyHostMode() {
       elements.playerPanelHeading.textContent = "Summary";
       elements.playerPanelSubtitle.textContent = "";
     } else if (!state.isHost) {
-      elements.playerPanelHeading.textContent = "Player";
+      elements.playerPanelHeading.textContent = "My Performance";
       elements.playerPanelSubtitle.textContent = "";
     } else {
       elements.playerPanelHeading.textContent = "Player";
@@ -3175,8 +4076,13 @@ function renderPlayerSeat() {
     if (elements.playerCheatLabel) {
       elements.playerCheatLabel.classList.add("hidden");
     }
+    if (elements.playerTrendTrigger) {
+      elements.playerTrendTrigger.classList.add("hidden");
+      elements.playerTrendTrigger.setAttribute("aria-expanded", "false");
+    }
     state.playerPulseExpanded = false;
     closePlayerCheatModal();
+    closePlayerTrendModal();
     if (elements.playerSettledSummary) {
       elements.playerSettledSummary.classList.remove("hidden");
     }
@@ -3218,8 +4124,13 @@ function renderPlayerSeat() {
     if (elements.playerCheatLabel) {
       elements.playerCheatLabel.classList.add("hidden");
     }
+    if (elements.playerTrendTrigger) {
+      elements.playerTrendTrigger.classList.add("hidden");
+      elements.playerTrendTrigger.setAttribute("aria-expanded", "false");
+    }
     state.playerPulseExpanded = false;
     closePlayerCheatModal();
+    closePlayerTrendModal();
     if (elements.playerSettle) {
       elements.playerSettle.classList.add("hidden");
     }
@@ -3395,6 +4306,21 @@ function renderPlayerSeat() {
     } else {
       elements.playerCheatLabel.classList.remove("hidden");
       elements.playerCheatLabel.setAttribute("aria-expanded", "false");
+    }
+  }
+  if (elements.playerTrendTrigger) {
+    if (hidePlayerTools) {
+      elements.playerTrendTrigger.classList.add("hidden");
+      elements.playerTrendTrigger.setAttribute("aria-expanded", "false");
+      closePlayerTrendModal();
+    } else {
+      elements.playerTrendTrigger.classList.remove("hidden");
+      elements.playerTrendTrigger.setAttribute(
+        "aria-expanded",
+        elements.playerTrendModal && !elements.playerTrendModal.classList.contains("hidden")
+          ? "true"
+          : "false"
+      );
     }
   }
   if (elements.playerToolRow) {
@@ -5840,6 +6766,7 @@ function clearCurrentGame() {
   if (elements.qrModal) elements.qrModal.classList.add("hidden");
   if (elements.confirmModal) elements.confirmModal.classList.add("hidden");
   if (elements.playerCheatModal) elements.playerCheatModal.classList.add("hidden");
+  if (elements.playerTrendModal) elements.playerTrendModal.classList.add("hidden");
   if (elements.settlementSummary) elements.settlementSummary.classList.add("hidden");
   if (elements.playerSettledSummary) elements.playerSettledSummary.classList.add("hidden");
   elements.landing.classList.remove("hidden");
@@ -6458,6 +7385,18 @@ if (elements.playerCheatModal) {
   });
 }
 
+if (elements.playerTrendClose) {
+  elements.playerTrendClose.addEventListener("click", closePlayerTrendModal);
+}
+
+if (elements.playerTrendModal) {
+  elements.playerTrendModal.addEventListener("click", (event) => {
+    if (event.target.dataset.action === "close") {
+      closePlayerTrendModal();
+    }
+  });
+}
+
 if (elements.playerCheatContent) {
   elements.playerCheatContent.addEventListener("click", (event) => {
     const card = event.target.closest(".cheat-card");
@@ -6842,6 +7781,9 @@ window.addEventListener("keydown", (event) => {
   if (elements.playerCheatModal && !elements.playerCheatModal.classList.contains("hidden")) {
     closePlayerCheatModal();
   }
+  if (elements.playerTrendModal && !elements.playerTrendModal.classList.contains("hidden")) {
+    closePlayerTrendModal();
+  }
   if (elements.statsModal && !elements.statsModal.classList.contains("hidden")) {
     closeStatsModal();
   }
@@ -7124,6 +8066,13 @@ if (elements.playerCheatLabel) {
   elements.playerCheatLabel.addEventListener("click", () => {
     if (elements.playerCheatLabel.classList.contains("hidden")) return;
     openPlayerCheatModal();
+  });
+}
+
+if (elements.playerTrendTrigger) {
+  elements.playerTrendTrigger.addEventListener("click", () => {
+    if (elements.playerTrendTrigger.classList.contains("hidden")) return;
+    openPlayerTrendModal();
   });
 }
 
