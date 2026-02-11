@@ -2482,9 +2482,8 @@ button:disabled {
   .cheat-card::after {
     top: 8px;
     right: 8px;
-    width: 16px;
-    height: 16px;
-    font-size: 0.56rem;
+    width: 8px;
+    height: 8px;
   }
 
   .cheat-card-head {
@@ -2514,27 +2513,21 @@ button:disabled {
 }
 
 .cheat-card::after {
-  content: "\21A9\FE0E";
+  content: "";
   position: absolute;
   top: 10px;
   right: 10px;
-  width: 18px;
-  height: 18px;
+  width: 10px;
+  height: 10px;
   border-radius: 999px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.62rem;
-  font-weight: 700;
-  font-family: "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
-  font-variant-emoji: text;
-  color: rgba(246, 241, 233, 0.9);
-  border: 1px solid rgba(210, 166, 78, 0.35);
-  background: rgba(8, 13, 11, 0.5);
+  background: rgba(255, 206, 120, 0.92);
+  box-shadow:
+    0 0 0 1px rgba(255, 206, 120, 0.24),
+    0 0 8px rgba(255, 206, 120, 0.5),
+    0 0 14px rgba(255, 146, 94, 0.24);
+  animation: cheatDotPulse 1.6s ease-in-out infinite;
   pointer-events: none;
   z-index: 3;
-  transform: rotate(0deg) scaleX(1);
-  transform-origin: center;
 }
 
 .cheat-card:focus-visible {
@@ -2555,8 +2548,23 @@ button:disabled {
 }
 
 .cheat-card.is-flipped::after {
-  content: "\21A9\FE0E";
-  transform: rotate(0deg) scaleX(-1);
+  content: "";
+}
+
+.cheat-card.cheat-card-indicator-dismissed::after {
+  display: none;
+}
+
+@keyframes cheatDotPulse {
+  0%,
+  100% {
+    opacity: 0.5;
+    transform: scale(0.9);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.12);
+  }
 }
 
 .cheat-card.is-flipped {
@@ -4462,9 +4470,11 @@ body.theme-light .cheat-card {
 }
 
 body.theme-light .cheat-card::after {
-  color: rgba(27, 26, 23, 0.82);
-  border-color: rgba(176, 122, 36, 0.4);
-  background: rgba(248, 243, 233, 0.7);
+  background: rgba(176, 122, 36, 0.92);
+  box-shadow:
+    0 0 0 1px rgba(176, 122, 36, 0.2),
+    0 0 7px rgba(176, 122, 36, 0.38),
+    0 0 12px rgba(205, 125, 82, 0.2);
 }
 
 body.theme-light .cheat-card:focus-visible {

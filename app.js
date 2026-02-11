@@ -239,6 +239,7 @@ const state = {
   playerPulseExpanded: false,
   playerBuyinPulseUntil: 0,
   playerBuyinPulsePlayerId: null,
+  cheatHintDismissedRanks: new Set(),
   pendingSettleAdjustments: new Map()
 };
 
@@ -281,6 +282,7 @@ const hostKey = (code) => `poker_host_${code}`;
 const recentGamesKey = "poker_recent_games";
 const themeKey = "poker_theme";
 const lightsOffKey = "poker_lights_off";
+const cheatHintDismissedKey = "poker_cheat_hint_dismissed_v1";
 const suitCycleRandom = ["♠", "♣", "♦", "♥", "😂", "😉"];
 const POKER_CHEAT_SHEET = [
   {
@@ -792,6 +794,35 @@ function toggleCheatCard(card) {
   if (!card) return;
   const next = !card.classList.contains("is-flipped");
   setCheatCardFlipped(card, next);
+  if (next) {
+    const rank = safeTrim(card.dataset.rank);
+    if (rank) {
+      state.cheatHintDismissedRanks.add(rank);
+      saveDismissedCheatHints();
+    }
+    card.classList.add("cheat-card-indicator-dismissed");
+  }
+}
+
+function loadDismissedCheatHints() {
+  try {
+    const raw = localStorage.getItem(cheatHintDismissedKey);
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(parsed.map((item) => String(item)));
+  } catch {
+    return new Set();
+  }
+}
+
+function saveDismissedCheatHints() {
+  try {
+    localStorage.setItem(
+      cheatHintDismissedKey,
+      JSON.stringify(Array.from(state.cheatHintDismissedRanks))
+    );
+  } catch {}
 }
 
 function syncCheatFrontHeights() {
@@ -819,8 +850,11 @@ function syncCheatFrontHeights() {
 function renderPlayerCheatSheet() {
   if (!elements.playerCheatContent) return;
   const cheatCards = POKER_CHEAT_SHEET.map(
-    (entry) => `
-      <article class="cheat-card" data-rank="${entry.rank}" role="button" tabindex="0" aria-pressed="false" aria-label="Rank ${entry.rank}: ${entry.hand}. Tap for details">
+    (entry) => {
+      const rankKey = String(entry.rank);
+      const indicatorDismissed = state.cheatHintDismissedRanks.has(rankKey) ? " cheat-card-indicator-dismissed" : "";
+      return `
+      <article class="cheat-card${indicatorDismissed}" data-rank="${entry.rank}" role="button" tabindex="0" aria-pressed="false" aria-label="Rank ${entry.rank}: ${entry.hand}. Tap for details">
         <div class="cheat-card-flip">
           <div class="cheat-card-face cheat-card-front">
             <div class="cheat-card-head">
@@ -840,7 +874,8 @@ function renderPlayerCheatSheet() {
           </div>
         </div>
       </article>
-    `
+    `;
+    }
   ).join("");
   elements.playerCheatContent.innerHTML = `
     <section class="cheat-intro">
@@ -5644,6 +5679,7 @@ async function submitSettlement(event) {
 buildQuarterOptions();
 buildStatsRanges();
 initTheme();
+state.cheatHintDismissedRanks = loadDismissedCheatHints();
 initHeaderLights();
 initFeltParallax();
 void initGameName();
