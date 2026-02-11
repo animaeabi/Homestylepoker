@@ -882,7 +882,7 @@ function renderPlayerCheatSheet() {
       <p class="cheat-title">Hand rank map</p>
       <ul class="cheat-points">
         <li>All hand ranks are listed below from strongest to weakest.</li>
-        <li>Tap any card to flip and view odds, risk/reward, and quick play guidance.</li>
+        <li>Jargon decoder: <span class="cheat-jargon-term">nuts</span> = best hand, <span class="cheat-jargon-term">draw</span> = incomplete hand that can improve, <span class="cheat-jargon-term">value bet</span> = bet for calls, <span class="cheat-jargon-term">kicker</span> = tie-break card, <span class="cheat-jargon-term">blockers</span> = cards that reduce opponent combos.</li>
       </ul>
     </section>
     <div class="cheat-grid" role="list">
