@@ -4355,7 +4355,7 @@ body.player-settle-focus::after {
   backdrop-filter: blur(17px) saturate(0.64) brightness(0.6);
   -webkit-backdrop-filter: blur(17px) saturate(0.64) brightness(0.6);
   z-index: 9;
-  pointer-events: auto;
+  pointer-events: none;
 }
 
 body.player-settle-focus .player-panel::after {
@@ -4401,6 +4401,10 @@ body.player-settle-focus #playerPanel #playerSettle {
   opacity: 1;
   pointer-events: auto;
   text-align: center;
+}
+
+body.player-settle-focus #playerPanel #playerSeat {
+  z-index: 11;
 }
 
 body.player-settle-focus #playerPanel #playerSettle,
