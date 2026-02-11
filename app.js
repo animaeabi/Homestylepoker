@@ -188,12 +188,15 @@ const elements = {
   playerCard: $("#playerCard"),
   playerOthersLabel: $("#playerOthersLabel"),
   playerOthers: $("#playerOthers"),
+  playerToolRow: $("#playerToolRow"),
   playerCheatLabel: $("#playerCheatLabel"),
   playerCheatModal: $("#playerCheatModal"),
   playerCheatClose: $("#playerCheatClose"),
   playerCheatContent: $("#playerCheatContent"),
   playerAddDefault: $("#playerAddDefault"),
+  playerLeave: $("#playerLeave"),
   playerSettle: $("#playerSettle"),
+  playerSettleLabel: $("#playerSettleLabel"),
   playerSettleAmount: $("#playerSettleAmount"),
   playerSubmitChips: $("#playerSubmitChips"),
   playerSettleStatus: $("#playerSettleStatus"),
@@ -212,8 +215,10 @@ const state = {
   buyins: [],
   settlements: [],
   settlementAdjustments: [],
+  playerExits: [],
   settlementsAvailable: true,
   adjustmentsAvailable: true,
+  exitsAvailable: true,
   joinRequests: [],
   joinRequestsAvailable: true,
   groups: [],
@@ -533,6 +538,14 @@ function moneyRound(value) {
 
 function normalizeName(name) {
   return safeTrim(name).replace(/\s+/g, " ").toLowerCase();
+}
+
+function isMissingTableError(error) {
+  if (!error) return false;
+  const code = safeTrim(error.code).toUpperCase();
+  if (code === "42P01" || code === "PGRST205") return true;
+  const message = `${safeTrim(error.message)} ${safeTrim(error.details)} ${safeTrim(error.hint)}`.toLowerCase();
+  return message.includes("does not exist") || message.includes("schema cache");
 }
 
 function stripHostSuffix(name) {
@@ -3044,6 +3057,9 @@ function renderPlayers() {
   const renderPlayerCard = (player) => {
     const buyins = buyinMap.get(player.id) || [];
     const total = buyins.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+    const exit = getPlayerExit(player.id);
+    const exited = Boolean(exit);
+    const exitedAmount = exited ? Number(exit.amount || 0) : 0;
 
     const card = document.createElement("div");
     card.className = "player-tile";
@@ -3075,6 +3091,7 @@ function renderPlayers() {
           <input data-role="edit-total" type="number" min="0" step="1" value="${Number(total).toFixed(2)}" disabled />
         </label>
       </div>
+      <div class="player-exit-note ${exited ? "" : "hidden"}">Cashed out: ${formatCurrency(exitedAmount)}</div>
       <span class="adjust-hint hidden">Adjusted to nearest buy-in.</span>
       <div class="player-actions">
         <button class="primary" data-action="add-default">Add buy-in (${formatCurrency(
@@ -3087,15 +3104,20 @@ function renderPlayers() {
     if (hostFlag) {
       card.classList.add("host-player-tile");
     }
+    if (exited) {
+      card.classList.add("player-tile-exited");
+    }
 
-    if (buyinLocked) {
+    if (buyinLocked || exited) {
       card.querySelector("[data-action='add-default']").disabled = true;
-      card.querySelector("[data-role='edit-count']").disabled = true;
-      card.querySelector("[data-role='edit-total']").disabled = true;
-      const editButton = card.querySelector("[data-action='edit']");
-      const removeButton = card.querySelector("[data-action='remove']");
-      if (editButton) editButton.disabled = true;
-      if (removeButton) removeButton.disabled = true;
+      if (buyinLocked) {
+        card.querySelector("[data-role='edit-count']").disabled = true;
+        card.querySelector("[data-role='edit-total']").disabled = true;
+        const editButton = card.querySelector("[data-action='edit']");
+        const removeButton = card.querySelector("[data-action='remove']");
+        if (editButton) editButton.disabled = true;
+        if (removeButton) removeButton.disabled = true;
+      }
     }
   };
 
@@ -3134,6 +3156,13 @@ function renderPlayerSeat() {
     state.playerBuyinPulseUntil = 0;
     state.playerBuyinPulsePlayerId = null;
     applyPlayerBuyinPulse();
+    if (elements.playerSeat) {
+      elements.playerSeat.classList.remove("settling");
+    }
+    if (elements.playerSettleLabel) {
+      elements.playerSettleLabel.textContent = "Chips remaining";
+    }
+    document.body.classList.remove("player-settle-focus");
     elements.playerJoin.classList.add("hidden");
     elements.playerSeat.classList.add("hidden");
     if (elements.playerOthersLabel) {
@@ -3160,6 +3189,13 @@ function renderPlayerSeat() {
     state.playerBuyinPulseUntil = 0;
     state.playerBuyinPulsePlayerId = null;
     applyPlayerBuyinPulse();
+    if (elements.playerSeat) {
+      elements.playerSeat.classList.remove("settling");
+    }
+    if (elements.playerSettleLabel) {
+      elements.playerSettleLabel.textContent = "Chips remaining";
+    }
+    document.body.classList.remove("player-settle-focus");
     const waitingApproval = Boolean(state.game?.group_id && state.pendingJoinGroupPlayerId);
     if (state.playerId && state.game) {
       clearStoredPlayer(state.game.code);
@@ -3218,9 +3254,21 @@ function renderPlayerSeat() {
 
   const buyins = state.buyins.filter((item) => item.player_id === player.id);
   const total = buyins.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+  const exit = getPlayerExit(player.id);
+  const exited = Boolean(exit);
+  const exitedAmount = exited ? Number(exit.amount || 0) : 0;
+  const hidePlayerTools = settling || exited;
+  const playerSettleFocus = settling && !state.isHost && !exited;
+  if (elements.playerSettleLabel) {
+    elements.playerSettleLabel.textContent = settling
+      ? `${displayPlayerName(player)}, your chips`
+      : "Chips remaining";
+  }
 
   elements.playerJoin.classList.add("hidden");
   elements.playerSeat.classList.remove("hidden");
+  elements.playerSeat.classList.toggle("settling", settling);
+  document.body.classList.toggle("player-settle-focus", playerSettleFocus);
   elements.playerBuyins.classList.add("hidden");
   if (elements.playerName) {
     elements.playerName.disabled = false;
@@ -3235,7 +3283,7 @@ function renderPlayerSeat() {
     elements.playerJoinNotice.classList.add("hidden");
   }
   if (elements.playerSettle) {
-    elements.playerSettle.classList.toggle("hidden", !settling);
+    elements.playerSettle.classList.toggle("hidden", !settling || exited);
   }
   if (elements.playerSettledSummary) {
     elements.playerSettledSummary.classList.add("hidden");
@@ -3257,6 +3305,16 @@ function renderPlayerSeat() {
   `;
 
   if (elements.playerOthers) {
+    if (hidePlayerTools) {
+      if (elements.playerOthersLabel) {
+        elements.playerOthersLabel.classList.add("hidden");
+        elements.playerOthersLabel.classList.remove("expanded");
+        elements.playerOthersLabel.setAttribute("aria-expanded", "false");
+      }
+      state.playerPulseExpanded = false;
+      elements.playerOthers.classList.add("hidden");
+      elements.playerOthers.innerHTML = "";
+    } else {
     const buyinCounts = new Map();
     const latestBuyinMs = new Map();
     const pulseRecentMs = state.playerPulseRecentMs || {};
@@ -3300,7 +3358,10 @@ function renderPlayerSeat() {
         row.className = "player-others-item";
         const name = document.createElement("span");
         name.className = "player-others-name";
-        name.textContent = displayPlayerName(entry);
+        const exitedEntry = getPlayerExit(entry.id);
+        name.textContent = exitedEntry
+          ? `${displayPlayerName(entry)} (cashed out)`
+          : displayPlayerName(entry);
         const count = document.createElement("span");
         count.className = "player-others-count";
         count.textContent = String(buyinCounts.get(entry.id) || 0);
@@ -3324,16 +3385,40 @@ function renderPlayerSeat() {
       }
       elements.playerOthers.classList.toggle("hidden", !state.playerPulseExpanded);
     }
+    }
   }
 
   if (elements.playerCheatLabel) {
-    elements.playerCheatLabel.classList.remove("hidden");
-    elements.playerCheatLabel.setAttribute("aria-expanded", "false");
+    if (hidePlayerTools) {
+      elements.playerCheatLabel.classList.add("hidden");
+      closePlayerCheatModal();
+    } else {
+      elements.playerCheatLabel.classList.remove("hidden");
+      elements.playerCheatLabel.setAttribute("aria-expanded", "false");
+    }
+  }
+  if (elements.playerToolRow) {
+    elements.playerToolRow.classList.toggle("hidden", hidePlayerTools);
   }
 
   elements.playerAddDefault.textContent = `Add buy-in (${formatCurrency(
     state.game?.default_buyin || 0
   )})`;
+  elements.playerAddDefault.disabled = settling || exited;
+  if (elements.playerLeave) {
+    elements.playerLeave.textContent = exited ? `Cashed out (${formatCurrency(exitedAmount)})` : "Cash out & leave";
+    elements.playerLeave.disabled = settling || exited;
+    elements.playerLeave.classList.toggle("hidden", hidePlayerTools);
+  }
+  if (elements.playerNotice) {
+    if (exited) {
+      elements.playerNotice.textContent = `You left the table at ${formatCurrency(exitedAmount)}.`;
+      elements.playerNotice.classList.remove("hidden");
+    } else if (!isGameSettled()) {
+      elements.playerNotice.textContent = "Game settled — buy-ins are locked.";
+      elements.playerNotice.classList.add("hidden");
+    }
+  }
 
   if (elements.playerSettleAmount && elements.playerSettleStatus) {
     const currentValue = elements.playerSettleAmount.value;
@@ -3341,16 +3426,20 @@ function renderPlayerSeat() {
     const settledTotal = state.settlements
       .filter((settlement) => settlement.player_id === player.id)
       .reduce((sum, settlement) => sum + Number(settlement.amount || 0), 0);
-    if (settling && hasSubmitted) {
+    if ((settling && hasSubmitted) || exited) {
       elements.playerSettleAmount.value = formatNumberValue(settledTotal);
-      elements.playerSettleStatus.textContent = "Submitted — waiting for host to finalize.";
+      if (exited) {
+        elements.playerSettleStatus.textContent = "Cashed out and left.";
+      } else {
+        elements.playerSettleStatus.textContent = "Submitted — waiting for host to finalize.";
+      }
       elements.playerSettleAmount.disabled = true;
       if (elements.playerSubmitChips) {
         elements.playerSubmitChips.disabled = true;
       }
     } else if (settling) {
       elements.playerSettleAmount.value = currentValue || "";
-      elements.playerSettleStatus.textContent = "Enter your remaining chips.";
+      elements.playerSettleStatus.textContent = "";
       elements.playerSettleAmount.disabled = false;
       if (elements.playerSubmitChips) {
         elements.playerSubmitChips.disabled = false;
@@ -3372,26 +3461,6 @@ function renderLog() {
   const playerLookup = new Map(
     state.players.map((player) => [player.id, displayPlayerName(player)])
   );
-  const rows = state.buyins
-    .slice()
-    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
-    .slice(0, LOG_ROWS_LIMIT);
-
-  elements.logTable.innerHTML = "";
-
-  const header = document.createElement("div");
-  header.className = "table-row header";
-  header.innerHTML = "<div>Time</div><div>Player</div><div>Amount</div><div>Buy-in #</div>";
-  elements.logTable.appendChild(header);
-
-  if (rows.length === 0) {
-    const empty = document.createElement("div");
-    empty.className = "table-row";
-    empty.innerHTML = "<div>No buy-ins yet.</div>";
-    elements.logTable.appendChild(empty);
-    return;
-  }
-
   const buyinIndexById = new Map();
   const perPlayerCount = new Map();
   state.buyins
@@ -3402,15 +3471,52 @@ function renderLog() {
       perPlayerCount.set(buyin.player_id, next);
       buyinIndexById.set(buyin.id, next);
     });
+  const activity = [
+    ...state.buyins.map((buyin) => ({
+      type: "buyin",
+      at: buyin.created_at,
+      playerId: buyin.player_id,
+      amount: Number(buyin.amount || 0),
+      buyinId: buyin.id
+    })),
+    ...state.playerExits.map((exit) => ({
+      type: "cashout",
+      at: exit.left_at || exit.created_at,
+      playerId: exit.player_id,
+      amount: Number(exit.amount || 0)
+    }))
+  ]
+    .slice()
+    .sort((a, b) => new Date(b.at || 0).getTime() - new Date(a.at || 0).getTime())
+    .slice(0, LOG_ROWS_LIMIT);
 
-  rows.forEach((buyin) => {
+  elements.logTable.innerHTML = "";
+
+  const header = document.createElement("div");
+  header.className = "table-row header";
+  header.innerHTML = "<div>Time</div><div>Player</div><div>Amount</div><div>Event</div>";
+  elements.logTable.appendChild(header);
+
+  if (activity.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "table-row";
+    empty.innerHTML = "<div>No activity yet.</div>";
+    elements.logTable.appendChild(empty);
+    return;
+  }
+
+  activity.forEach((entry) => {
     const row = document.createElement("div");
     row.className = "table-row";
+    const eventLabel =
+      entry.type === "cashout"
+        ? "Cashed out"
+        : `Buy-in #${buyinIndexById.get(entry.buyinId) || 1}`;
     row.innerHTML = `
-      <div>${formatDateTime(buyin.created_at)}</div>
-      <div>${playerLookup.get(buyin.player_id) || "Unknown"}</div>
-      <div>${formatCurrency(buyin.amount)}</div>
-      <div>${buyinIndexById.get(buyin.id) || 1}</div>
+      <div>${formatDateTime(entry.at)}</div>
+      <div>${playerLookup.get(entry.playerId) || "Unknown"}</div>
+      <div>${formatCurrency(entry.amount)}</div>
+      <div>${eventLabel}</div>
     `;
     elements.logTable.appendChild(row);
   });
@@ -3991,7 +4097,7 @@ async function refreshData() {
 
   refreshPromise = (async () => {
     try {
-      const [gameRes, playersRes, buyinsRes, settlementsRes, adjustmentsRes, joinRequestsRes] = await Promise.all([
+      const [gameRes, playersRes, buyinsRes, settlementsRes, adjustmentsRes, exitsRes, joinRequestsRes] = await Promise.all([
         supabase.from("games").select("*").eq("id", state.game.id).single(),
         supabase.from("players").select("*").eq("game_id", state.game.id).order("created_at"),
         supabase.from("buyins").select("*").eq("game_id", state.game.id).order("created_at", { ascending: false }),
@@ -4006,6 +4112,11 @@ async function refreshData() {
           .eq("game_id", state.game.id)
           .order("created_at", { ascending: false }),
         supabase
+          .from("player_exits")
+          .select("*")
+          .eq("game_id", state.game.id)
+          .order("left_at", { ascending: false }),
+        supabase
           .from("join_requests")
           .select("*")
           .eq("game_id", state.game.id)
@@ -4015,13 +4126,16 @@ async function refreshData() {
       if (gameRes.error) throw gameRes.error;
       if (playersRes.error) throw playersRes.error;
       if (buyinsRes.error) throw buyinsRes.error;
-      if (settlementsRes.error && settlementsRes.error.code !== "42P01") {
+      if (settlementsRes.error && !isMissingTableError(settlementsRes.error)) {
         throw settlementsRes.error;
       }
-      if (adjustmentsRes.error && adjustmentsRes.error.code !== "42P01") {
+      if (adjustmentsRes.error && !isMissingTableError(adjustmentsRes.error)) {
         throw adjustmentsRes.error;
       }
-      if (joinRequestsRes.error && joinRequestsRes.error.code !== "42P01") {
+      if (exitsRes.error && !isMissingTableError(exitsRes.error)) {
+        throw exitsRes.error;
+      }
+      if (joinRequestsRes.error && !isMissingTableError(joinRequestsRes.error)) {
         throw joinRequestsRes.error;
       }
 
@@ -4032,11 +4146,13 @@ async function refreshData() {
       state.game = gameRes.data;
       state.players = playersRes.data || [];
       state.buyins = buyinsRes.data || [];
-      state.settlementsAvailable = !settlementsRes.error || settlementsRes.error.code !== "42P01";
+      state.settlementsAvailable = !settlementsRes.error || !isMissingTableError(settlementsRes.error);
       state.settlements = settlementsRes.error ? [] : settlementsRes.data || [];
-      state.adjustmentsAvailable = !adjustmentsRes.error || adjustmentsRes.error.code !== "42P01";
+      state.adjustmentsAvailable = !adjustmentsRes.error || !isMissingTableError(adjustmentsRes.error);
       state.settlementAdjustments = adjustmentsRes.error ? [] : adjustmentsRes.data || [];
-      state.joinRequestsAvailable = !joinRequestsRes.error || joinRequestsRes.error.code !== "42P01";
+      state.exitsAvailable = !exitsRes.error || !isMissingTableError(exitsRes.error);
+      state.playerExits = exitsRes.error ? [] : exitsRes.data || [];
+      state.joinRequestsAvailable = !joinRequestsRes.error || !isMissingTableError(joinRequestsRes.error);
       state.joinRequests = joinRequestsRes.error ? [] : joinRequestsRes.data || [];
 
       const activePlayerIds = new Set(state.players.map((player) => player.id));
@@ -4075,10 +4191,10 @@ async function refreshData() {
       }
 
       syncHostAccess();
-      if (settlementsRes.error && settlementsRes.error.code === "42P01") {
+      if (settlementsRes.error && isMissingTableError(settlementsRes.error)) {
         setStatus("Settlement table missing. Run the README SQL.", "error");
       }
-      if (adjustmentsRes.error && adjustmentsRes.error.code === "42P01") {
+      if (adjustmentsRes.error && isMissingTableError(adjustmentsRes.error)) {
         state.adjustmentsAvailable = false;
       }
       if (state.game?.group_id) {
@@ -4097,6 +4213,7 @@ async function refreshData() {
       maybePromptHostJoinRequest();
       setStatus("Synced");
     } catch (err) {
+      console.error("refreshData failed", err);
       setStatus("Sync failed", "error");
     }
   })();
@@ -4156,6 +4273,13 @@ async function startRealtime() {
     channel.on(
       "postgres_changes",
       { event: "*", schema: "public", table: "settlement_adjustments", filter: `game_id=eq.${state.game.id}` },
+      scheduleRealtimeRefresh
+    );
+  }
+  if (state.exitsAvailable) {
+    channel.on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "player_exits", filter: `game_id=eq.${state.game.id}` },
       scheduleRealtimeRefresh
     );
   }
@@ -4460,6 +4584,12 @@ async function joinAsPlayer() {
     if (rosterId && player.group_player_id !== rosterId) {
       await supabase.from("players").update({ group_player_id: rosterId }).eq("id", player.id);
     }
+    if (state.exitsAvailable && getPlayerExit(player.id)) {
+      const removed = await removePlayerExit(player.id, { silent: true });
+      if (!removed && !state.exitsAvailable) {
+        return false;
+      }
+    }
     state.playerId = player.id;
     await ensurePlayerLinked(player);
     saveStoredPlayer(state.game.code, { id: player.id, name: player.name });
@@ -4709,6 +4839,12 @@ async function addBuyin(playerId, amount, options = {}) {
   if (!Number.isFinite(numeric) || numeric <= 0) return;
 
   const source = options.source || "host";
+  if (state.exitsAvailable && getPlayerExit(playerId)) {
+    const removed = await removePlayerExit(playerId, { silent: true });
+    if (!removed && !state.exitsAvailable) {
+      return;
+    }
+  }
   const payload = { game_id: state.game.id, player_id: playerId, amount: numeric };
   if (source !== "self") {
     const neutralCreatedAt = getHostNeutralBuyinCreatedAt(playerId);
@@ -4749,6 +4885,138 @@ async function saveSettlementForPlayer(playerId, amount) {
   }
   await refreshData();
   return true;
+}
+
+function getPlayerExit(playerId) {
+  if (!playerId) return null;
+  return state.playerExits.find((item) => item.player_id === playerId) || null;
+}
+
+function getPlayerExitAmount(playerId) {
+  const exit = getPlayerExit(playerId);
+  return exit ? Number(exit.amount || 0) : 0;
+}
+
+async function removePlayerExit(playerId, options = {}) {
+  if (!supabase || !state.game || !state.exitsAvailable || !playerId) return true;
+  const { silent = false } = options;
+  const { error } = await supabase
+    .from("player_exits")
+    .delete()
+    .eq("game_id", state.game.id)
+    .eq("player_id", playerId);
+  if (error) {
+    if (isMissingTableError(error)) {
+      state.exitsAvailable = false;
+      if (!silent) {
+        setStatus("Run README SQL to enable Cash Out & Leave.", "error");
+      }
+      return false;
+    }
+    if (!silent) {
+      setStatus("Could not clear cash out record.", "error");
+    }
+    return false;
+  }
+  return true;
+}
+
+async function savePlayerExit(playerId, amount) {
+  if (!supabase || !state.game || !state.exitsAvailable || !playerId) return false;
+  const deleteOk = await removePlayerExit(playerId, { silent: true });
+  if (!deleteOk && state.exitsAvailable) {
+    setStatus("Could not save cash out.", "error");
+    return false;
+  }
+  if (!state.exitsAvailable) return false;
+  const payload = {
+    game_id: state.game.id,
+    player_id: playerId,
+    amount: moneyRound(amount),
+    left_at: new Date().toISOString()
+  };
+  const { error } = await supabase.from("player_exits").insert(payload);
+  if (error) {
+    if (isMissingTableError(error)) {
+      state.exitsAvailable = false;
+      setStatus("Run README SQL to enable Cash Out & Leave.", "error");
+      return false;
+    }
+    setStatus("Could not save cash out.", "error");
+    return false;
+  }
+
+  if (state.settlementsAvailable) {
+    const settlementAmount = moneyRound(amount);
+    const { error: deleteSettlementError } = await supabase
+      .from("settlements")
+      .delete()
+      .eq("game_id", state.game.id)
+      .eq("player_id", playerId);
+    if (deleteSettlementError && isMissingTableError(deleteSettlementError)) {
+      state.settlementsAvailable = false;
+    }
+    if (!deleteSettlementError) {
+      const { error: insertSettlementError } = await supabase
+        .from("settlements")
+        .insert({ game_id: state.game.id, player_id: playerId, amount: settlementAmount });
+      if (insertSettlementError && isMissingTableError(insertSettlementError)) {
+        state.settlementsAvailable = false;
+      }
+    }
+  }
+  return true;
+}
+
+async function cashOutAndLeaveCurrentPlayer() {
+  if (!supabase || !state.game || !state.playerId) return;
+  if (isGameSettled()) {
+    setStatus("Game settled. Seats are locked.", "error");
+    return;
+  }
+  if (!state.exitsAvailable) {
+    setStatus("Run README SQL to enable Cash Out & Leave.", "error");
+    return;
+  }
+
+  const player = state.players.find((item) => item.id === state.playerId);
+  if (!player) return;
+  const existingExitAmount = getPlayerExitAmount(player.id);
+  const existingSettlement = state.settlements.find((item) => item.player_id === player.id);
+  const seedAmount = existingExitAmount || Number(existingSettlement?.amount || 0);
+  const defaultValue = seedAmount > 0 ? formatNumberValue(seedAmount) : "";
+  const input = await openPromptModal({
+    title: "Cash Out & Leave",
+    message: "Enter chips you are taking from the table.",
+    placeholder: "0.00",
+    defaultValue,
+    submitLabel: "Continue",
+    variant: "settle"
+  });
+  if (input === null) return;
+  const amount = parseChipAmount(input);
+  if (!Number.isFinite(amount) || amount < 0) {
+    setStatus("Enter a valid cash out amount.", "error");
+    return;
+  }
+  const confirmed = await openConfirmModal(
+    `Cash out ${formatCurrency(amount)} and leave the game?`,
+    "Cash out"
+  );
+  if (!confirmed) return;
+
+  const ok = await savePlayerExit(player.id, amount);
+  if (!ok) return;
+
+  const gameCode = state.game.code;
+  state.playerId = null;
+  clearStoredPlayer(gameCode);
+  clearPendingJoin(gameCode);
+  state.pendingJoinGroupPlayerId = null;
+  state.playerJoinFeedbackText = "You cashed out and left the table.";
+  state.playerJoinFeedbackTone = "info";
+  setStatus("Cashed out and left");
+  await refreshData();
 }
 
 async function submitPlayerChips() {
@@ -5011,9 +5279,14 @@ function renderSettleList() {
 
   const totals = buildBuyinTotals();
   const settlementTotals = new Map();
+  const exitTotals = new Map();
   state.settlements.forEach((settlement) => {
     const current = settlementTotals.get(settlement.player_id) || 0;
     settlementTotals.set(settlement.player_id, current + Number(settlement.amount || 0));
+  });
+  state.playerExits.forEach((exit) => {
+    const current = exitTotals.get(exit.player_id) || 0;
+    exitTotals.set(exit.player_id, current + Number(exit.amount || 0));
   });
   state.players.forEach((player) => {
     const row = document.createElement("div");
@@ -5021,20 +5294,30 @@ function renderSettleList() {
     row.dataset.playerId = player.id;
     const buyinTotal = totals.get(player.id) || 0;
     const adjustment = getPendingAdjustment(player.id);
+    const exitAmount = exitTotals.get(player.id) || 0;
     const adjustmentText =
       Math.abs(adjustment) > 0.004
         ? `<span class="settle-adjustment">Misc ${
             adjustment >= 0 ? "loss" : "credit"
           }: ${formatCurrency(Math.abs(adjustment))}</span>`
         : "";
+    const exitText =
+      exitAmount > 0.004
+        ? `<span class="settle-adjustment">Cashed out early: ${formatCurrency(exitAmount)}</span>`
+        : "";
     const preset =
       existingValues.get(player.id) ??
-      (settlementTotals.has(player.id) ? formatNumberValue(settlementTotals.get(player.id)) : "");
+      (settlementTotals.has(player.id)
+        ? formatNumberValue(settlementTotals.get(player.id))
+        : exitAmount > 0.004
+          ? formatNumberValue(exitAmount)
+          : "");
     row.innerHTML = `
       <div class="settle-meta">
         <strong>${displayPlayerName(player)}</strong>
         <span>Buy-ins: ${formatCurrency(buyinTotal)}</span>
         ${adjustmentText}
+        ${exitText}
       </div>
       <div class="settle-input">
         <span>Chips remaining</span>
@@ -5118,6 +5401,7 @@ async function openSettlePanel() {
     return;
   }
   await setSettleOpen(true);
+  await refreshData();
   state.pendingSettleAdjustments = new Map();
   setSettleError("");
   if (elements.settleModal) {
@@ -5177,6 +5461,7 @@ function openConfirmModal(message, confirmLabel = "Confirm") {
   if (!elements.confirmModal) return Promise.resolve(false);
   elements.confirmMessage.textContent = message;
   elements.confirmOk.textContent = confirmLabel;
+  elements.confirmModal.classList.add("modal-centered");
   elements.confirmModal.classList.remove("hidden");
   return new Promise((resolve) => {
     confirmResolve = resolve;
@@ -5184,7 +5469,10 @@ function openConfirmModal(message, confirmLabel = "Confirm") {
 }
 
 function closeConfirmModal(result) {
-  if (elements.confirmModal) elements.confirmModal.classList.add("hidden");
+  if (elements.confirmModal) {
+    elements.confirmModal.classList.add("hidden");
+    elements.confirmModal.classList.remove("modal-centered");
+  }
   if (confirmResolve) {
     confirmResolve(result);
     confirmResolve = null;
@@ -5196,7 +5484,8 @@ function openPromptModal({
   message = "",
   placeholder = "",
   defaultValue = "",
-  submitLabel = "Save"
+  submitLabel = "Save",
+  variant = ""
 } = {}) {
   if (!elements.promptModal) return Promise.resolve(null);
   if (promptResolve) {
@@ -5210,6 +5499,11 @@ function openPromptModal({
     elements.promptInput.placeholder = placeholder;
   }
   if (elements.promptSubmit) elements.promptSubmit.textContent = submitLabel;
+  const promptPanel = elements.promptModal.querySelector(".prompt-panel");
+  if (promptPanel) {
+    promptPanel.classList.toggle("prompt-settle-like", variant === "settle");
+  }
+  elements.promptModal.classList.add("modal-centered");
   elements.promptModal.classList.remove("hidden");
   setTimeout(() => elements.promptInput?.focus(), 0);
   return new Promise((resolve) => {
@@ -5218,7 +5512,14 @@ function openPromptModal({
 }
 
 function closePromptModal(value = null) {
-  if (elements.promptModal) elements.promptModal.classList.add("hidden");
+  if (elements.promptModal) {
+    elements.promptModal.classList.add("hidden");
+    elements.promptModal.classList.remove("modal-centered");
+    const promptPanel = elements.promptModal.querySelector(".prompt-panel");
+    if (promptPanel) {
+      promptPanel.classList.remove("prompt-settle-like");
+    }
+  }
   if (promptResolve) {
     promptResolve(value);
     promptResolve = null;
@@ -5500,6 +5801,8 @@ function clearCurrentGame() {
   state.buyins = [];
   state.settlements = [];
   state.settlementAdjustments = [];
+  state.playerExits = [];
+  state.exitsAvailable = true;
   state.joinRequests = [];
   state.isHost = false;
   state.canHost = false;
@@ -5528,6 +5831,7 @@ function clearCurrentGame() {
   }
   potTickerCurrent = null;
   applyPlayerBuyinPulse();
+  document.body.classList.remove("player-settle-focus");
   elements.gamePanel.classList.add("hidden");
   if (elements.sessionsPanel) elements.sessionsPanel.classList.add("hidden");
   if (elements.settledNotice) elements.settledNotice.classList.add("hidden");
@@ -6788,6 +7092,12 @@ elements.playerAddDefault.addEventListener("click", () => {
   if (!state.playerId) return;
   addBuyin(state.playerId, state.game?.default_buyin || 0, { source: "self" });
 });
+
+if (elements.playerLeave) {
+  elements.playerLeave.addEventListener("click", () => {
+    cashOutAndLeaveCurrentPlayer();
+  });
+}
 
 if (elements.playerSubmitChips) {
   elements.playerSubmitChips.addEventListener("click", () => {

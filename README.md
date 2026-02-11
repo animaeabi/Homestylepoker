@@ -74,6 +74,15 @@ create table if not exists settlement_adjustments (
   created_at timestamptz default now()
 );
 
+create table if not exists player_exits (
+  id uuid primary key default gen_random_uuid(),
+  game_id uuid references games(id) on delete cascade,
+  player_id uuid references players(id) on delete cascade,
+  amount numeric not null,
+  left_at timestamptz default now(),
+  created_at timestamptz default now()
+);
+
 create table if not exists join_requests (
   id uuid primary key default gen_random_uuid(),
   game_id uuid references games(id) on delete cascade,
@@ -87,11 +96,13 @@ create table if not exists join_requests (
 
 create index if not exists idx_settlements_game_id on settlements(game_id);
 create index if not exists idx_settlement_adjustments_game_id on settlement_adjustments(game_id);
+create index if not exists idx_player_exits_game_id on player_exits(game_id);
+create index if not exists idx_player_exits_player_id on player_exits(player_id);
 create index if not exists idx_join_requests_game_id on join_requests(game_id);
 create index if not exists idx_join_requests_group_player_id on join_requests(group_player_id);
 ```
 
-- In Supabase, enable Realtime for `games`, `players`, `buyins`, `settlements`, `settlement_adjustments`, and `join_requests`.
+- In Supabase, enable Realtime for `games`, `players`, `buyins`, `settlements`, `settlement_adjustments`, `player_exits`, and `join_requests`.
 - For quick local testing, you can leave Row Level Security (RLS) **off**.
 - If you created the tables earlier, run:
 
@@ -132,6 +143,14 @@ create table if not exists settlement_adjustments (
   amount numeric not null,
   created_at timestamptz default now()
 );
+create table if not exists player_exits (
+  id uuid primary key default gen_random_uuid(),
+  game_id uuid references games(id) on delete cascade,
+  player_id uuid references players(id) on delete cascade,
+  amount numeric not null,
+  left_at timestamptz default now(),
+  created_at timestamptz default now()
+);
 create table if not exists join_requests (
   id uuid primary key default gen_random_uuid(),
   game_id uuid references games(id) on delete cascade,
@@ -144,6 +163,8 @@ create table if not exists join_requests (
 );
 create index if not exists idx_settlements_game_id on settlements(game_id);
 create index if not exists idx_settlement_adjustments_game_id on settlement_adjustments(game_id);
+create index if not exists idx_player_exits_game_id on player_exits(game_id);
+create index if not exists idx_player_exits_player_id on player_exits(player_id);
 create index if not exists idx_join_requests_game_id on join_requests(game_id);
 create index if not exists idx_join_requests_group_player_id on join_requests(group_player_id);
 create index if not exists idx_players_group_player_id on players(group_player_id);

@@ -259,14 +259,17 @@
                   <span class="pulse-chevron" aria-hidden="true">&gt;</span>
                 </button>
                 <div id="playerOthers" class="player-others hidden"></div>
-                <button id="playerCheatLabel" class="player-others-label player-cheat-label hidden" type="button" aria-haspopup="dialog" aria-controls="playerCheatModal">
-                  <span>Cheat Sheet</span>
-                  <span class="cheat-chevron" aria-hidden="true">&gt;</span>
-                </button>
+                <div id="playerToolRow" class="player-tool-row">
+                  <button id="playerCheatLabel" class="player-others-label player-cheat-label hidden" type="button" aria-haspopup="dialog" aria-controls="playerCheatModal">
+                    <span>Cheat Sheet</span>
+                    <span class="cheat-chevron" aria-hidden="true">&gt;</span>
+                  </button>
+                  <button id="playerLeave" class="player-leave" type="button">Cash out &amp; leave</button>
+                </div>
               </div>
               <div id="playerSettle" class="player-settle hidden">
                 <label class="field">
-                  <span>Chips remaining</span>
+                  <span id="playerSettleLabel">Chips remaining</span>
                   <input id="playerSettleAmount" type="number" min="0" step="0.01" inputmode="decimal" placeholder="Enter chips" />
                 </label>
                 <button id="playerSubmitChips" class="primary">Submit chips</button>
