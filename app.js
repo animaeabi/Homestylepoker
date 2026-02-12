@@ -958,13 +958,14 @@ function buildPlayerTrendIdentity() {
   };
 }
 
-async function loadPlayerTrendRows() {
+async function loadPlayerTrendRows(options = {}) {
+  const includeComparison = options.includeComparison !== false;
   if (!supabase) {
-    return { rows: [], identity: null, comparisonSeries: [], error: "Live data unavailable." };
+    return { rows: [], identity: null, comparisonSeries: [], error: "Live data unavailable.", comparisonDeferred: false };
   }
   const identity = buildPlayerTrendIdentity();
   if (!identity) {
-    return { rows: [], identity: null, comparisonSeries: [], error: "Join a seat to see your trend." };
+    return { rows: [], identity: null, comparisonSeries: [], error: "Join a seat to see your trend.", comparisonDeferred: false };
   }
 
   const { data: settledGames, error: settledGamesError } = await supabase
@@ -973,7 +974,7 @@ async function loadPlayerTrendRows() {
     .not("ended_at", "is", null)
     .order("ended_at", { ascending: true });
   if (settledGamesError) {
-    return { rows: [], identity, comparisonSeries: [], error: "Could not load settled games." };
+    return { rows: [], identity, comparisonSeries: [], error: "Could not load settled games.", comparisonDeferred: false };
   }
 
   const normalizeTrendGroupName = (value = "") =>
@@ -1010,7 +1011,7 @@ async function loadPlayerTrendRows() {
   }
 
   if (!games.length) {
-    return { rows: [], identity, comparisonSeries: [], error: null };
+    return { rows: [], identity, comparisonSeries: [], error: null, comparisonDeferred: false };
   }
   const gameIds = games.map((game) => game.id);
   const gameById = new Map(games.map((game) => [game.id, game]));
@@ -1020,7 +1021,7 @@ async function loadPlayerTrendRows() {
     .select("id,game_id,name,group_player_id")
     .in("game_id", gameIds);
   if (playersError) {
-    return { rows: [], identity, comparisonSeries: [], error: "Could not load player history." };
+    return { rows: [], identity, comparisonSeries: [], error: "Could not load player history.", comparisonDeferred: false };
   }
 
   const normalizedToGroupIds = new Map();
@@ -1046,80 +1047,103 @@ async function loadPlayerTrendRows() {
     const normalized = normalizeName(stripHostSuffix(player.name || ""));
     if (identity.groupPlayerId) {
       if (player.group_player_id === identity.groupPlayerId) return true;
-      // Handle legacy data where host/player names were linked to a different group_player_id.
       return normalized === identity.normalized;
     }
     return normalized === identity.normalized;
   });
   if (!matchingPlayers.length) {
-    return { rows: [], identity, comparisonSeries: [], error: null };
+    return { rows: [], identity, comparisonSeries: [], error: null, comparisonDeferred: false };
   }
 
   const matchingGameIds = Array.from(
     new Set(matchingPlayers.map((player) => player.game_id).filter(Boolean))
   );
   if (!matchingGameIds.length) {
-    return { rows: [], identity, comparisonSeries: [], error: null };
+    return { rows: [], identity, comparisonSeries: [], error: null, comparisonDeferred: false };
   }
 
   const playersInScope = (players || []).filter((player) => matchingGameIds.includes(player.game_id));
   const playerById = new Map(playersInScope.map((player) => [player.id, player]));
+  const matchingPlayerIds = Array.from(new Set(matchingPlayers.map((player) => player.id).filter(Boolean)));
+  const matchingPlayerIdSet = new Set(matchingPlayerIds);
   const currentKey = matchingPlayers.length ? resolveSeriesKey(matchingPlayers[0]) : null;
 
   const [buyinsRes, settlementsRes, adjustmentsRes] = await Promise.all([
-    supabase
-      .from("buyins")
-      .select("game_id,player_id,amount")
-      .in("game_id", matchingGameIds),
-    supabase
-      .from("settlements")
-      .select("game_id,player_id,amount")
-      .in("game_id", matchingGameIds),
-    supabase
-      .from("settlement_adjustments")
-      .select("game_id,player_id,amount")
-      .in("game_id", matchingGameIds)
+    includeComparison
+      ? supabase
+          .from("buyins")
+          .select("game_id,player_id,amount")
+          .in("game_id", matchingGameIds)
+      : supabase
+          .from("buyins")
+          .select("game_id,player_id,amount")
+          .in("player_id", matchingPlayerIds)
+          .in("game_id", matchingGameIds),
+    includeComparison
+      ? supabase
+          .from("settlements")
+          .select("game_id,player_id,amount")
+          .in("game_id", matchingGameIds)
+      : supabase
+          .from("settlements")
+          .select("game_id,player_id,amount")
+          .in("player_id", matchingPlayerIds)
+          .in("game_id", matchingGameIds),
+    includeComparison
+      ? supabase
+          .from("settlement_adjustments")
+          .select("game_id,player_id,amount")
+          .in("game_id", matchingGameIds)
+      : supabase
+          .from("settlement_adjustments")
+          .select("game_id,player_id,amount")
+          .in("player_id", matchingPlayerIds)
+          .in("game_id", matchingGameIds)
   ]);
 
   if (buyinsRes.error || settlementsRes.error) {
-    return { rows: [], identity, comparisonSeries: [], error: "Could not load trend details." };
+    return { rows: [], identity, comparisonSeries: [], error: "Could not load trend details.", comparisonDeferred: false };
   }
   if (adjustmentsRes.error && !isMissingTableError(adjustmentsRes.error)) {
-    return { rows: [], identity, comparisonSeries: [], error: "Could not load discrepancy history." };
+    return { rows: [], identity, comparisonSeries: [], error: "Could not load discrepancy history.", comparisonDeferred: false };
   }
 
-  const rowsByKeyByGame = new Map();
-  const ensureSeriesRow = (key, gameId) => {
-    if (!rowsByKeyByGame.has(key)) rowsByKeyByGame.set(key, new Map());
-    const byGame = rowsByKeyByGame.get(key);
-    if (!byGame.has(gameId)) {
-      const game = gameById.get(gameId) || {};
-      const stamp = game.ended_at || game.created_at;
-      byGame.set(gameId, {
-        gameId,
-        gameName: safeTrim(game.name) || "Game",
-        settledAt: stamp || null,
-        buyins: 0,
-        cashout: 0,
-        errorShare: 0,
-        final: 0,
-        net: 0,
-        cumulative: 0
-      });
-    }
-    return byGame.get(gameId);
-  };
+  const rowsByKeyByGame = includeComparison ? new Map() : null;
+  const ensureSeriesRow = includeComparison
+    ? (key, gameId) => {
+        if (!rowsByKeyByGame.has(key)) rowsByKeyByGame.set(key, new Map());
+        const byGame = rowsByKeyByGame.get(key);
+        if (!byGame.has(gameId)) {
+          const game = gameById.get(gameId) || {};
+          const stamp = game.ended_at || game.created_at;
+          byGame.set(gameId, {
+            gameId,
+            gameName: safeTrim(game.name) || "Game",
+            settledAt: stamp || null,
+            buyins: 0,
+            cashout: 0,
+            errorShare: 0,
+            final: 0,
+            net: 0,
+            cumulative: 0
+          });
+        }
+        return byGame.get(gameId);
+      }
+    : null;
 
-  const seriesMeta = new Map();
-  playersInScope.forEach((player) => {
-    const key = resolveSeriesKey(player);
-    if (!seriesMeta.has(key)) {
-      seriesMeta.set(key, {
-        key,
-        name: stripHostSuffix(player.name || "Player")
-      });
-    }
-  });
+  const seriesMeta = includeComparison ? new Map() : null;
+  if (includeComparison) {
+    playersInScope.forEach((player) => {
+      const key = resolveSeriesKey(player);
+      if (!seriesMeta.has(key)) {
+        seriesMeta.set(key, {
+          key,
+          name: stripHostSuffix(player.name || "Player")
+        });
+      }
+    });
+  }
 
   const rowByGame = new Map();
   const ensureRow = (gameId) => {
@@ -1143,38 +1167,59 @@ async function loadPlayerTrendRows() {
 
   matchingGameIds.forEach((gameId) => ensureRow(gameId));
   (buyinsRes.data || []).forEach((buyin) => {
-    const player = playerById.get(buyin.player_id);
-    if (!player) return;
-    const key = resolveSeriesKey(player);
     const amount = Number(buyin.amount || 0);
-    const seriesRow = ensureSeriesRow(key, buyin.game_id);
-    seriesRow.buyins += amount;
-    if (key === currentKey) {
+    if (includeComparison) {
+      const player = playerById.get(buyin.player_id);
+      if (!player) return;
+      const key = resolveSeriesKey(player);
+      const seriesRow = ensureSeriesRow(key, buyin.game_id);
+      seriesRow.buyins += amount;
+      if (key === currentKey) {
+        const row = ensureRow(buyin.game_id);
+        row.buyins += amount;
+      }
+      return;
+    }
+    if (matchingPlayerIdSet.has(buyin.player_id)) {
       const row = ensureRow(buyin.game_id);
       row.buyins += amount;
     }
   });
   (settlementsRes.data || []).forEach((settlement) => {
-    const player = playerById.get(settlement.player_id);
-    if (!player) return;
-    const key = resolveSeriesKey(player);
     const amount = Number(settlement.amount || 0);
-    const seriesRow = ensureSeriesRow(key, settlement.game_id);
-    seriesRow.cashout += amount;
-    if (key === currentKey) {
+    if (includeComparison) {
+      const player = playerById.get(settlement.player_id);
+      if (!player) return;
+      const key = resolveSeriesKey(player);
+      const seriesRow = ensureSeriesRow(key, settlement.game_id);
+      seriesRow.cashout += amount;
+      if (key === currentKey) {
+        const row = ensureRow(settlement.game_id);
+        row.cashout += amount;
+      }
+      return;
+    }
+    if (matchingPlayerIdSet.has(settlement.player_id)) {
       const row = ensureRow(settlement.game_id);
       row.cashout += amount;
     }
   });
   if (!adjustmentsRes.error) {
     (adjustmentsRes.data || []).forEach((adjustment) => {
-      const player = playerById.get(adjustment.player_id);
-      if (!player) return;
-      const key = resolveSeriesKey(player);
       const amount = Number(adjustment.amount || 0);
-      const seriesRow = ensureSeriesRow(key, adjustment.game_id);
-      seriesRow.errorShare += amount;
-      if (key === currentKey) {
+      if (includeComparison) {
+        const player = playerById.get(adjustment.player_id);
+        if (!player) return;
+        const key = resolveSeriesKey(player);
+        const seriesRow = ensureSeriesRow(key, adjustment.game_id);
+        seriesRow.errorShare += amount;
+        if (key === currentKey) {
+          const row = ensureRow(adjustment.game_id);
+          row.errorShare += amount;
+        }
+        return;
+      }
+      if (matchingPlayerIdSet.has(adjustment.player_id)) {
         const row = ensureRow(adjustment.game_id);
         row.errorShare += amount;
       }
@@ -1198,96 +1243,99 @@ async function loadPlayerTrendRows() {
     row.cumulative = cumulative;
   });
 
-  const rawSeries = [];
-  rowsByKeyByGame.forEach((byGame, key) => {
-    const meta = seriesMeta.get(key);
-    const seriesRows = matchingGameIds
-      .map((gameId) => {
-        const existing = byGame.get(gameId);
-        if (existing) return existing;
-        const game = gameById.get(gameId) || {};
-        return {
-          gameId,
-          gameName: safeTrim(game.name) || "Game",
-          settledAt: game.ended_at || game.created_at || null,
-          buyins: 0,
-          cashout: 0,
-          errorShare: 0,
-          final: 0,
-          net: 0,
-          cumulative: 0
-        };
-      })
-      .sort((a, b) => new Date(a.settledAt || 0).getTime() - new Date(b.settledAt || 0).getTime())
-      .map((row) => ({
-        ...row,
-        buyins: moneyRound(row.buyins),
-        cashout: moneyRound(row.cashout),
-        errorShare: moneyRound(row.errorShare)
-      }));
+  let comparisonSeries = [];
+  if (includeComparison) {
+    const rawSeries = [];
+    rowsByKeyByGame.forEach((byGame, key) => {
+      const meta = seriesMeta.get(key);
+      const seriesRows = matchingGameIds
+        .map((gameId) => {
+          const existing = byGame.get(gameId);
+          if (existing) return existing;
+          const game = gameById.get(gameId) || {};
+          return {
+            gameId,
+            gameName: safeTrim(game.name) || "Game",
+            settledAt: game.ended_at || game.created_at || null,
+            buyins: 0,
+            cashout: 0,
+            errorShare: 0,
+            final: 0,
+            net: 0,
+            cumulative: 0
+          };
+        })
+        .sort((a, b) => new Date(a.settledAt || 0).getTime() - new Date(b.settledAt || 0).getTime())
+        .map((row) => ({
+          ...row,
+          buyins: moneyRound(row.buyins),
+          cashout: moneyRound(row.cashout),
+          errorShare: moneyRound(row.errorShare)
+        }));
 
-    let seriesCumulative = 0;
-    seriesRows.forEach((row) => {
-      row.final = moneyRound(row.cashout + row.errorShare);
-      row.net = moneyRound(row.final - row.buyins);
-      seriesCumulative = moneyRound(seriesCumulative + row.net);
-      row.cumulative = seriesCumulative;
-    });
-
-    if (!seriesRows.length) return;
-    rawSeries.push({
-      key,
-      name: meta?.name || "Player",
-      isCurrent: key === currentKey,
-      rows: seriesRows,
-      totalNet: moneyRound(seriesRows.reduce((sum, row) => sum + row.net, 0))
-    });
-  });
-
-  const mergedByName = new Map();
-  rawSeries.forEach((series) => {
-    const mergeKey = normalizeName(stripHostSuffix(series.name || "Player"));
-    if (!mergedByName.has(mergeKey)) {
-      mergedByName.set(mergeKey, {
-        key: series.key,
-        name: series.name,
-        isCurrent: series.isCurrent,
-        rows: series.rows.map((row) => ({ ...row })),
-        totalNet: series.totalNet
+      let seriesCumulative = 0;
+      seriesRows.forEach((row) => {
+        row.final = moneyRound(row.cashout + row.errorShare);
+        row.net = moneyRound(row.final - row.buyins);
+        seriesCumulative = moneyRound(seriesCumulative + row.net);
+        row.cumulative = seriesCumulative;
       });
-      return;
-    }
-    const target = mergedByName.get(mergeKey);
-    target.isCurrent = target.isCurrent || series.isCurrent;
-    target.rows = target.rows.map((row, index) => {
-      const other = series.rows[index];
-      if (!other) return row;
-      return {
-        ...row,
-        buyins: moneyRound(row.buyins + other.buyins),
-        cashout: moneyRound(row.cashout + other.cashout),
-        errorShare: moneyRound(row.errorShare + other.errorShare)
-      };
+
+      if (!seriesRows.length) return;
+      rawSeries.push({
+        key,
+        name: meta?.name || "Player",
+        isCurrent: key === currentKey,
+        rows: seriesRows,
+        totalNet: moneyRound(seriesRows.reduce((sum, row) => sum + row.net, 0))
+      });
     });
-    let rolling = 0;
-    target.rows.forEach((row) => {
-      row.final = moneyRound(row.cashout + row.errorShare);
-      row.net = moneyRound(row.final - row.buyins);
-      rolling = moneyRound(rolling + row.net);
-      row.cumulative = rolling;
+
+    const mergedByName = new Map();
+    rawSeries.forEach((series) => {
+      const mergeKey = normalizeName(stripHostSuffix(series.name || "Player"));
+      if (!mergedByName.has(mergeKey)) {
+        mergedByName.set(mergeKey, {
+          key: series.key,
+          name: series.name,
+          isCurrent: series.isCurrent,
+          rows: series.rows.map((row) => ({ ...row })),
+          totalNet: series.totalNet
+        });
+        return;
+      }
+      const target = mergedByName.get(mergeKey);
+      target.isCurrent = target.isCurrent || series.isCurrent;
+      target.rows = target.rows.map((row, index) => {
+        const other = series.rows[index];
+        if (!other) return row;
+        return {
+          ...row,
+          buyins: moneyRound(row.buyins + other.buyins),
+          cashout: moneyRound(row.cashout + other.cashout),
+          errorShare: moneyRound(row.errorShare + other.errorShare)
+        };
+      });
+      let rolling = 0;
+      target.rows.forEach((row) => {
+        row.final = moneyRound(row.cashout + row.errorShare);
+        row.net = moneyRound(row.final - row.buyins);
+        rolling = moneyRound(rolling + row.net);
+        row.cumulative = rolling;
+      });
+      target.totalNet = moneyRound(target.rows.reduce((sum, row) => sum + row.net, 0));
     });
-    target.totalNet = moneyRound(target.rows.reduce((sum, row) => sum + row.net, 0));
-  });
 
-  const comparisonSeries = Array.from(mergedByName.values());
+    comparisonSeries = Array.from(mergedByName.values());
 
-  comparisonSeries.sort((a, b) => {
-    if (a.isCurrent && !b.isCurrent) return -1;
-    if (!a.isCurrent && b.isCurrent) return 1;
-    return a.name.localeCompare(b.name);
-  });
+    comparisonSeries.sort((a, b) => {
+      if (a.isCurrent && !b.isCurrent) return -1;
+      if (!a.isCurrent && b.isCurrent) return 1;
+      return a.name.localeCompare(b.name);
+    });
+  }
 
-  return { rows, identity, comparisonSeries, error: null };
+  return { rows, identity, comparisonSeries, error: null, comparisonDeferred: !includeComparison };
 }
 
 function buildSmoothSvgPath(points) {
@@ -1340,7 +1388,7 @@ function animateSignedCurrencyText(targetEl, amount, suffix = "", duration = 700
 function renderPlayerTrendContent(payload) {
   if (!elements.playerTrendContent) return;
   elements.playerTrendContent.innerHTML = "";
-  const { rows, identity, comparisonSeries, error } = payload;
+  const { rows, identity, comparisonSeries, comparisonDeferred, error } = payload;
 
   if (error) {
     const message = document.createElement("p");
@@ -1668,8 +1716,7 @@ function renderPlayerTrendContent(payload) {
   `;
   elements.playerTrendContent.appendChild(strength);
 
-  const compareRows = trendRows;
-  const compareGameIds = compareRows.map((row) => row.gameId);
+  let compareRows = trendRows;
   const comparePalette = [
     "#66f0bf",
     "#ffd47f",
@@ -1685,47 +1732,54 @@ function renderPlayerTrendContent(payload) {
     "#d8f48f"
   ];
 
-  const compareSeriesRaw = mergedComparisonSeries
-    .map((series) => {
-      const rowsWindow = compareGameIds.map((gameId) => {
-        const existing = (series.rows || []).find((row) => row.gameId === gameId);
-        if (existing) return existing;
-        const game = compareRows.find((row) => row.gameId === gameId);
+  const buildCompareSeries = (rowsBase, mergedSeries) => {
+    const compareGameIds = rowsBase.map((row) => row.gameId);
+    const compareSeriesRaw = (mergedSeries || [])
+      .map((series) => {
+        const rowsWindow = compareGameIds.map((gameId) => {
+          const existing = (series.rows || []).find((row) => row.gameId === gameId);
+          if (existing) return existing;
+          const game = rowsBase.find((row) => row.gameId === gameId);
+          return {
+            gameId,
+            gameName: game?.gameName || "Game",
+            settledAt: game?.settledAt || null,
+            net: 0
+          };
+        });
+        let running = 0;
+        rowsWindow.forEach((row) => {
+          running = moneyRound(running + Number(row.net || 0));
+          row.cumulativeWindow = running;
+        });
         return {
-          gameId,
-          gameName: game?.gameName || "Game",
-          settledAt: game?.settledAt || null,
-          net: 0
+          ...series,
+          rowsWindow,
+          totalNetWindow: moneyRound(rowsWindow.reduce((sum, row) => sum + Number(row.net || 0), 0))
         };
-      });
-      let running = 0;
-      rowsWindow.forEach((row) => {
-        running = moneyRound(running + Number(row.net || 0));
-        row.cumulativeWindow = running;
-      });
-      return {
+      })
+      .filter((series) => series.rowsWindow.length > 0)
+      .filter((series) =>
+        series.isCurrent || series.rowsWindow.some((row) => Math.abs(Number(row.net || 0)) > 0.004)
+      );
+    return compareSeriesRaw
+      .sort((a, b) => {
+        if (a.isCurrent && !b.isCurrent) return -1;
+        if (!a.isCurrent && b.isCurrent) return 1;
+        return b.totalNetWindow - a.totalNetWindow;
+      })
+      .map((series, index) => ({
         ...series,
-        rowsWindow,
-        totalNetWindow: moneyRound(rowsWindow.reduce((sum, row) => sum + Number(row.net || 0), 0))
-      };
-    })
-    .filter((series) => series.rowsWindow.length > 0)
-    .filter((series) =>
-      series.isCurrent || series.rowsWindow.some((row) => Math.abs(Number(row.net || 0)) > 0.004)
-    );
+        color: series.isCurrent
+          ? comparePalette[0]
+          : comparePalette[(index % (comparePalette.length - 1)) + 1]
+      }));
+  };
 
-  const compareSeries = compareSeriesRaw
-    .sort((a, b) => {
-      if (a.isCurrent && !b.isCurrent) return -1;
-      if (!a.isCurrent && b.isCurrent) return 1;
-      return b.totalNetWindow - a.totalNetWindow;
-    })
-    .map((series, index) => ({
-      ...series,
-      color: series.isCurrent ? comparePalette[0] : comparePalette[(index % (comparePalette.length - 1)) + 1]
-    }));
+  let compareSeries = buildCompareSeries(compareRows, mergedComparisonSeries);
+  const shouldShowCompare = compareRows.length > 1 && (compareSeries.length > 1 || comparisonDeferred);
 
-  if (compareSeries.length > 1 && compareRows.length > 1) {
+  if (shouldShowCompare) {
     const compareSection = document.createElement("section");
     compareSection.className = "player-trend-compare";
     compareSection.innerHTML = `
@@ -1740,8 +1794,14 @@ function renderPlayerTrendContent(payload) {
     const toggle = compareSection.querySelector(".player-trend-compare-toggle");
     const chevron = compareSection.querySelector(".player-trend-compare-chevron");
     let compareBuilt = false;
+    let compareLoadPromise = null;
     const buildCompareBody = () => {
       if (compareBuilt || !body) return;
+      if (compareSeries.length <= 1 || compareRows.length <= 1) {
+        body.innerHTML = `<p class="muted">Table comparison is unavailable.</p>`;
+        compareBuilt = true;
+        return;
+      }
       compareBuilt = true;
 
       const values = compareSeries.flatMap((series) =>
@@ -1840,11 +1900,31 @@ function renderPlayerTrendContent(payload) {
       applyVisibility();
     };
 
-    toggle?.addEventListener("click", () => {
+    const ensureCompareData = async () => {
+      if (compareSeries.length > 1 && compareRows.length > 1) return true;
+      if (!comparisonDeferred) return false;
+      if (!compareLoadPromise) {
+        compareLoadPromise = (async () => {
+          const payloadFull = await loadPlayerTrendRows({ includeComparison: true });
+          if (payloadFull?.error) throw new Error(payloadFull.error);
+          compareRows = Array.isArray(payloadFull?.rows) && payloadFull.rows.length ? payloadFull.rows : compareRows;
+          const mergedFull = mergeSeriesForCompare(payloadFull?.comparisonSeries || []);
+          compareSeries = buildCompareSeries(compareRows, mergedFull);
+        })();
+      }
+      await compareLoadPromise;
+      return compareSeries.length > 1 && compareRows.length > 1;
+    };
+
+    toggle?.addEventListener("click", async () => {
       if (!body) return;
       const opening = body.classList.contains("hidden");
       if (opening) {
         try {
+          if (compareSeries.length <= 1 || compareRows.length <= 1) {
+            body.innerHTML = `<p class="muted">Loading table comparison…</p>`;
+            await ensureCompareData();
+          }
           buildCompareBody();
         } catch (err) {
           console.error("Failed to build table comparison chart", err);
@@ -1869,7 +1949,8 @@ async function openPlayerTrendModal() {
   elements.playerTrendModal.classList.remove("hidden");
   elements.playerTrendTrigger?.setAttribute("aria-expanded", "true");
   try {
-    const payload = await loadPlayerTrendRows();
+    const lightweightHostStandalone = isStandaloneDisplayMode() && state.isHost;
+    const payload = await loadPlayerTrendRows({ includeComparison: !lightweightHostStandalone });
     if (!elements.playerTrendModal || elements.playerTrendModal.classList.contains("hidden")) return;
     renderPlayerTrendContent(payload);
   } catch (err) {
