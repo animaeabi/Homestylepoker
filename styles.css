@@ -79,9 +79,14 @@ body.theme-light .ghost {
 }
 
 body.theme-light .danger-outline {
-  background: rgba(178, 74, 59, 0.08);
-  color: #6a2217;
-  border: 1px solid rgba(178, 74, 59, 0.4);
+  border-color: rgba(172, 70, 70, 0.38);
+  color: rgba(96, 28, 28, 0.95);
+  background:
+    radial-gradient(circle at 20% 20%, rgba(255, 169, 169, 0.12), transparent 62%),
+    linear-gradient(165deg, rgba(255, 231, 224, 0.92), rgba(244, 216, 208, 0.84));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.42),
+    0 6px 12px rgba(27, 26, 23, 0.12);
 }
 
 body.theme-light .info-chip {
@@ -1815,13 +1820,21 @@ button:disabled {
 }
 
 .danger-outline {
-  background: rgba(178, 74, 59, 0.1);
-  color: #ffd7cd;
-  border: 1px solid rgba(178, 74, 59, 0.5);
+  border: 1px solid rgba(206, 93, 93, 0.52);
+  color: rgba(248, 216, 216, 0.95);
+  background:
+    radial-gradient(circle at 20% 20%, rgba(255, 170, 170, 0.1), transparent 62%),
+    linear-gradient(165deg, rgba(44, 13, 13, 0.82), rgba(30, 8, 8, 0.74));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 220, 220, 0.08),
+    0 6px 14px rgba(9, 3, 3, 0.28);
 }
 
 .danger-outline:hover {
-  box-shadow: 0 0 0 2px rgba(178, 74, 59, 0.2);
+  border-color: rgba(230, 116, 116, 0.68);
+  background:
+    radial-gradient(circle at 20% 20%, rgba(255, 180, 180, 0.14), transparent 62%),
+    linear-gradient(165deg, rgba(56, 16, 16, 0.84), rgba(36, 10, 10, 0.78));
 }
 
 .hint {
