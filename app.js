@@ -1736,38 +1736,42 @@ function renderPlayerTrendContent(payload) {
       <div class="player-trend-compare-body hidden"></div>
     `;
 
-    const values = compareSeries.flatMap((series) =>
-      series.rowsWindow.map((row) => row.cumulativeWindow)
-    );
-    let minValue = Math.min(0, ...values);
-    let maxValue = Math.max(0, ...values);
-    if (Math.abs(maxValue - minValue) < 0.0001) {
-      minValue -= 1;
-      maxValue += 1;
-    }
-    const valueSpan = maxValue - minValue;
-    const width = Math.max(360, compareRows.length * 48);
-    const height = 188;
-    const padX = 20;
-    const padY = 16;
-    const plotHeight = height - padY * 2;
-    const xStep = compareRows.length > 1 ? (width - padX * 2) / (compareRows.length - 1) : 0;
-    const toX = (index) => padX + index * xStep;
-    const toY = (value) => padY + ((maxValue - value) / valueSpan) * plotHeight;
-    const zeroY = toY(0);
-
-    compareSeries.forEach((series) => {
-      series.points = series.rowsWindow.map((row, index) => ({
-        x: toX(index),
-        y: toY(row.cumulativeWindow)
-      }));
-      series.path = buildSmoothSvgPath(series.points);
-    });
-
     const body = compareSection.querySelector(".player-trend-compare-body");
     const toggle = compareSection.querySelector(".player-trend-compare-toggle");
     const chevron = compareSection.querySelector(".player-trend-compare-chevron");
-    if (body) {
+    let compareBuilt = false;
+    const buildCompareBody = () => {
+      if (compareBuilt || !body) return;
+      compareBuilt = true;
+
+      const values = compareSeries.flatMap((series) =>
+        series.rowsWindow.map((row) => row.cumulativeWindow)
+      );
+      let minValue = Math.min(0, ...values);
+      let maxValue = Math.max(0, ...values);
+      if (Math.abs(maxValue - minValue) < 0.0001) {
+        minValue -= 1;
+        maxValue += 1;
+      }
+      const valueSpan = maxValue - minValue;
+      const width = Math.max(360, compareRows.length * 48);
+      const height = 188;
+      const padX = 20;
+      const padY = 16;
+      const plotHeight = height - padY * 2;
+      const xStep = compareRows.length > 1 ? (width - padX * 2) / (compareRows.length - 1) : 0;
+      const toX = (index) => padX + index * xStep;
+      const toY = (value) => padY + ((maxValue - value) / valueSpan) * plotHeight;
+      const zeroY = toY(0);
+
+      compareSeries.forEach((series) => {
+        series.points = series.rowsWindow.map((row, index) => ({
+          x: toX(index),
+          y: toY(row.cumulativeWindow)
+        }));
+        series.path = buildSmoothSvgPath(series.points);
+      });
+
       body.innerHTML = `
         <div class="player-trend-chart-shell">
           <p class="player-trend-caption">Table trend (${compareRows.length} games)</p>
@@ -1834,13 +1838,24 @@ function renderPlayerTrendContent(payload) {
         });
       });
       applyVisibility();
-    }
+    };
 
     toggle?.addEventListener("click", () => {
-      const isOpen = !body.classList.contains("hidden");
-      body.classList.toggle("hidden", isOpen);
-      toggle.setAttribute("aria-expanded", isOpen ? "false" : "true");
-      chevron.textContent = isOpen ? "▾" : "▴";
+      if (!body) return;
+      const opening = body.classList.contains("hidden");
+      if (opening) {
+        try {
+          buildCompareBody();
+        } catch (err) {
+          console.error("Failed to build table comparison chart", err);
+          body.innerHTML = `<p class="muted">Could not load table comparison.</p>`;
+        }
+      }
+      body.classList.toggle("hidden", !opening);
+      toggle.setAttribute("aria-expanded", opening ? "true" : "false");
+      if (chevron) {
+        chevron.textContent = opening ? "▴" : "▾";
+      }
     });
 
     elements.playerTrendContent.appendChild(compareSection);
@@ -1853,9 +1868,15 @@ async function openPlayerTrendModal() {
   elements.playerTrendContent.innerHTML = `<p class="muted">Loading profit trend…</p>`;
   elements.playerTrendModal.classList.remove("hidden");
   elements.playerTrendTrigger?.setAttribute("aria-expanded", "true");
-  const payload = await loadPlayerTrendRows();
-  if (!elements.playerTrendModal || elements.playerTrendModal.classList.contains("hidden")) return;
-  renderPlayerTrendContent(payload);
+  try {
+    const payload = await loadPlayerTrendRows();
+    if (!elements.playerTrendModal || elements.playerTrendModal.classList.contains("hidden")) return;
+    renderPlayerTrendContent(payload);
+  } catch (err) {
+    console.error("Failed to open My Performance", err);
+    if (!elements.playerTrendModal || elements.playerTrendModal.classList.contains("hidden")) return;
+    elements.playerTrendContent.innerHTML = `<p class="muted">Could not open My Performance right now.</p>`;
+  }
 }
 
 function closePlayerTrendModal() {
