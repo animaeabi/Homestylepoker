@@ -553,7 +553,7 @@ function isMissingTableError(error) {
 }
 
 function stripHostSuffix(name) {
-  return safeTrim(name).replace(/\s*\(Host\)$/i, "");
+  return safeTrim(name).replace(/\s*\(\s*host\s*\)\s*$/i, "");
 }
 
 function isHostPlayer(player) {
@@ -960,14 +960,46 @@ async function loadPlayerTrendRows() {
 
   const { data: settledGames, error: settledGamesError } = await supabase
     .from("games")
-    .select("id,name,created_at,ended_at")
+    .select("id,name,group_id,created_at,ended_at")
     .not("ended_at", "is", null)
     .order("ended_at", { ascending: true });
   if (settledGamesError) {
     return { rows: [], identity, comparisonSeries: [], error: "Could not load settled games." };
   }
 
-  const games = settledGames || [];
+  const normalizeTrendGroupName = (value = "") =>
+    safeTrim(value)
+      .toLowerCase()
+      .replace(/[’‘`]/g, "'")
+      .replace(/&/g, " and ")
+      .replace(/[^a-z0-9]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  const excludedTrendGroupNames = new Set([
+    normalizeTrendGroupName("Tried & Tested - don't use"),
+    normalizeTrendGroupName("Tried & Tested - dont use")
+  ]);
+
+  let games = settledGames || [];
+  const groupIds = Array.from(new Set(games.map((game) => game.group_id).filter(Boolean)));
+  if (groupIds.length) {
+    const { data: groupsData, error: groupsError } = await supabase
+      .from("groups")
+      .select("id,name")
+      .in("id", groupIds);
+    if (!groupsError) {
+      const excludedGroupIds = new Set(
+        (groupsData || [])
+          .filter((group) => excludedTrendGroupNames.has(normalizeTrendGroupName(group.name || "")))
+          .map((group) => group.id)
+      );
+      if (excludedGroupIds.size) {
+        games = games.filter((game) => !excludedGroupIds.has(game.group_id));
+      }
+    }
+  }
+
   if (!games.length) {
     return { rows: [], identity, comparisonSeries: [], error: null };
   }
@@ -1002,11 +1034,13 @@ async function loadPlayerTrendRows() {
   };
 
   const matchingPlayers = (players || []).filter((player) => {
+    const normalized = normalizeName(stripHostSuffix(player.name || ""));
     if (identity.groupPlayerId) {
       if (player.group_player_id === identity.groupPlayerId) return true;
-      return !player.group_player_id && normalizeName(stripHostSuffix(player.name || "")) === identity.normalized;
+      // Handle legacy data where host/player names were linked to a different group_player_id.
+      return normalized === identity.normalized;
     }
-    return normalizeName(stripHostSuffix(player.name || "")) === identity.normalized;
+    return normalized === identity.normalized;
   });
   if (!matchingPlayers.length) {
     return { rows: [], identity, comparisonSeries: [], error: null };
@@ -1316,9 +1350,8 @@ function renderPlayerTrendContent(payload) {
   }
 
   const seatName = identity?.name || "Player";
-  const recentLimit = Math.min(9, rows.length);
-  const recentRows = rows.slice(-recentLimit);
-  const overallNet = moneyRound(recentRows.reduce((sum, row) => sum + row.net, 0));
+  const trendRows = rows;
+  const overallNet = moneyRound(trendRows.reduce((sum, row) => sum + row.net, 0));
 
   const weekThreshold = Date.now() - 7 * 24 * 60 * 60 * 1000;
   const weekNet = moneyRound(
@@ -1327,10 +1360,10 @@ function renderPlayerTrendContent(payload) {
       return new Date(row.settledAt).getTime() >= weekThreshold ? sum + row.net : sum;
     }, 0)
   );
-  const wins = recentRows.filter((row) => row.net > 0.004).length;
-  const losses = recentRows.filter((row) => row.net < -0.004).length;
-  const breakEven = recentRows.length - wins - losses;
-  const avgPerGame = recentRows.length ? moneyRound(overallNet / recentRows.length) : 0;
+  const wins = trendRows.filter((row) => row.net > 0.004).length;
+  const losses = trendRows.filter((row) => row.net < -0.004).length;
+  const breakEven = trendRows.length - wins - losses;
+  const avgPerGame = trendRows.length ? moneyRound(overallNet / trendRows.length) : 0;
 
   let bestStreak = 0;
   let worstStreak = 0;
@@ -1433,7 +1466,7 @@ function renderPlayerTrendContent(payload) {
   hero.innerHTML = `
     <p class="player-trend-hero-name">👤 ${escapeHtml(seatName)}</p>
     <h3 class="${overallNet >= 0 ? "money-pos" : "money-neg"} player-trend-overall-value">${formatSignedCurrency(overallNet)} Overall</h3>
-    <p class="player-trend-hero-sub">Last ${recentRows.length} games</p>
+    <p class="player-trend-hero-sub">All-time · ${trendRows.length} games</p>
     <ul class="player-trend-hero-facts">
       <li class="player-trend-week ${weekNet >= 0 ? "is-pos" : "is-neg"}">${weekNet >= 0 ? "▲" : "▼"} ${formatSignedCurrency(weekNet)} this week</li>
       <li>${wins} Wins / ${losses} Losses / ${breakEven} Break-even</li>
@@ -1457,7 +1490,7 @@ function renderPlayerTrendContent(payload) {
   let rollingIn = 0;
   let rollingOut = 0;
   let rollingNet = 0;
-  recentRows.forEach((row) => {
+  trendRows.forEach((row) => {
     rollingIn = moneyRound(rollingIn + row.buyins);
     rollingOut = moneyRound(rollingOut + row.final);
     rollingNet = moneyRound(rollingNet + row.net);
@@ -1626,7 +1659,7 @@ function renderPlayerTrendContent(payload) {
   `;
   elements.playerTrendContent.appendChild(strength);
 
-  const compareRows = recentRows;
+  const compareRows = trendRows;
   const compareGameIds = compareRows.map((row) => row.gameId);
   const comparePalette = [
     "#66f0bf",
@@ -4403,6 +4436,8 @@ function renderPlayerSeat() {
 }
 
 function renderLog() {
+  if (!elements.logTable) return;
+
   const playerLookup = new Map(
     state.players.map((player) => [player.id, displayPlayerName(player)])
   );
@@ -4440,12 +4475,14 @@ function renderLog() {
   const header = document.createElement("div");
   header.className = "table-row header";
   header.innerHTML = "<div>Time</div><div>Player</div><div>Amount</div><div>Event</div>";
+  header.style.color = "rgba(255, 241, 210, 0.98)";
   elements.logTable.appendChild(header);
 
   if (activity.length === 0) {
     const empty = document.createElement("div");
     empty.className = "table-row";
     empty.innerHTML = "<div>No activity yet.</div>";
+    empty.style.color = "rgba(245, 230, 200, 0.92)";
     elements.logTable.appendChild(empty);
     return;
   }
@@ -4453,6 +4490,7 @@ function renderLog() {
   activity.forEach((entry) => {
     const row = document.createElement("div");
     row.className = "table-row";
+    row.style.color = "rgba(245, 230, 200, 0.98)";
     const eventLabel =
       entry.type === "cashout"
         ? "Cashed out"
@@ -5668,7 +5706,8 @@ async function joinAsPlayer() {
 
 async function getOrCreateGroupPlayer(groupId, name) {
   if (!supabase || !groupId) return null;
-  const normalized = normalizeName(name);
+  const cleanName = stripHostSuffix(name);
+  const normalized = normalizeName(cleanName);
   if (!normalized) return null;
 
   const { data: existing, error } = await supabase
@@ -5687,7 +5726,7 @@ async function getOrCreateGroupPlayer(groupId, name) {
 
   const { data, error: insertError } = await supabase
     .from("group_players")
-    .insert({ group_id: groupId, name, normalized_name: normalized })
+    .insert({ group_id: groupId, name: cleanName, normalized_name: normalized })
     .select()
     .single();
 
