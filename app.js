@@ -1383,15 +1383,13 @@ async function loadPlayerTrendRowsLightweight() {
     addRows(data);
   }
 
-  if (!byId.size) {
-    const legacyNames = Array.from(new Set([identity.name, `${identity.name} (Host)`].map((v) => safeTrim(v)).filter(Boolean)));
-    for (const name of legacyNames) {
-      const { data } = await supabase
-        .from("players")
-        .select("id,game_id,name,group_player_id")
-        .ilike("name", name);
-      addRows(data);
-    }
+  const legacyNames = Array.from(new Set([identity.name, `${identity.name} (Host)`].map((v) => safeTrim(v)).filter(Boolean)));
+  for (const name of legacyNames) {
+    const { data } = await supabase
+      .from("players")
+      .select("id,game_id,name,group_player_id")
+      .ilike("name", name);
+    addRows(data);
   }
 
   const candidatePlayers = Array.from(byId.values());
@@ -1559,25 +1557,6 @@ function buildSmoothSvgPath(points) {
     d += ` C ${cp1x.toFixed(2)} ${cp1y.toFixed(2)}, ${cp2x.toFixed(2)} ${cp2y.toFixed(2)}, ${p2.x.toFixed(2)} ${p2.y.toFixed(2)}`;
   }
   return d;
-}
-
-function sampleTrendRows(rows, maxPoints) {
-  if (!Array.isArray(rows) || !rows.length) return [];
-  const cap = Math.max(2, Number(maxPoints) || 2);
-  if (rows.length <= cap) return rows.slice();
-  const lastIndex = rows.length - 1;
-  const sampled = [];
-  let prevIndex = -1;
-  for (let i = 0; i < cap; i += 1) {
-    let idx = i === cap - 1 ? lastIndex : Math.round((i * lastIndex) / (cap - 1));
-    if (idx <= prevIndex) idx = prevIndex + 1;
-    if (idx > lastIndex) idx = lastIndex;
-    sampled.push(rows[idx]);
-    prevIndex = idx;
-    if (idx === lastIndex) break;
-  }
-  if (sampled[sampled.length - 1] !== rows[lastIndex]) sampled.push(rows[lastIndex]);
-  return sampled;
 }
 
 function animateSignedCurrencyText(targetEl, amount, suffix = "", duration = 700) {
@@ -1782,9 +1761,7 @@ function renderPlayerTrendContent(payload) {
   });
 
   if (personalTrend.length) {
-    const trendPointCap = isStandaloneDisplayMode() ? 88 : 220;
-    const personalChartRows = sampleTrendRows(personalTrend, trendPointCap);
-    const values = personalChartRows.flatMap((row) => [row.cumulativeIn, row.cumulativeOut, row.cumulativeRecent]);
+    const values = personalTrend.flatMap((row) => [row.cumulativeIn, row.cumulativeOut, row.cumulativeRecent]);
     let valueMin = Math.min(0, ...values);
     let valueMax = Math.max(0, ...values);
     if (Math.abs(valueMax - valueMin) < 0.0001) {
@@ -1792,24 +1769,24 @@ function renderPlayerTrendContent(payload) {
       valueMax += 1;
     }
     const valueSpan = valueMax - valueMin;
-    const width = Math.max(320, personalChartRows.length * 44);
+    const width = Math.max(320, personalTrend.length * 44);
     const height = 154;
     const padX = 20;
     const padY = 14;
     const plotHeight = height - padY * 2;
-    const xStep = personalChartRows.length > 1 ? (width - padX * 2) / (personalChartRows.length - 1) : 0;
+    const xStep = personalTrend.length > 1 ? (width - padX * 2) / (personalTrend.length - 1) : 0;
     const toX = (index) => padX + index * xStep;
     const toY = (value) => padY + ((valueMax - value) / valueSpan) * plotHeight;
     const zeroY = toY(0);
-    const pointsIn = personalChartRows.map((row, index) => ({
+    const pointsIn = personalTrend.map((row, index) => ({
       x: toX(index),
       y: toY(row.cumulativeIn)
     }));
-    const pointsOut = personalChartRows.map((row, index) => ({
+    const pointsOut = personalTrend.map((row, index) => ({
       x: toX(index),
       y: toY(row.cumulativeOut)
     }));
-    const pointsNet = personalChartRows.map((row, index) => ({
+    const pointsNet = personalTrend.map((row, index) => ({
       x: toX(index),
       y: toY(row.cumulativeRecent)
     }));
@@ -1845,8 +1822,8 @@ function renderPlayerTrendContent(payload) {
         </svg>
       </div>
       <div class="player-trend-axis">
-        <span>${personalChartRows[0]?.settledAt ? formatShortDate(personalChartRows[0].settledAt) : ""}</span>
-        <span>${personalChartRows[personalChartRows.length - 1]?.settledAt ? formatShortDate(personalChartRows[personalChartRows.length - 1].settledAt) : ""}</span>
+        <span>${personalTrend[0]?.settledAt ? formatShortDate(personalTrend[0].settledAt) : ""}</span>
+        <span>${personalTrend[personalTrend.length - 1]?.settledAt ? formatShortDate(personalTrend[personalTrend.length - 1].settledAt) : ""}</span>
       </div>
       <div class="player-trend-touch-meta">
         <span class="player-trend-touch-game"></span>
@@ -1865,7 +1842,7 @@ function renderPlayerTrendContent(payload) {
       const pointIn = pointsIn[index];
       const pointOut = pointsOut[index];
       if (!pointIn || !pointOut) return;
-      const row = personalChartRows[index];
+      const row = personalTrend[index];
       if (focusLine) {
         focusLine.setAttribute("x1", pointOut.x.toFixed(2));
         focusLine.setAttribute("x2", pointOut.x.toFixed(2));
