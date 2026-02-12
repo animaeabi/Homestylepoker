@@ -249,7 +249,8 @@ const state = {
   playerBuyinPulseUntil: 0,
   playerBuyinPulsePlayerId: null,
   cheatHintDismissedRanks: new Set(),
-  pendingSettleAdjustments: new Map()
+  pendingSettleAdjustments: new Map(),
+  realtimeStatus: "IDLE"
 };
 
 const configMissing =
@@ -265,6 +266,10 @@ let lockResolve = null;
 let confirmResolve = null;
 let promptResolve = null;
 let realtimeRefreshTimer = null;
+let realtimeRecoverTimer = null;
+let realtimePollTimer = null;
+let realtimePollIntervalMs = 0;
+let realtimeResubscribeAt = 0;
 let refreshPromise = null;
 let refreshQueued = false;
 
@@ -427,6 +432,10 @@ const suitCyclePauseMs = 5 * 60 * 1000;
 const HOST_PLAYERS_PAGE_SIZE = 3;
 const LOG_ROWS_LIMIT = 200;
 const REALTIME_REFRESH_DEBOUNCE_MS = 120;
+const REALTIME_RECOVERY_GRACE_MS = 2600;
+const REALTIME_RECOVERY_POLL_MS = 3200;
+const REALTIME_STANDALONE_POLL_MS = 5200;
+const REALTIME_RESUBSCRIBE_COOLDOWN_MS = 1800;
 const PLAYER_BUYIN_PULSE_MS = 950;
 const POT_TICKER_MIN_MS = 320;
 const POT_TICKER_MAX_MS = 820;
@@ -2798,6 +2807,106 @@ function setStatus(text, tone = "info") {
 
 function setConnection(status) {
   elements.connectionStatus.textContent = status === "Live" ? "Live" : "";
+}
+
+function isStandaloneDisplayMode() {
+  if (typeof window === "undefined") return false;
+  return Boolean(
+    (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) ||
+      window.navigator?.standalone === true
+  );
+}
+
+function clearRealtimeRecoverTimer() {
+  if (!realtimeRecoverTimer) return;
+  clearTimeout(realtimeRecoverTimer);
+  realtimeRecoverTimer = null;
+}
+
+function stopRealtimePolling() {
+  if (!realtimePollTimer) {
+    realtimePollIntervalMs = 0;
+    return;
+  }
+  clearInterval(realtimePollTimer);
+  realtimePollTimer = null;
+  realtimePollIntervalMs = 0;
+}
+
+function getRealtimePollInterval() {
+  if (!state.game || document.hidden) return 0;
+  if (typeof navigator !== "undefined" && navigator.onLine === false) return 0;
+  const standalone = isStandaloneDisplayMode();
+  if (standalone) return REALTIME_STANDALONE_POLL_MS;
+  if (state.realtimeStatus === "CONNECTING") return 0;
+  if (state.realtimeStatus !== "SUBSCRIBED") return REALTIME_RECOVERY_POLL_MS;
+  return 0;
+}
+
+function syncRealtimePolling() {
+  const interval = getRealtimePollInterval();
+  if (!interval) {
+    stopRealtimePolling();
+    return;
+  }
+  if (realtimePollTimer && realtimePollIntervalMs === interval) {
+    return;
+  }
+  stopRealtimePolling();
+  realtimePollIntervalMs = interval;
+  realtimePollTimer = setInterval(() => {
+    if (!state.game || document.hidden) return;
+    void refreshData();
+    if (state.realtimeStatus !== "SUBSCRIBED" && state.realtimeStatus !== "CONNECTING") {
+      void restartRealtimeChannel("poll");
+    }
+  }, interval);
+}
+
+function scheduleRealtimeRecovery() {
+  if (!state.game) return;
+  if (typeof navigator !== "undefined" && navigator.onLine === false) return;
+  clearRealtimeRecoverTimer();
+  realtimeRecoverTimer = setTimeout(() => {
+    if (!state.game || state.realtimeStatus === "SUBSCRIBED") return;
+    void restartRealtimeChannel("recover");
+    syncRealtimePolling();
+  }, REALTIME_RECOVERY_GRACE_MS);
+}
+
+function handleRealtimeStatus(status) {
+  state.realtimeStatus = safeTrim(status).toUpperCase() || "UNKNOWN";
+  if (state.realtimeStatus === "SUBSCRIBED") {
+    clearRealtimeRecoverTimer();
+    setConnection("Live");
+  } else {
+    setConnection("");
+    scheduleRealtimeRecovery();
+  }
+  syncRealtimePolling();
+}
+
+async function restartRealtimeChannel(reason = "resume") {
+  if (!supabase || !state.game) return;
+  const now = Date.now();
+  if (now - realtimeResubscribeAt < REALTIME_RESUBSCRIBE_COOLDOWN_MS) return;
+  realtimeResubscribeAt = now;
+  try {
+    await startRealtime();
+  } catch (err) {
+    console.warn(`Realtime restart failed (${reason})`, err);
+    scheduleRealtimeRecovery();
+  }
+}
+
+async function recoverRealtimeOnResume(reason = "resume") {
+  if (!supabase || !state.game || document.hidden) return;
+  await refreshData();
+  if (state.realtimeStatus !== "SUBSCRIBED") {
+    await restartRealtimeChannel(reason);
+  } else {
+    syncRealtimePolling();
+  }
 }
 
 function formatCurrency(amount) {
@@ -5223,9 +5332,11 @@ function scheduleRealtimeRefresh() {
 
 async function startRealtime() {
   if (!supabase || !state.game) return;
+  clearRealtimeRecoverTimer();
   if (state.channel) {
     await supabase.removeChannel(state.channel);
   }
+  handleRealtimeStatus("CONNECTING");
 
   const channel = supabase
     .channel(`game-${state.game.id}`)
@@ -5275,11 +5386,7 @@ async function startRealtime() {
   }
 
   state.channel = channel.subscribe((status) => {
-    if (status === "SUBSCRIBED") {
-      setConnection("Live");
-    } else if (status === "CHANNEL_ERROR") {
-      setConnection("Disconnected");
-    }
+    handleRealtimeStatus(status);
   });
 }
 
@@ -6771,6 +6878,9 @@ function clearCurrentGame() {
     supabase.removeChannel(state.channel);
     state.channel = null;
   }
+  clearRealtimeRecoverTimer();
+  stopRealtimePolling();
+  realtimeResubscribeAt = 0;
   if (realtimeRefreshTimer) {
     clearTimeout(realtimeRefreshTimer);
     realtimeRefreshTimer = null;
@@ -6799,6 +6909,7 @@ function clearCurrentGame() {
   state.playerBuyinPulseUntil = 0;
   state.playerBuyinPulsePlayerId = null;
   state.pendingSettleAdjustments = new Map();
+  state.realtimeStatus = "IDLE";
   state.hostPlayersPage = 0;
   state.hostPlayersTopNonHostId = null;
   if (playerBuyinPulseTimer) {
@@ -8149,5 +8260,22 @@ elements.currency.addEventListener("change", updateGameSettings);
 
 elements.defaultBuyIn.addEventListener("change", updateGameSettings);
 
-window.addEventListener("online", () => setConnection(""));
-window.addEventListener("offline", () => setConnection(""));
+window.addEventListener("online", () => {
+  void recoverRealtimeOnResume("online");
+});
+window.addEventListener("offline", () => {
+  handleRealtimeStatus("OFFLINE");
+});
+window.addEventListener("focus", () => {
+  void recoverRealtimeOnResume("focus");
+});
+window.addEventListener("pageshow", () => {
+  void recoverRealtimeOnResume("pageshow");
+});
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    syncRealtimePolling();
+    return;
+  }
+  void recoverRealtimeOnResume("visibility");
+});
