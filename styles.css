@@ -1932,10 +1932,11 @@ button:disabled {
   align-items: center;
   gap: 6px;
   margin-left: auto;
+  transform: translateY(40px);
 }
 
 .qr-hint {
-  font-size: 0.7rem;
+  font-size: 0.62rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--muted);
@@ -2027,8 +2028,8 @@ button:disabled {
 }
 
 .qr-button {
-  width: 64px;
-  height: 64px;
+  width: 60px;
+  height: 60px;
   padding: 0;
   border-radius: 14px;
   background: var(--row-bg);
@@ -2039,8 +2040,8 @@ button:disabled {
 }
 
 .qr-button canvas {
-  width: 56px;
-  height: 56px;
+  width: 52px;
+  height: 52px;
 }
 
 .qr-panel {
@@ -2073,7 +2074,7 @@ button:disabled {
   min-width: 0;
 }
 
-.game-title-row .player-trend-trigger {
+.game-title-row .terminate-cta {
   margin-left: auto;
   flex: 0 0 auto;
   white-space: nowrap;
@@ -2144,6 +2145,10 @@ button:disabled {
   flex-wrap: wrap;
   gap: 12px;
   align-items: center;
+}
+
+.game-actions .player-trend-trigger {
+  margin: 0;
 }
 
 .toggle {
@@ -4036,8 +4041,9 @@ body.theme-light .stats-btn {
 .host-actions-bar .settle-cta {
   order: -1;
   margin-right: auto;
-  min-height: 38px;
-  padding: 8px 14px;
+  min-height: 42px;
+  padding: 10px 16px;
+  font-size: 0.84rem;
 }
 
 .add-player-btn {
@@ -4117,17 +4123,23 @@ body.theme-light .stats-btn {
   flex: 1;
   background: linear-gradient(
     90deg,
-    rgba(210, 166, 78, 0.1),
-    rgba(210, 166, 78, 0.45),
-    rgba(210, 166, 78, 0.1)
+    rgba(210, 166, 78, 0.18),
+    rgba(210, 166, 78, 0.86),
+    rgba(210, 166, 78, 0.18)
   );
+  box-shadow:
+    0 0 8px rgba(255, 190, 104, 0.42),
+    0 0 14px rgba(64, 255, 214, 0.2);
 }
 
 .players-separator span {
   font-size: 0.68rem;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: var(--muted);
+  color: rgba(252, 234, 194, 0.94);
+  text-shadow:
+    0 0 8px rgba(255, 190, 104, 0.42),
+    0 0 12px rgba(64, 255, 214, 0.22);
 }
 
 .players-pagination {
@@ -4463,6 +4475,7 @@ body.theme-light .player-tile {
   cursor: pointer;
   text-align: center;
   justify-self: end;
+  white-space: nowrap;
   background:
     radial-gradient(circle at 20% 20%, rgba(240, 196, 108, 0.16), transparent 62%),
     linear-gradient(165deg, rgba(35, 25, 14, 0.88), rgba(26, 19, 11, 0.84));
@@ -6174,7 +6187,7 @@ body:not(.theme-light) .footer-toggle input {
     gap: 8px;
   }
 
-  .game-title-row .player-trend-trigger {
+  .game-title-row .terminate-cta {
     padding: 7px 10px;
     font-size: 0.74rem;
   }
@@ -6195,18 +6208,18 @@ body:not(.theme-light) .footer-toggle input {
   }
 
   #qrCanvas {
-    width: 48px;
-    height: 48px;
+    width: 46px;
+    height: 46px;
   }
 
   .qr-button {
-    width: 56px;
-    height: 56px;
+    width: 54px;
+    height: 54px;
   }
 
   .qr-button canvas {
-    width: 48px;
-    height: 48px;
+    width: 46px;
+    height: 46px;
   }
 
   .sessions-bar {

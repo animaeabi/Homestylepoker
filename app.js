@@ -930,8 +930,16 @@ function closePlayerCheatModal() {
   elements.playerCheatModal.classList.add("hidden");
 }
 
+function getTrendPlayerId() {
+  if (state.playerId) return state.playerId;
+  if (state.isHost && state.game?.host_player_id) return state.game.host_player_id;
+  return null;
+}
+
 function buildPlayerTrendIdentity() {
-  const player = state.players.find((item) => item.id === state.playerId);
+  const trendPlayerId = getTrendPlayerId();
+  if (!trendPlayerId) return null;
+  const player = state.players.find((item) => item.id === trendPlayerId);
   if (!player) return null;
   const baseName = stripHostSuffix(player.name || "Player");
   return {
@@ -1799,7 +1807,7 @@ function renderPlayerTrendContent(payload) {
 
 async function openPlayerTrendModal() {
   if (!elements.playerTrendModal || !elements.playerTrendContent) return;
-  if (!state.playerId) return;
+  if (!getTrendPlayerId()) return;
   elements.playerTrendContent.innerHTML = `<p class="muted">Loading profit trend…</p>`;
   elements.playerTrendModal.classList.remove("hidden");
   elements.playerTrendTrigger?.setAttribute("aria-expanded", "true");
@@ -3572,7 +3580,7 @@ function applyHostMode() {
       elements.playerPanelHeading.textContent = "My Performance";
       elements.playerPanelSubtitle.textContent = "";
     } else {
-      elements.playerPanelHeading.textContent = "Player";
+      elements.playerPanelHeading.textContent = "My Performance";
       elements.playerPanelSubtitle.textContent = "Join once, tap to add buy-ins.";
     }
   }
@@ -4124,9 +4132,20 @@ function renderPlayerSeat() {
     if (elements.playerCheatLabel) {
       elements.playerCheatLabel.classList.add("hidden");
     }
+    const hostTrendAvailable = Boolean(state.isHost && getTrendPlayerId());
     if (elements.playerTrendTrigger) {
-      elements.playerTrendTrigger.classList.add("hidden");
-      elements.playerTrendTrigger.setAttribute("aria-expanded", "false");
+      if (hostTrendAvailable && !settling) {
+        elements.playerTrendTrigger.classList.remove("hidden");
+        elements.playerTrendTrigger.setAttribute(
+          "aria-expanded",
+          elements.playerTrendModal && !elements.playerTrendModal.classList.contains("hidden")
+            ? "true"
+            : "false"
+        );
+      } else {
+        elements.playerTrendTrigger.classList.add("hidden");
+        elements.playerTrendTrigger.setAttribute("aria-expanded", "false");
+      }
     }
     state.playerPulseExpanded = false;
     closePlayerCheatModal();
