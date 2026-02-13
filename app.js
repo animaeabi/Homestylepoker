@@ -1906,6 +1906,10 @@ function renderPlayerTrendContent(payload) {
 async function openPlayerTrendModal() {
   if (!elements.playerTrendModal || !elements.playerTrendContent) return;
   if (!getTrendPlayerId()) return;
+  if (isHostTrendDisabledInStandalone()) {
+    setStatus("My Performance is unavailable for host in iOS app mode.", "error");
+    return;
+  }
   elements.playerTrendContent.innerHTML = `<p class="muted">Loading profit trend…</p>`;
   elements.playerTrendModal.classList.remove("hidden");
   elements.playerTrendTrigger?.setAttribute("aria-expanded", "true");
@@ -2885,6 +2889,10 @@ function isStandaloneDisplayMode() {
     (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) ||
       window.navigator?.standalone === true
   );
+}
+
+function isHostTrendDisabledInStandalone() {
+  return isStandaloneDisplayMode() && state.isHost;
 }
 
 function clearRealtimeRecoverTimer() {
@@ -4344,7 +4352,9 @@ function renderPlayerSeat() {
     if (elements.playerCheatLabel) {
       elements.playerCheatLabel.classList.add("hidden");
     }
-    const hostTrendAvailable = Boolean(state.isHost && getTrendPlayerId());
+    const hostTrendAvailable = Boolean(
+      state.isHost && getTrendPlayerId() && !isHostTrendDisabledInStandalone()
+    );
     if (elements.playerTrendTrigger) {
       if (hostTrendAvailable && !settling) {
         elements.playerTrendTrigger.classList.remove("hidden");
@@ -4540,7 +4550,7 @@ function renderPlayerSeat() {
     }
   }
   if (elements.playerTrendTrigger) {
-    if (hidePlayerTools) {
+    if (hidePlayerTools || isHostTrendDisabledInStandalone()) {
       elements.playerTrendTrigger.classList.add("hidden");
       elements.playerTrendTrigger.setAttribute("aria-expanded", "false");
       closePlayerTrendModal();
