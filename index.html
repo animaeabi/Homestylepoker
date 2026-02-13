@@ -25,6 +25,7 @@
       </header>
 
       <section id="landing" class="landing">
+        <div id="landingNotice" class="landing-notice hidden" role="status" aria-live="polite"></div>
         <div class="landing-card lets-play" id="letsDealCard">
           <button
             id="letsDealToggle"
@@ -65,28 +66,22 @@
             <img class="join-icon" src="assets/table.png" alt="" aria-hidden="true" />
             <span class="join-text">Join table</span>
           </button>
+          <p class="landing-inline-hint">Joining a game? Start here.</p>
         </div>
 
         <div class="landing-side">
           <div class="landing-card compact action-card">
             <div class="landing-actions">
-              <button id="openSessions" class="deal-button deal-secondary" type="button">History</button>
+              <button id="openSessions" class="deal-button deal-secondary" type="button">Casual Sessions</button>
               <button
                 id="toggleGroups"
-                class="deal-button deal-secondary has-chevron"
+                class="deal-button deal-secondary"
                 type="button"
                 aria-expanded="false"
-                aria-controls="groupsPanel"
+                aria-controls="groupsHubModal"
               >
-                Groups
-                <span class="groups-chevron" aria-hidden="true"></span>
+                Circles
               </button>
-            </div>
-            <div id="groupsPanel" class="groups-panel hidden">
-              <div class="groups-panel-header">
-                <button id="createGroup" class="primary add-group-btn" type="button">Create</button>
-              </div>
-              <div id="groupList" class="group-list"></div>
             </div>
           </div>
         </div>
@@ -242,9 +237,10 @@
               </label>
             </div>
             <div id="playerJoin" class="player-join">
+              <p id="playerJoinHelper" class="muted player-join-helper"></p>
               <label class="field">
-                <span>Your name</span>
-                <input id="playerName" type="text" placeholder="Name" />
+                <span class="sr-only">Name</span>
+                <input id="playerName" type="text" placeholder="Enter your name" />
               </label>
               <button id="joinAsPlayer" class="primary">Join game</button>
               <div id="playerMatchList" class="match-list hidden"></div>
@@ -288,7 +284,7 @@
       <section id="sessionsPanel" class="sessions hidden">
         <div class="sessions-bar">
           <div>
-            <h2>Sessions</h2>
+            <h2 id="sessionsTitle">Casual Sessions</h2>
           </div>
           <div class="sessions-actions">
             <button id="sessionsBack" class="ghost small stats-btn">Back</button>
@@ -307,40 +303,42 @@
           </div>
         </div>
 
-        <div class="sessions-grid">
-          <div class="landing-card">
-            <h5>Game archives</h5>
-            <p class="muted">Open, review, and manage past sessions.</p>
-            <div id="recentGames" class="recent-games"></div>
-          </div>
-
-          <div class="landing-card">
-            <h5>Quarterly Summary</h5>
-            <p class="muted">Pick a group and range to compute who pays who.</p>
-            <label class="field">
-              <span>Group</span>
-              <select id="summaryGroup"></select>
-            </label>
-            <label class="field">
-              <span>Quarter</span>
-              <select id="summaryQuarter"></select>
-            </label>
-            <label class="field inline-toggle">
-              <input id="summaryUseCustom" type="checkbox" />
-              <span>Use custom range</span>
-            </label>
-            <div id="summaryCustomRow" class="row hidden">
-              <label class="field">
-                <span>Custom start</span>
-                <input id="summaryStart" type="date" />
-              </label>
-              <label class="field">
-                <span>Custom end</span>
-                <input id="summaryEnd" type="date" />
-              </label>
-              <p class="hint">Custom range overrides quarter.</p>
+        <div id="sessionsGridHost">
+          <div id="sessionsGrid" class="sessions-grid">
+            <div class="landing-card">
+              <h5 id="archivesTitle">Game archives</h5>
+              <p class="muted">Open, review, and manage past sessions.</p>
+              <div id="recentGames" class="recent-games"></div>
             </div>
-            <button id="openSummary" class="primary">View summary</button>
+
+            <div id="summaryCard" class="landing-card">
+              <h5 id="summaryCardTitle">Quarterly Summary</h5>
+              <p id="summaryCardCopy" class="muted">Pick a group and range to compute who pays who.</p>
+              <label id="summaryGroupField" class="field">
+                <span>Group</span>
+                <select id="summaryGroup"></select>
+              </label>
+              <label class="field">
+                <span>Quarter</span>
+                <select id="summaryQuarter"></select>
+              </label>
+              <label class="field inline-toggle">
+                <input id="summaryUseCustom" type="checkbox" />
+                <span>Use custom range</span>
+              </label>
+              <div id="summaryCustomRow" class="row hidden">
+                <label class="field">
+                  <span>Custom start</span>
+                  <input id="summaryStart" type="date" />
+                </label>
+                <label class="field">
+                  <span>Custom end</span>
+                  <input id="summaryEnd" type="date" />
+                </label>
+                <p class="hint">Custom range overrides quarter.</p>
+              </div>
+              <button id="openSummary" class="primary">View summary</button>
+            </div>
           </div>
         </div>
       </section>
@@ -454,46 +452,115 @@
             <button id="settingsClose" class="ghost modal-close-btn" type="button">Close</button>
           </div>
           <div class="settings-actions">
-            <button id="deleteAllGames" class="danger-outline" type="button">Erase all Data</button>
-            <p class="muted">Deletes all games and history, use with caution.</p>
+            <p class="muted">Global erase moved to Circles -> Settings.</p>
           </div>
         </section>
       </div>
 
-      <div id="groupModal" class="modal hidden" role="dialog" aria-modal="true">
+      <div id="groupsHubModal" class="modal modal-centered hidden" role="dialog" aria-modal="true">
         <div class="modal-backdrop" data-action="close"></div>
-        <section class="panel group-panel">
-          <div class="panel-title summary-header">
+        <section class="panel groups-hub-panel">
+          <div class="panel-title groups-hub-header">
             <div>
-              <h2 id="groupModalTitle">Group</h2>
-              <p class="muted">Manage players in this group.</p>
+              <h2>Circles</h2>
+              <p class="muted">Select a group to view players.</p>
             </div>
-            <div class="summary-actions">
-              <button id="groupRename" class="ghost compact-btn" type="button">Rename</button>
-              <button id="groupDelete" class="danger-outline compact-btn" type="button">Delete</button>
-              <button id="groupModalClose" class="ghost modal-close-btn" type="button">Close</button>
-            </div>
+            <button id="createGroup" class="group-create-plus-btn" type="button" aria-label="Create group">
+              <span class="group-create-icon" aria-hidden="true">+</span>
+            </button>
           </div>
-          <div class="group-lock">
-            <div>
-              <strong>Lock</strong>
-              <span id="groupLockStatus" class="muted">Open</span>
-            </div>
-            <div class="group-lock-actions">
-              <button id="groupLockSet" class="ghost compact-btn" type="button">Set phrase</button>
-              <button id="groupLockRemove" class="danger-outline compact-btn" type="button">Remove</button>
-            </div>
-          </div>
-          <div id="groupPlayerList" class="group-player-list"></div>
-          <form id="groupPlayerForm" class="group-player-form">
-            <label class="field">
-              <span>Add player</span>
-              <input id="groupPlayerName" type="text" placeholder="Name" />
-            </label>
-            <button id="groupPlayerAdd" class="ghost" type="submit">Add player</button>
-          </form>
+          <div class="groups-hub-divider" aria-hidden="true"></div>
+          <div id="groupList" class="group-list groups-hub-list"></div>
         </section>
       </div>
+
+      <section id="groupModal" class="group-page hidden">
+        <div class="panel group-page-panel">
+          <div class="group-page-titlebar">
+            <div>
+              <h2 id="groupModalTitle">Group</h2>
+            <p id="groupModalSubtitle" class="muted">Group members.</p>
+            </div>
+            <button id="groupModalClose" class="group-page-close" type="button" aria-label="Close group page">
+              ×
+            </button>
+          </div>
+
+          <div class="group-page-tabs" role="tablist" aria-label="Group sections">
+            <button id="groupTabMembers" class="group-tab active" type="button" role="tab" aria-selected="true">
+              Members
+            </button>
+            <button id="groupTabHistory" class="group-tab" type="button" role="tab" aria-selected="false">
+              History
+            </button>
+            <button id="groupTabLeaderboard" class="group-tab" type="button" role="tab" aria-selected="false">
+              Stats
+            </button>
+            <button id="groupTabSettings" class="group-tab" type="button" role="tab" aria-selected="false">
+              Settings
+            </button>
+          </div>
+
+          <section id="groupMembersPanel" class="group-tab-panel">
+            <form id="groupPlayerForm" class="group-player-form hidden" autocomplete="off">
+              <div class="group-player-add-row">
+                <input id="groupPlayerName" type="text" placeholder="Add player" />
+                <button id="groupPlayerAdd" class="ghost compact-icon-btn group-player-add-submit" type="submit" aria-label="Add player">
+                  ✓
+                </button>
+                <button id="groupPlayerAddCancel" class="ghost compact-icon-btn group-player-add-cancel" type="button" aria-label="Clear player name">
+                  ✕
+                </button>
+              </div>
+            </form>
+            <div id="groupPlayerList" class="group-player-list group-player-grid"></div>
+          </section>
+
+          <section id="groupHistoryPanel" class="group-tab-panel hidden">
+            <div id="groupHistoryGridHost"></div>
+          </section>
+
+          <section id="groupStatsPanel" class="group-tab-panel hidden">
+            <div class="stats-section group-stats-list-section">
+              <h3>Leaderboard</h3>
+              <p id="groupStatsSubtitle" class="muted group-stats-subtitle"></p>
+              <div id="groupStatsLeaderboard" class="stats-table"></div>
+            </div>
+            <div class="group-stats-footer">
+              <div class="stats-controls">
+                <label class="field">
+                  <select id="groupStatsRange" aria-label="Stats range"></select>
+                </label>
+              </div>
+              <div id="groupStatsSummary" class="summary group-stats-summary"></div>
+            </div>
+          </section>
+
+          <section id="groupSettingsPanel" class="group-tab-panel hidden">
+            <div id="groupInfoContent" class="group-info-grid group-settings-info"></div>
+            <div class="group-lock group-lock-bar">
+              <div class="group-lock-state">
+                <strong id="groupLockStatus">Open</strong>
+              </div>
+              <div class="group-lock-actions">
+                <button id="groupLockSet" class="ghost compact-btn" type="button">Change Passcode</button>
+                <button id="groupLockRemove" class="danger-outline compact-btn" type="button">Unlock Group</button>
+              </div>
+            </div>
+            <div class="group-settings-actions">
+              <button id="groupEditMembers" class="ghost compact-btn" type="button">Edit Group Members</button>
+              <button id="groupRename" class="ghost compact-btn" type="button">Rename Group</button>
+              <button id="groupDelete" class="danger-outline compact-btn" type="button">Delete Group</button>
+              <button id="groupDeleteAllData" class="danger-outline compact-btn" type="button">
+                Erase all Data
+              </button>
+            </div>
+            <p class="muted group-settings-note">
+              Use edit mode to remove players. Removed members keep their past game stats.
+            </p>
+          </section>
+        </div>
+      </section>
 
       <div id="createGroupModal" class="modal hidden" role="dialog" aria-modal="true">
         <div class="modal-backdrop" data-action="close"></div>

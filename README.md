@@ -20,6 +20,7 @@ create table if not exists group_players (
   group_id uuid references groups(id) on delete cascade,
   name text not null,
   normalized_name text not null,
+  archived_at timestamptz,
   created_at timestamptz default now(),
   unique (group_id, normalized_name)
 );
@@ -119,6 +120,7 @@ create table if not exists group_players (
   group_id uuid references groups(id) on delete cascade,
   name text not null,
   normalized_name text not null,
+  archived_at timestamptz,
   created_at timestamptz default now(),
   unique (group_id, normalized_name)
 );
@@ -126,6 +128,7 @@ create table if not exists group_players (
 alter table games add column if not exists group_id uuid references groups(id) on delete set null;
 alter table games add column if not exists host_player_id uuid references players(id) on delete set null;
 alter table groups add column if not exists lock_phrase_hash text;
+alter table group_players add column if not exists archived_at timestamptz;
 alter table games add column if not exists settle_open boolean default false;
 alter table games add column if not exists ended_at timestamptz;
 alter table players add column if not exists group_player_id uuid references group_players(id) on delete set null;

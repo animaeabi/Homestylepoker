@@ -7,11 +7,13 @@ const $ = (selector) => document.querySelector(selector);
 
 const elements = {
   landing: $("#landing"),
+  landingNotice: $("#landingNotice"),
   letsDealCard: $("#letsDealCard"),
   letsDealToggle: $("#letsDealToggle"),
   letsDealBody: $("#letsDealBody"),
   toggleGroups: $("#toggleGroups"),
-  groupsPanel: $("#groupsPanel"),
+  groupsHubModal: $("#groupsHubModal"),
+  groupsHubClose: $("#groupsHubClose"),
   newGameName: $("#newGameName"),
   newBuyIn: $("#newBuyIn"),
   newHostName: $("#newHostName"),
@@ -32,9 +34,27 @@ const elements = {
   createGroup: $("#createGroup"),
   groupModal: $("#groupModal"),
   groupModalTitle: $("#groupModalTitle"),
+  groupModalSubtitle: $("#groupModalSubtitle"),
   groupModalClose: $("#groupModalClose"),
+  groupTabMembers: $("#groupTabMembers"),
+  groupTabHistory: $("#groupTabHistory"),
+  groupTabLeaderboard: $("#groupTabLeaderboard"),
+  groupTabSettings: $("#groupTabSettings"),
+  groupMembersPanel: $("#groupMembersPanel"),
+  groupHistoryPanel: $("#groupHistoryPanel"),
+  groupHistoryGridHost: $("#groupHistoryGridHost"),
+  groupStatsPanel: $("#groupStatsPanel"),
+  groupStatsSubtitle: $("#groupStatsSubtitle"),
+  groupStatsRange: $("#groupStatsRange"),
+  groupStatsSummary: $("#groupStatsSummary"),
+  groupStatsLeaderboard: $("#groupStatsLeaderboard"),
+  groupSettingsPanel: $("#groupSettingsPanel"),
+  groupInfoContent: $("#groupInfoContent"),
+  groupPlayerSearch: $("#groupPlayerSearch"),
+  groupEditMembers: $("#groupEditMembers"),
   groupRename: $("#groupRename"),
   groupDelete: $("#groupDelete"),
+  groupDeleteAllData: $("#groupDeleteAllData"),
   groupLockStatus: $("#groupLockStatus"),
   groupLockSet: $("#groupLockSet"),
   groupLockRemove: $("#groupLockRemove"),
@@ -42,6 +62,7 @@ const elements = {
   groupPlayerForm: $("#groupPlayerForm"),
   groupPlayerName: $("#groupPlayerName"),
   groupPlayerAdd: $("#groupPlayerAdd"),
+  groupPlayerAddCancel: $("#groupPlayerAddCancel"),
   createGroupModal: $("#createGroupModal"),
   createGroupClose: $("#createGroupClose"),
   createGroupForm: $("#createGroupForm"),
@@ -94,6 +115,10 @@ const elements = {
   rosterList: $("#rosterList"),
   rosterCancel: $("#rosterCancel"),
   rosterStart: $("#rosterStart"),
+  summaryCard: $("#summaryCard"),
+  summaryCardTitle: $("#summaryCardTitle"),
+  summaryCardCopy: $("#summaryCardCopy"),
+  summaryGroupField: $("#summaryGroupField"),
   summaryGroup: $("#summaryGroup"),
   summaryQuarter: $("#summaryQuarter"),
   summaryUseCustom: $("#summaryUseCustom"),
@@ -104,6 +129,9 @@ const elements = {
   configNotice: $("#configNotice"),
   themeToggle: $("#themeToggle"),
   sessionsPanel: $("#sessionsPanel"),
+  sessionsGridHost: $("#sessionsGridHost"),
+  sessionsGrid: $("#sessionsGrid"),
+  sessionsTitle: $("#sessionsTitle"),
   sessionsBack: $("#sessionsBack"),
   gamePanel: $("#gamePanel"),
   gameTitle: $("#gameTitle"),
@@ -172,6 +200,7 @@ const elements = {
   players: $("#players"),
   playersShowMore: $("#playersShowMore"),
   recentGames: $("#recentGames"),
+  archivesTitle: $("#archivesTitle"),
   deleteAllGames: $("#deleteAllGames"),
   sessionsSettings: $("#sessionsSettings"),
   settingsModal: $("#settingsModal"),
@@ -184,6 +213,7 @@ const elements = {
   playerJoin: $("#playerJoin"),
   playerName: $("#playerName"),
   joinAsPlayer: $("#joinAsPlayer"),
+  playerJoinHelper: $("#playerJoinHelper"),
   playerMatchList: $("#playerMatchList"),
   playerSeat: $("#playerSeat"),
   playerCard: $("#playerCard"),
@@ -226,8 +256,16 @@ const state = {
   joinRequests: [],
   joinRequestsAvailable: true,
   groups: [],
+  groupHubMeta: {},
+  groupCreateInlineOpen: false,
+  groupUnlockInlineId: null,
   groupPlayers: [],
   activeGroupId: null,
+  groupEditMode: false,
+  groupPageTab: "members",
+  sessionsScope: "oneoff",
+  sessionsGroupId: null,
+  sessionsReturnToGroup: false,
   unlockedGroups: new Set(),
   roster: [],
   isHost: false,
@@ -239,6 +277,8 @@ const state = {
   gameGroupPlayersGroupId: null,
   hostPlayersPage: 0,
   hostPlayersTopNonHostId: null,
+  groupStatsRows: [],
+  groupStatsSelectedKey: null,
   pendingJoinGroupPlayerId: null,
   activeJoinRequestId: null,
   dismissedJoinRequestId: null,
@@ -272,6 +312,7 @@ let realtimePollIntervalMs = 0;
 let realtimeResubscribeAt = 0;
 let refreshPromise = null;
 let refreshQueued = false;
+let groupStatsProfileRequestId = 0;
 
 if (configMissing) {
   elements.configNotice.classList.remove("hidden");
@@ -284,7 +325,9 @@ if (configMissing) {
   if (elements.openSettle) elements.openSettle.disabled = true;
   if (elements.playerSubmitChips) elements.playerSubmitChips.disabled = true;
   if (elements.deleteAllGames) elements.deleteAllGames.disabled = true;
+  if (elements.groupDeleteAllData) elements.groupDeleteAllData.disabled = true;
   if (elements.createGroup) elements.createGroup.disabled = true;
+  if (elements.toggleGroups) elements.toggleGroups.disabled = true;
   if (elements.openSummary) elements.openSummary.disabled = true;
   if (elements.openSessions) elements.openSessions.disabled = true;
 }
@@ -758,6 +801,7 @@ function showJoinStep(step) {
 
 function openJoinPlayerModal() {
   if (!elements.joinPlayerModal) return;
+  setLandingNotice("");
   joinFlowName = "";
   joinFlowHasList = false;
   elements.joinPlayerGameList.innerHTML = "";
@@ -945,7 +989,16 @@ function getTrendPlayerId() {
   return null;
 }
 
-function buildPlayerTrendIdentity() {
+function buildPlayerTrendIdentity(options = {}) {
+  if (options.identity) {
+    const name = stripHostSuffix(options.identity.name || "Player");
+    return {
+      name,
+      normalized: normalizeName(name),
+      groupPlayerId: options.identity.groupPlayerId || null,
+      strictGroupPlayerId: Boolean(options.identity.strictGroupPlayerId)
+    };
+  }
   const trendPlayerId = getTrendPlayerId();
   if (!trendPlayerId) return null;
   const player = state.players.find((item) => item.id === trendPlayerId);
@@ -954,7 +1007,8 @@ function buildPlayerTrendIdentity() {
   return {
     name: baseName,
     normalized: normalizeName(baseName),
-    groupPlayerId: player.group_player_id || null
+    groupPlayerId: player.group_player_id || null,
+    strictGroupPlayerId: false
   };
 }
 
@@ -965,7 +1019,7 @@ async function loadPlayerTrendRows(options = {}) {
   if (!supabase) {
     return { rows: [], identity: null, comparisonSeries: [], error: "Live data unavailable." };
   }
-  const identity = buildPlayerTrendIdentity();
+  const identity = buildPlayerTrendIdentity(options);
   if (!identity) {
     return { rows: [], identity: null, comparisonSeries: [], error: "Join a seat to see your trend." };
   }
@@ -1054,6 +1108,7 @@ async function loadPlayerTrendRows(options = {}) {
     const normalized = normalizeName(stripHostSuffix(player.name || ""));
     if (identity.groupPlayerId) {
       if (player.group_player_id === identity.groupPlayerId) return true;
+      if (identity.strictGroupPlayerId) return false;
       return normalized === identity.normalized;
     }
     return normalized === identity.normalized;
@@ -1378,16 +1433,18 @@ function animateSignedCurrencyText(targetEl, amount, suffix = "", duration = 700
   requestAnimationFrame(tick);
 }
 
-function renderPlayerTrendContent(payload) {
-  if (!elements.playerTrendContent) return;
-  elements.playerTrendContent.innerHTML = "";
+function renderPlayerTrendContent(payload, options = {}) {
+  const targetEl = options.target || elements.playerTrendContent;
+  const showCompare = options.showCompare !== false;
+  if (!targetEl) return;
+  targetEl.innerHTML = "";
   const { rows, identity, comparisonSeries, error } = payload;
 
   if (error) {
     const message = document.createElement("p");
     message.className = "muted";
     message.textContent = error;
-    elements.playerTrendContent.appendChild(message);
+    targetEl.appendChild(message);
     return;
   }
 
@@ -1395,7 +1452,7 @@ function renderPlayerTrendContent(payload) {
     const empty = document.createElement("p");
     empty.className = "muted";
     empty.textContent = "No settled games yet for this seat.";
-    elements.playerTrendContent.appendChild(empty);
+    targetEl.appendChild(empty);
     return;
   }
 
@@ -1522,7 +1579,7 @@ function renderPlayerTrendContent(payload) {
       <li>${wins} Wins / ${losses} Losses / ${breakEven} Break-even</li>
     </ul>
   `;
-  elements.playerTrendContent.appendChild(hero);
+  targetEl.appendChild(hero);
   animateSignedCurrencyText(
     hero.querySelector(".player-trend-overall-value"),
     overallNet,
@@ -1675,7 +1732,7 @@ function renderPlayerTrendContent(payload) {
         { passive: true }
       );
     }
-    elements.playerTrendContent.appendChild(personalChart);
+    targetEl.appendChild(personalChart);
   }
 
   const lastCard = document.createElement("section");
@@ -1693,7 +1750,7 @@ function renderPlayerTrendContent(payload) {
   } else {
     lastCard.innerHTML = `<p class="muted">No recent session yet.</p>`;
   }
-  elements.playerTrendContent.appendChild(lastCard);
+  targetEl.appendChild(lastCard);
 
   const strength = document.createElement("section");
   strength.className = "player-trend-strength";
@@ -1707,7 +1764,7 @@ function renderPlayerTrendContent(payload) {
       <div><span>Avg / game</span><strong class="${signedClass(avgPerGame)}">${formatSignedCurrency(avgPerGame)}</strong></div>
     </div>
   `;
-  elements.playerTrendContent.appendChild(strength);
+  targetEl.appendChild(strength);
 
   const compareRows = trendRows;
   const compareGameIds = compareRows.map((row) => row.gameId);
@@ -1766,7 +1823,7 @@ function renderPlayerTrendContent(payload) {
       color: series.isCurrent ? comparePalette[0] : comparePalette[(index % (comparePalette.length - 1)) + 1]
     }));
 
-  if (compareSeries.length > 1 && compareRows.length > 1) {
+  if (showCompare && compareSeries.length > 1 && compareRows.length > 1) {
     const compareSection = document.createElement("section");
     compareSection.className = "player-trend-compare";
     compareSection.innerHTML = `
@@ -1899,14 +1956,15 @@ function renderPlayerTrendContent(payload) {
       }
     });
 
-    elements.playerTrendContent.appendChild(compareSection);
+    targetEl.appendChild(compareSection);
   }
 }
 
-async function openPlayerTrendModal() {
+async function openPlayerTrendModal(options = {}) {
   if (!elements.playerTrendModal || !elements.playerTrendContent) return;
-  if (!getTrendPlayerId()) return;
-  if (isHostTrendDisabledInStandalone()) {
+  const hasOverrideIdentity = Boolean(options.identity);
+  if (!hasOverrideIdentity && !getTrendPlayerId()) return;
+  if (!hasOverrideIdentity && isHostTrendDisabledInStandalone()) {
     setStatus("My Performance is unavailable for host in iOS app mode.", "error");
     return;
   }
@@ -1914,15 +1972,13 @@ async function openPlayerTrendModal() {
   elements.playerTrendModal.classList.remove("hidden");
   elements.playerTrendTrigger?.setAttribute("aria-expanded", "true");
   try {
-    const isStandaloneHost = isStandaloneDisplayMode() && state.isHost;
-    const payload = await loadPlayerTrendRows(
-      isStandaloneHost
-        ? {
-            includeComparison: false,
-            gameLimit: 96
-          }
-        : {}
-    );
+    const isStandaloneHost = !hasOverrideIdentity && isStandaloneDisplayMode() && state.isHost;
+    const loadOptions = { ...options };
+    if (isStandaloneHost) {
+      loadOptions.includeComparison = false;
+      loadOptions.gameLimit = 96;
+    }
+    const payload = await loadPlayerTrendRows(loadOptions);
     if (!elements.playerTrendModal || elements.playerTrendModal.classList.contains("hidden")) return;
     renderPlayerTrendContent(payload);
   } catch (err) {
@@ -2185,6 +2241,16 @@ function pickRandom(list) {
   return list[Math.floor(Math.random() * list.length)];
 }
 
+function getPhraseCandidates(value) {
+  const base = safeTrim(value);
+  if (!base) return [];
+  const candidates = new Set([base]);
+  const normalized = base.normalize("NFKC");
+  candidates.add(normalized);
+  candidates.add(normalized.replace(/[‘’]/g, "'").replace(/[“”]/g, '"'));
+  return Array.from(candidates).filter(Boolean);
+}
+
 function generateGameName() {
   const adjective = pickRandom(gameNameAdjectives);
   const noun = pickRandom(gameNameNouns);
@@ -2259,7 +2325,45 @@ function renderGroupList() {
   if (!elements.groupList) return;
   elements.groupList.innerHTML = "";
 
+  if (state.groupCreateInlineOpen) {
+    const inlineRow = document.createElement("div");
+    inlineRow.className = "group-item group-item-create-inline";
+    inlineRow.innerHTML = `
+      <div class="group-item-main">
+        <input
+          type="text"
+          class="group-inline-input"
+          data-role="inline-group-name"
+          placeholder="Enter group name"
+          maxlength="64"
+          autocomplete="off"
+        />
+      </div>
+      <div class="group-inline-actions">
+        <button class="group-inline-action" type="button" data-action="inline-create-submit" aria-label="Create group">✓</button>
+        <button class="group-inline-action" type="button" data-action="inline-create-cancel" aria-label="Cancel">✕</button>
+      </div>
+    `;
+    elements.groupList.appendChild(inlineRow);
+    const inlineInput = inlineRow.querySelector("[data-role='inline-group-name']");
+    if (inlineInput) {
+      inlineInput.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          state.groupCreateInlineOpen = false;
+          renderGroupList();
+          return;
+        }
+        if (event.key !== "Enter") return;
+        event.preventDefault();
+        void submitInlineGroupCreate();
+      });
+      setTimeout(() => inlineInput.focus(), 0);
+    }
+  }
+
   if (!state.groups.length) {
+    if (state.groupCreateInlineOpen) return;
     const empty = document.createElement("p");
     empty.className = "muted";
     empty.textContent = "No groups yet. Create one for your recurring table.";
@@ -2268,6 +2372,12 @@ function renderGroupList() {
   }
 
   state.groups.forEach((group) => {
+    const groupMeta = state.groupHubMeta?.[group.id] || {};
+    const playerCount = Number(groupMeta.playerCount || 0);
+    const playerLabel = `${playerCount} player${playerCount === 1 ? "" : "s"}`;
+    const lastPlayedText = formatGroupLastPlayed(groupMeta.lastPlayedAt);
+    const isLocked = Boolean(group.lock_phrase_hash);
+    const showInlineUnlock = isLocked && !isGroupUnlocked(group.id) && state.groupUnlockInlineId === group.id;
     const row = document.createElement("div");
     row.className = "group-item";
     row.dataset.action = "open-group";
@@ -2275,10 +2385,190 @@ function renderGroupList() {
     row.tabIndex = 0;
     row.setAttribute("role", "button");
     row.innerHTML = `
-      <strong>${group.name}</strong>
+      <div class="group-item-main">
+        <strong>${group.name}</strong>
+        <div class="group-item-sub">${playerLabel} • ${lastPlayedText}</div>
+      </div>
+      <div class="group-item-meta ${isLocked ? "is-locked" : "is-open"}">
+        <span class="group-item-state-icon" aria-hidden="true">${isLocked ? "🔒" : "●"}</span>
+        <span>${isLocked ? "Locked" : "Open"}</span>
+        <span aria-hidden="true">›</span>
+      </div>
     `;
+    if (showInlineUnlock) {
+      const inline = document.createElement("div");
+      inline.className = "group-item-unlock";
+      inline.dataset.role = "inline-unlock";
+      inline.innerHTML = `
+        <input
+          type="password"
+          class="group-inline-input"
+          data-role="inline-lock-phrase"
+          data-group-id="${group.id}"
+          placeholder="Enter group password"
+          autocapitalize="off"
+          autocorrect="off"
+          spellcheck="false"
+          enterkeyhint="done"
+          autocomplete="off"
+        />
+        <div class="group-inline-actions" data-role="inline-unlock">
+          <button class="group-inline-action" type="button" data-action="inline-unlock-submit" data-group-id="${group.id}" aria-label="Unlock">✓</button>
+          <button class="group-inline-action" type="button" data-action="inline-unlock-cancel" data-group-id="${group.id}" aria-label="Cancel">✕</button>
+        </div>
+      `;
+      row.appendChild(inline);
+      const inlineInput = inline.querySelector("[data-role='inline-lock-phrase']");
+      if (inlineInput) {
+        inlineInput.addEventListener("keydown", (event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            state.groupUnlockInlineId = null;
+            renderGroupList();
+            return;
+          }
+          if (event.key !== "Enter") return;
+          event.preventDefault();
+          void submitInlineGroupUnlock(group.id);
+        });
+        setTimeout(() => inlineInput.focus(), 0);
+      }
+    }
     elements.groupList.appendChild(row);
   });
+}
+
+async function submitInlineGroupCreate() {
+  if (!elements.groupList) return;
+  const inlineInput = elements.groupList.querySelector("[data-role='inline-group-name']");
+  const nextName = safeTrim(inlineInput?.value);
+  if (!nextName) {
+    setStatus("Enter a group name.", "error");
+    inlineInput?.focus();
+    return;
+  }
+
+  state.groupCreateInlineOpen = false;
+  const created = await createGroup(nextName);
+  if (!created) {
+    state.groupCreateInlineOpen = true;
+    renderGroupList();
+  }
+}
+
+async function submitInlineGroupUnlock(groupId) {
+  const group = state.groups.find((item) => item.id === groupId);
+  if (!group || !group.lock_phrase_hash || !elements.groupList) return;
+  const input = elements.groupList.querySelector(
+    `[data-role='inline-lock-phrase'][data-group-id='${groupId}']`
+  );
+  const phrase = safeTrim(input?.value);
+  if (!phrase) {
+    setStatus("Enter lock phrase.", "error");
+    input?.focus();
+    return;
+  }
+  let matched = false;
+  try {
+    const candidates = getPhraseCandidates(phrase);
+    for (const candidate of candidates) {
+      const digest = await hashPhrase(candidate);
+      if (digest === group.lock_phrase_hash) {
+        matched = true;
+        break;
+      }
+    }
+  } catch (err) {
+    setStatus("Could not verify lock phrase on this device.", "error");
+    return;
+  }
+  if (!matched) {
+    setStatus("Incorrect lock phrase.", "error");
+    input?.focus();
+    return;
+  }
+  setGroupUnlocked(groupId, true);
+  state.groupUnlockInlineId = null;
+  renderGroupList();
+  openGroupModal(groupId);
+}
+
+function formatGroupLastPlayed(iso) {
+  if (!iso) return "Never played";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "Never played";
+  const now = new Date();
+  const startNow = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const startThen = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  const days = Math.floor((startNow - startThen) / 86400000);
+
+  if (days <= 0) return "Last played today";
+  if (days === 1) return "Last played yesterday";
+  if (days < 7) return `Last played ${days} days ago`;
+  if (days < 30) {
+    const weeks = Math.round(days / 7);
+    return `Last played ${weeks} week${weeks === 1 ? "" : "s"} ago`;
+  }
+  const months = Math.round(days / 30);
+  return `Last played ${months} month${months === 1 ? "" : "s"} ago`;
+}
+
+async function refreshGroupHubMeta() {
+  state.groupHubMeta = {};
+  if (!supabase || !state.groups.length) return;
+
+  const groupIds = state.groups.map((group) => group.id).filter(Boolean);
+  if (!groupIds.length) return;
+
+  let playerRows = [];
+  let playerRowsSupportActive = false;
+  {
+    const { data, error } = await supabase
+      .from("group_players")
+      .select("group_id,archived_at,is_active")
+      .in("group_id", groupIds);
+    if (!error && Array.isArray(data)) {
+      playerRows = data;
+      playerRowsSupportActive = true;
+    } else {
+      const fallback = await supabase.from("group_players").select("group_id").in("group_id", groupIds);
+      if (!fallback.error && Array.isArray(fallback.data)) {
+        playerRows = fallback.data;
+      }
+    }
+  }
+
+  const { data: groupGames } = await supabase
+    .from("games")
+    .select("group_id,ended_at,created_at")
+    .in("group_id", groupIds);
+
+  const metaByGroup = {};
+  groupIds.forEach((groupId) => {
+    metaByGroup[groupId] = { playerCount: 0, lastPlayedAt: null };
+  });
+
+  for (const row of playerRows) {
+    if (!row?.group_id || !metaByGroup[row.group_id]) continue;
+    if (playerRowsSupportActive) {
+      if (row.archived_at) continue;
+      if (row.is_active === false) continue;
+    }
+    metaByGroup[row.group_id].playerCount += 1;
+  }
+
+  for (const game of groupGames || []) {
+    const groupId = game?.group_id;
+    if (!groupId || !metaByGroup[groupId]) continue;
+    const candidate = game.ended_at || game.created_at;
+    if (!candidate) continue;
+    const current = metaByGroup[groupId].lastPlayedAt;
+    if (!current || new Date(candidate).getTime() > new Date(current).getTime()) {
+      metaByGroup[groupId].lastPlayedAt = candidate;
+    }
+  }
+
+  state.groupHubMeta = metaByGroup;
 }
 
 function buildGroupOptions(selectEl, includeEmpty) {
@@ -2317,8 +2607,9 @@ function renderGroupSelects() {
     elements.summaryGroup.disabled = state.groups.length === 0;
   }
   if (elements.openSummary) {
-    elements.openSummary.disabled = state.groups.length === 0;
+    elements.openSummary.disabled = false;
   }
+  applySessionsScopeUi();
 }
 
 async function refreshGroups() {
@@ -2333,6 +2624,7 @@ async function refreshGroups() {
     return;
   }
   state.groups = data || [];
+  await refreshGroupHubMeta();
   renderGroupList();
   renderGroupSelects();
 }
@@ -2352,6 +2644,10 @@ async function createGroup(name) {
   }
 
   state.groups = [data, ...state.groups.filter((group) => group.id !== data.id)];
+  state.groupHubMeta = {
+    ...state.groupHubMeta,
+    [data.id]: { playerCount: 0, lastPlayedAt: null }
+  };
   renderGroupList();
   renderGroupSelects();
   if (elements.gameGroup) {
@@ -2365,7 +2661,15 @@ async function createGroup(name) {
   return data;
 }
 
-async function fetchGroupPlayers(groupId) {
+function isGroupPlayerActive(player) {
+  if (!player) return false;
+  if ("archived_at" in player && player.archived_at) return false;
+  if ("is_active" in player && player.is_active === false) return false;
+  return true;
+}
+
+async function fetchGroupPlayers(groupId, options = {}) {
+  const { includeArchived = false } = options;
   if (!supabase || !groupId) return [];
   const { data, error } = await supabase
     .from("group_players")
@@ -2376,7 +2680,8 @@ async function fetchGroupPlayers(groupId) {
     setStatus("Could not load group players", "error");
     return [];
   }
-  return data || [];
+  const rows = data || [];
+  return includeArchived ? rows : rows.filter((player) => isGroupPlayerActive(player));
 }
 
 async function fetchGroupPlayerGameCounts(groupId, groupPlayers) {
@@ -2435,26 +2740,149 @@ function renderGroupPlayers() {
   elements.groupPlayerList.innerHTML = "";
 
   if (!state.groupPlayers.length) {
-    elements.groupPlayerList.classList.add("hidden");
+    elements.groupPlayerList.classList.remove("hidden");
+    const empty = document.createElement("p");
+    empty.className = "muted group-empty";
+    empty.textContent = "No players in this group yet.";
+    elements.groupPlayerList.appendChild(empty);
     return;
   }
 
   elements.groupPlayerList.classList.remove("hidden");
 
   state.groupPlayers.forEach((player) => {
-    const row = document.createElement("div");
-    row.className = "group-player-row";
-    row.innerHTML = `
-      <div>
-        <strong>${player.name}</strong>
-        <span>Added ${formatShortDate(player.created_at)}</span>
-      </div>
-      <button class="ghost small" data-action="delete-group-player" data-id="${player.id}">
-        ✕
-      </button>
+    const initials = player.name
+      .split(" ")
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((chunk) => chunk[0]?.toUpperCase() || "")
+      .join("");
+    const tile = document.createElement("div");
+    tile.className = "group-player-tile";
+    tile.innerHTML = `
+      <div class="group-player-media" aria-hidden="true"><span class="group-player-initial">${initials || "•"}</span></div>
+      <strong>${player.name}</strong>
+      ${
+        state.groupEditMode
+          ? `<span class="group-player-remove" role="button" aria-label="Remove ${player.name}" data-action="remove-group-player" data-id="${player.id}">✕</span>`
+          : ""
+      }
     `;
-    elements.groupPlayerList.appendChild(row);
+    elements.groupPlayerList.appendChild(tile);
   });
+}
+
+function setGroupEditMode(editMode) {
+  state.groupEditMode = Boolean(editMode);
+  if (state.groupEditMode) {
+    setGroupPageTab("members");
+  } else if (elements.groupPlayerName) {
+    elements.groupPlayerName.value = "";
+  }
+  if (elements.groupEditMembers) {
+    elements.groupEditMembers.textContent = state.groupEditMode
+      ? "Done Editing"
+      : "Edit Group Members";
+  }
+  if (elements.groupPlayerForm) {
+    elements.groupPlayerForm.classList.toggle("hidden", !state.groupEditMode);
+  }
+  if (elements.groupPlayerList) {
+    elements.groupPlayerList.classList.toggle("editing", state.groupEditMode);
+  }
+  renderGroupPlayers();
+}
+
+function mountSessionsGrid(target) {
+  if (!target || !elements.sessionsGrid) return;
+  if (elements.sessionsGrid.parentElement === target) return;
+  target.appendChild(elements.sessionsGrid);
+}
+
+async function openGroupHistoryTab() {
+  if (!state.activeGroupId || !elements.groupHistoryGridHost) return;
+  state.sessionsScope = "group";
+  state.sessionsGroupId = state.activeGroupId;
+  state.sessionsReturnToGroup = true;
+  mountSessionsGrid(elements.groupHistoryGridHost);
+  applySessionsScopeUi();
+  await refreshRecentGames();
+}
+
+async function openGroupStatsTab() {
+  if (!state.activeGroupId) return;
+  await loadGroupStatsForTarget(state.activeGroupId, {
+    range: elements.groupStatsRange,
+    subtitle: elements.groupStatsSubtitle,
+    summary: elements.groupStatsSummary,
+    leaderboard: elements.groupStatsLeaderboard
+  });
+}
+
+function setGroupPageTab(tab) {
+  const previousTab = state.groupPageTab;
+  const nextTab = ["members", "history", "stats", "settings"].includes(tab)
+    ? tab
+    : "members";
+  state.groupPageTab = nextTab;
+
+  const isMembers = nextTab === "members";
+  const isHistory = nextTab === "history";
+  const isStats = nextTab === "stats";
+  const isSettings = nextTab === "settings";
+
+  elements.groupTabMembers?.classList.toggle("active", isMembers);
+  elements.groupTabMembers?.setAttribute("aria-selected", isMembers ? "true" : "false");
+  elements.groupTabHistory?.classList.toggle("active", isHistory);
+  elements.groupTabHistory?.setAttribute("aria-selected", isHistory ? "true" : "false");
+  elements.groupTabLeaderboard?.classList.toggle("active", isStats);
+  elements.groupTabLeaderboard?.setAttribute("aria-selected", isStats ? "true" : "false");
+  elements.groupTabSettings?.classList.toggle("active", isSettings);
+  elements.groupTabSettings?.setAttribute("aria-selected", isSettings ? "true" : "false");
+
+  elements.groupMembersPanel?.classList.toggle("hidden", !isMembers);
+  elements.groupHistoryPanel?.classList.toggle("hidden", !isHistory);
+  elements.groupStatsPanel?.classList.toggle("hidden", !isStats);
+  elements.groupSettingsPanel?.classList.toggle("hidden", !isSettings);
+
+  if (elements.groupModalSubtitle) {
+    // Keep subtitle copy stable so tab switches don't shift layout between groups.
+    elements.groupModalSubtitle.textContent = "Select a player to view profile stats.";
+  }
+
+  if (isHistory) {
+    void openGroupHistoryTab();
+  } else if (isStats) {
+    if (previousTab !== "stats") {
+      state.groupStatsSelectedKey = null;
+      clearGroupStatsInlineProfile();
+      updateGroupStatsSelectionStyles();
+    }
+    void openGroupStatsTab();
+  }
+}
+
+function renderGroupInfo(group) {
+  if (!elements.groupInfoContent || !group) return;
+  const meta = state.groupHubMeta?.[group.id] || {};
+  const playerCount = Number(meta.playerCount || state.groupPlayers.length || 0);
+  const createdLabel = group.created_at ? formatShortDate(group.created_at) : "—";
+  const lastPlayedLabel = formatGroupLastPlayed(meta.lastPlayedAt);
+
+  elements.groupInfoContent.innerHTML = `
+    <div class="group-info-item">
+      <span>Members</span>
+      <strong>${playerCount}</strong>
+    </div>
+    <div class="group-info-item">
+      <span>Created</span>
+      <strong>${createdLabel}</strong>
+    </div>
+    <div class="group-info-item">
+      <span>Last played</span>
+      <strong>${lastPlayedLabel.replace("Last played ", "")}</strong>
+    </div>
+  `;
 }
 
 async function openGroupModal(groupId) {
@@ -2464,6 +2892,9 @@ async function openGroupModal(groupId) {
   const unlocked = await ensureGroupUnlocked(groupId);
   if (!unlocked) return;
   state.activeGroupId = groupId;
+  state.groupStatsRows = [];
+  state.groupStatsSelectedKey = null;
+  groupStatsProfileRequestId += 1;
   if (elements.groupModalTitle) {
     elements.groupModalTitle.textContent = group.name;
   }
@@ -2475,17 +2906,70 @@ async function openGroupModal(groupId) {
   }
   updateGroupLockUI(group);
   state.groupPlayers = await fetchGroupPlayers(groupId);
-  renderGroupPlayers();
+  await refreshGroupHubMeta();
+  setGroupEditMode(false);
+  setGroupPageTab("members");
+  renderGroupInfo(group);
+  closeGroupsHubModal();
+  elements.landing?.classList.add("hidden");
+  elements.sessionsPanel?.classList.add("hidden");
+  elements.gamePanel?.classList.add("hidden");
   elements.groupModal.classList.remove("hidden");
 }
 
 function closeGroupModal() {
   if (!elements.groupModal) return;
   elements.groupModal.classList.add("hidden");
+  state.groupStatsRows = [];
+  state.groupStatsSelectedKey = null;
+  groupStatsProfileRequestId += 1;
+  mountSessionsGrid(elements.sessionsGridHost || elements.sessionsPanel);
+  state.sessionsScope = "oneoff";
+  state.sessionsGroupId = null;
+  state.sessionsReturnToGroup = false;
+  applySessionsScopeUi();
+  setGroupEditMode(false);
   if (state.activeGroupId) {
     setGroupUnlocked(state.activeGroupId, false);
   }
   state.activeGroupId = null;
+  setGroupPageTab("members");
+  elements.landing?.classList.remove("hidden");
+}
+
+async function removeGroupMember(playerId) {
+  if (!supabase || !state.activeGroupId || !playerId) return;
+  const player = state.groupPlayers.find((item) => item.id === playerId);
+  if (!player) return;
+  const unlocked = await ensureGroupUnlocked(state.activeGroupId);
+  if (!unlocked) return;
+  const confirmed = await openConfirmModal(
+    `Remove ${player.name} from this group? Past stats stay intact.`,
+    "Remove"
+  );
+  if (!confirmed) return;
+
+  const patch = { archived_at: new Date().toISOString() };
+  const { error } = await supabase.from("group_players").update(patch).eq("id", playerId);
+  if (error) {
+    if (error.code === "42703") {
+      setStatus(
+        "Run README SQL: alter table group_players add column if not exists archived_at timestamptz;",
+        "error"
+      );
+      return;
+    }
+    setStatus("Could not remove player", "error");
+    return;
+  }
+
+  state.groupPlayers = await fetchGroupPlayers(state.activeGroupId);
+  renderGroupPlayers();
+  await refreshGroupHubMeta();
+  renderGroupList();
+  const activeGroup = state.groups.find((item) => item.id === state.activeGroupId);
+  if (activeGroup) renderGroupInfo(activeGroup);
+  setStatus("Player removed from group");
 }
 
 function updateGroupLockUI(group) {
@@ -2493,14 +2977,19 @@ function updateGroupLockUI(group) {
   const locked = Boolean(group.lock_phrase_hash);
   const unlocked = isGroupUnlocked(group.id);
   if (elements.groupLockStatus) {
-    elements.groupLockStatus.textContent = locked ? (unlocked ? "Unlocked" : "Locked") : "Open";
+    elements.groupLockStatus.textContent = locked
+      ? unlocked
+        ? "Group Locked (Open now)"
+        : "Group Locked"
+      : "Group Open";
   }
   if (elements.groupLockSet) {
     elements.groupLockSet.disabled = locked && !unlocked;
-    elements.groupLockSet.textContent = locked ? "Change phrase" : "Set phrase";
+    elements.groupLockSet.textContent = locked ? "Change Passcode" : "Set Passcode";
   }
   if (elements.groupLockRemove) {
     elements.groupLockRemove.disabled = !locked;
+    elements.groupLockRemove.textContent = "Unlock Group";
   }
 }
 
@@ -2559,8 +3048,10 @@ async function setGroupLockPhrase() {
   state.groups = state.groups.map((item) =>
     item.id === group.id ? { ...item, lock_phrase_hash: digest } : item
   );
+  const nextGroup = { ...group, lock_phrase_hash: digest };
   setGroupUnlocked(group.id, true);
-  updateGroupLockUI({ ...group, lock_phrase_hash: digest });
+  updateGroupLockUI(nextGroup);
+  renderGroupInfo(nextGroup);
   setStatus("Lock phrase set");
 }
 
@@ -2582,8 +3073,10 @@ async function removeGroupLockPhrase() {
   state.groups = state.groups.map((item) =>
     item.id === group.id ? { ...item, lock_phrase_hash: null } : item
   );
+  const nextGroup = { ...group, lock_phrase_hash: null };
   setGroupUnlocked(group.id, false);
-  updateGroupLockUI({ ...group, lock_phrase_hash: null });
+  updateGroupLockUI(nextGroup);
+  renderGroupInfo(nextGroup);
   setStatus("Lock phrase removed");
 }
 
@@ -2614,6 +3107,7 @@ async function renameActiveGroup() {
   renderGroupList();
   renderGroupSelects();
   if (elements.groupModalTitle) elements.groupModalTitle.textContent = nextName;
+  renderGroupInfo({ ...group, name: nextName });
   setStatus("Group renamed");
 }
 
@@ -2786,26 +3280,68 @@ function getGameDate(game) {
   return Number.isNaN(date.getTime()) ? new Date(0) : date;
 }
 
+function getScopedRecentGames(list) {
+  if (!Array.isArray(list)) return [];
+  if (state.sessionsScope === "group" && state.sessionsGroupId) {
+    return list.filter((game) => game.group_id === state.sessionsGroupId);
+  }
+  if (state.sessionsScope === "oneoff") {
+    return list.filter((game) => !game.group_id);
+  }
+  return list;
+}
+
 function renderRecentGames(list = loadRecentGames()) {
   if (!elements.recentGames) return;
   elements.recentGames.innerHTML = "";
-  if (!list.length) {
+  const scoped = getScopedRecentGames(list);
+  const isGroupScope = state.sessionsScope === "group" && Boolean(state.sessionsGroupId);
+  if (!scoped.length) {
     const empty = document.createElement("p");
     empty.className = "muted";
-    empty.textContent = "No recent games yet.";
+    empty.textContent =
+      isGroupScope ? "No games yet for this group." : "No recent casual sessions yet.";
     elements.recentGames.appendChild(empty);
     return;
   }
 
-  const sorted = list
+  const sorted = scoped
     .slice()
     .sort((a, b) => getGameDate(b).getTime() - getGameDate(a).getTime());
+
+  if (isGroupScope) {
+    const listWrap = document.createElement("div");
+    listWrap.className = "recent-group-list";
+    if (sorted.length > 6) {
+      listWrap.classList.add("scrollable");
+    }
+
+    sorted.forEach((game) => {
+      const row = document.createElement("div");
+      row.className = "recent-item";
+      const dateLabel = formatShortDate(game.ended_at || game.created_at);
+      row.innerHTML = `
+        <div>
+          <strong>${game.name || "Home Game"}</strong>
+          <span>${dateLabel}</span>
+        </div>
+        <div class="recent-actions">
+          <button class="ghost" data-action="open" data-code="${game.code}" data-group-id="${game.group_id || ""}">Open</button>
+          <button class="danger-outline" data-action="delete" data-code="${game.code}" data-group-id="${game.group_id || ""}">Delete</button>
+        </div>
+      `;
+      listWrap.appendChild(row);
+    });
+
+    elements.recentGames.appendChild(listWrap);
+    return;
+  }
 
   const groups = new Map();
   sorted.forEach((game) => {
     const hasGroup = Boolean(game.group_id);
     const key = hasGroup ? game.group_id : "ungrouped";
-    const label = hasGroup ? game.group_name || "Unknown group" : "One-off games";
+    const label = hasGroup ? game.group_name || "Unknown group" : "Casual sessions";
     if (!groups.has(key)) {
       groups.set(key, { label, games: [] });
     }
@@ -2877,6 +3413,19 @@ function setStatus(text, tone = "info") {
     elements.saveStatus.textContent = "";
     elements.saveStatus.dataset.tone = "";
   }, duration);
+}
+
+function setLandingNotice(text = "", tone = "info") {
+  if (!elements.landingNotice) return;
+  if (!text) {
+    elements.landingNotice.textContent = "";
+    elements.landingNotice.dataset.tone = "";
+    elements.landingNotice.classList.add("hidden");
+    return;
+  }
+  elements.landingNotice.textContent = text;
+  elements.landingNotice.dataset.tone = tone;
+  elements.landingNotice.classList.remove("hidden");
 }
 
 function setConnection(status) {
@@ -3231,10 +3780,8 @@ function initOrnamentFlicker() {
   resetOrnamentFlicker();
 }
 
-function buildStatsRanges() {
-  if (!elements.statsRange) return;
-  elements.statsRange.innerHTML = "";
-  const options = [
+function getStatsRangeOptions() {
+  return [
     { value: "all", label: "All time" },
     { value: "30d", label: "Last 30 days" },
     { value: "90d", label: "Last 90 days" },
@@ -3243,13 +3790,26 @@ function buildStatsRanges() {
     { value: "last-quarter", label: "Last quarter" },
     { value: "12m", label: "Last 12 months" }
   ];
+}
+
+function populateStatsRange(targetSelect) {
+  if (!targetSelect) return;
+  const options = getStatsRangeOptions();
+  const currentValue = safeTrim(targetSelect.value);
+  targetSelect.innerHTML = "";
   options.forEach((opt) => {
     const node = document.createElement("option");
     node.value = opt.value;
     node.textContent = opt.label;
-    elements.statsRange.appendChild(node);
+    targetSelect.appendChild(node);
   });
-  elements.statsRange.value = "all";
+  const hasCurrentValue = options.some((opt) => opt.value === currentValue);
+  targetSelect.value = hasCurrentValue ? currentValue : "all";
+}
+
+function buildStatsRanges() {
+  populateStatsRange(elements.statsRange);
+  populateStatsRange(elements.groupStatsRange);
 }
 
 function getRangeBounds(range) {
@@ -3296,7 +3856,12 @@ async function openStatsModal(groupId) {
   elements.statsSummary.innerHTML = "";
   elements.statsLeaderboard.innerHTML = "";
   elements.statsModal.classList.remove("hidden");
-  await loadGroupStats();
+  await loadGroupStatsForTarget(groupId, {
+    range: elements.statsRange,
+    subtitle: elements.statsSubtitle,
+    summary: elements.statsSummary,
+    leaderboard: elements.statsLeaderboard
+  });
 }
 
 function closeStatsModal() {
@@ -3306,16 +3871,106 @@ function closeStatsModal() {
 }
 
 async function loadGroupStats() {
-  if (!supabase || !state.statsGroupId) return;
-  const range = safeTrim(elements.statsRange?.value) || "all";
+  if (!state.statsGroupId) return;
+  await loadGroupStatsForTarget(state.statsGroupId, {
+    range: elements.statsRange,
+    subtitle: elements.statsSubtitle,
+    summary: elements.statsSummary,
+    leaderboard: elements.statsLeaderboard
+  });
+}
+
+function updateGroupStatsSelectionStyles() {
+  if (!elements.groupStatsLeaderboard) return;
+  const rows = elements.groupStatsLeaderboard.querySelectorAll(
+    "[data-action='select-group-stats-player']"
+  );
+  rows.forEach((row) => {
+    const isSelected = row.dataset.playerKey === state.groupStatsSelectedKey;
+    row.classList.toggle("is-selected", isSelected);
+    row.setAttribute("aria-expanded", isSelected ? "true" : "false");
+  });
+}
+
+function clearGroupStatsInlineProfile() {
+  if (!elements.groupStatsLeaderboard) return;
+  const detail = elements.groupStatsLeaderboard.querySelector(".group-stats-inline-detail");
+  if (detail) detail.remove();
+}
+
+async function renderGroupStatsSelectedProfile() {
+  if (!elements.groupStatsLeaderboard || !state.groupStatsRows.length || !state.groupStatsSelectedKey) {
+    clearGroupStatsInlineProfile();
+    updateGroupStatsSelectionStyles();
+    return;
+  }
+
+  const selected = state.groupStatsRows.find((row) => row.key === state.groupStatsSelectedKey);
+  if (!selected) {
+    clearGroupStatsInlineProfile();
+    updateGroupStatsSelectionStyles();
+    return;
+  }
+
+  const selectedRowEl = Array.from(
+    elements.groupStatsLeaderboard.querySelectorAll("[data-action='select-group-stats-player']")
+  ).find((rowEl) => rowEl.dataset.playerKey === selected.key);
+  if (!selectedRowEl) {
+    clearGroupStatsInlineProfile();
+    updateGroupStatsSelectionStyles();
+    return;
+  }
+
+  updateGroupStatsSelectionStyles();
+  clearGroupStatsInlineProfile();
+  const detail = document.createElement("div");
+  detail.className = "group-stats-inline-detail player-trend-content";
+  detail.innerHTML = `<p class="muted">Loading ${escapeHtml(selected.name)} performance…</p>`;
+  selectedRowEl.insertAdjacentElement("afterend", detail);
+
+  const profileRequestId = ++groupStatsProfileRequestId;
+
+  try {
+    const payload = await loadPlayerTrendRows({
+      identity: {
+        name: selected.name,
+        groupPlayerId: selected.groupPlayerId || null,
+        strictGroupPlayerId: Boolean(selected.groupPlayerId)
+      },
+      includeComparison: true,
+      gameLimit: 96
+    });
+    if (profileRequestId !== groupStatsProfileRequestId) return;
+    renderPlayerTrendContent(payload, {
+      target: detail,
+      showCompare: false
+    });
+  } catch (error) {
+    if (profileRequestId !== groupStatsProfileRequestId) return;
+    console.error("Failed to render selected group profile", error);
+    detail.innerHTML = `<p class="muted">Could not load this player profile right now.</p>`;
+  }
+}
+
+async function loadGroupStatsForTarget(groupId, target) {
+  if (!supabase || !groupId || !target?.range || !target?.subtitle || !target?.summary || !target?.leaderboard)
+    return;
+  const supportsInlineProfile = target.leaderboard === elements.groupStatsLeaderboard;
+  const range = safeTrim(target.range.value) || "all";
   const bounds = getRangeBounds(range);
   const { data: games, error: gamesError } = await supabase
     .from("games")
     .select("id,ended_at,created_at,default_buyin")
-    .eq("group_id", state.statsGroupId)
+    .eq("group_id", groupId)
     .not("ended_at", "is", null);
   if (gamesError) {
     setStatus("Could not load stats", "error");
+    if (supportsInlineProfile) {
+      state.groupStatsRows = [];
+      state.groupStatsSelectedKey = null;
+      clearGroupStatsInlineProfile();
+      updateGroupStatsSelectionStyles();
+    }
     return;
   }
 
@@ -3330,7 +3985,15 @@ async function loadGroupStats() {
   });
 
   if (!filteredGames.length) {
-    elements.statsSubtitle.textContent = "No settled games in this range.";
+    target.subtitle.textContent = "No settled games in this range.";
+    target.summary.innerHTML = "";
+    target.leaderboard.innerHTML = "";
+    if (supportsInlineProfile) {
+      state.groupStatsRows = [];
+      state.groupStatsSelectedKey = null;
+      clearGroupStatsInlineProfile();
+      updateGroupStatsSelectionStyles();
+    }
     return;
   }
 
@@ -3339,11 +4002,17 @@ async function loadGroupStats() {
     supabase.from("players").select("id,game_id,name,group_player_id").in("game_id", gameIds),
     supabase.from("buyins").select("player_id,amount,game_id").in("game_id", gameIds),
     supabase.from("settlements").select("player_id,amount,game_id").in("game_id", gameIds),
-    supabase.from("group_players").select("id,name,normalized_name").eq("group_id", state.statsGroupId)
+    supabase.from("group_players").select("id,name,normalized_name").eq("group_id", groupId)
   ]);
 
   if (playersRes.error || buyinsRes.error || settlementsRes.error || groupPlayersRes.error) {
     setStatus("Could not load stats", "error");
+    if (supportsInlineProfile) {
+      state.groupStatsRows = [];
+      state.groupStatsSelectedKey = null;
+      clearGroupStatsInlineProfile();
+      updateGroupStatsSelectionStyles();
+    }
     return;
   }
 
@@ -3360,17 +4029,25 @@ async function loadGroupStats() {
     const mappedGroupId = groupIdByNormalized.get(normalized) || null;
     const key = player.group_player_id || mappedGroupId || normalized;
     playerKeyById.set(player.id, key);
+    const resolvedGroupPlayerId = player.group_player_id || mappedGroupId || null;
     if (!ledger.has(key)) {
       const displayName =
         groupNameById.get(player.group_player_id) ||
         groupNameById.get(mappedGroupId) ||
         stripHostSuffix(player.name);
       ledger.set(key, {
+        key,
+        groupPlayerId: resolvedGroupPlayerId,
         name: displayName,
         buyinCount: 0,
         buyinTotal: 0,
         cashout: 0
       });
+      return;
+    }
+    const existing = ledger.get(key);
+    if (!existing.groupPlayerId && resolvedGroupPlayerId) {
+      existing.groupPlayerId = resolvedGroupPlayerId;
     }
   });
 
@@ -3401,9 +4078,9 @@ async function loadGroupStats() {
 
   rows.sort((a, b) => b.net - a.net || b.skillScore - a.skillScore);
 
-  elements.statsSubtitle.textContent = `${rows.length} players · ${gamesSet.size} games`;
+  target.subtitle.textContent = `${rows.length} players · ${gamesSet.size} games`;
 
-  elements.statsSummary.innerHTML = "";
+  target.summary.innerHTML = "";
   [
     { label: "Games", value: gamesSet.size },
     { label: "Total buy-ins", value: formatCurrency(totalBuyins) }
@@ -3411,27 +4088,49 @@ async function loadGroupStats() {
     const node = document.createElement("div");
     node.className = "summary-card";
     node.innerHTML = `<span>${card.label}</span><strong>${card.value}</strong>`;
-    elements.statsSummary.appendChild(node);
+    target.summary.appendChild(node);
   });
 
-  elements.statsLeaderboard.innerHTML = "";
+  target.leaderboard.innerHTML = "";
   const header = document.createElement("div");
   header.className = "stats-row header";
   header.innerHTML = `<span>Player</span><span>Net</span><span>Buy-ins</span><span>Skill</span>`;
-  elements.statsLeaderboard.appendChild(header);
+  target.leaderboard.appendChild(header);
 
   rows.forEach((row) => {
     const netClass = row.net >= 0 ? "money-pos" : "money-neg";
-    const rowEl = document.createElement("div");
+    const nameCell = supportsInlineProfile
+      ? `<span class="stats-player-cell"><span class="stats-row-chevron" aria-hidden="true">▾</span><span class="stats-player-name">${row.name}</span></span>`
+      : `<span>${row.name}</span>`;
+    const rowEl = document.createElement(supportsInlineProfile ? "button" : "div");
     rowEl.className = "stats-row";
+    if (supportsInlineProfile) {
+      rowEl.type = "button";
+      rowEl.classList.add("is-clickable");
+      rowEl.dataset.action = "select-group-stats-player";
+      rowEl.dataset.playerKey = row.key;
+    }
     rowEl.innerHTML = `
-      <span>${row.name}</span>
+      ${nameCell}
       <strong class="${netClass}">${formatCurrency(row.net)}</strong>
       <span>${row.buyinCount}</span>
       <strong>${formatSkillScore(row.skillScore)}</strong>
     `;
-    elements.statsLeaderboard.appendChild(rowEl);
+    target.leaderboard.appendChild(rowEl);
   });
+
+  if (supportsInlineProfile) {
+    state.groupStatsRows = rows.map((row) => ({ ...row }));
+    const hasSelection = rows.some((row) => row.key === state.groupStatsSelectedKey);
+    if (!hasSelection) {
+      state.groupStatsSelectedKey = null;
+      clearGroupStatsInlineProfile();
+    }
+    updateGroupStatsSelectionStyles();
+    if (state.groupStatsSelectedKey) {
+      await renderGroupStatsSelectedProfile();
+    }
+  }
 }
 
 function buildQuarterOptions() {
@@ -4294,6 +4993,9 @@ function renderPlayerSeat() {
     document.body.classList.remove("player-settle-focus");
     elements.playerJoin.classList.add("hidden");
     elements.playerSeat.classList.add("hidden");
+    if (elements.playerJoinHelper) {
+      elements.playerJoinHelper.classList.add("hidden");
+    }
     if (elements.playerOthersLabel) {
       elements.playerOthersLabel.classList.add("hidden");
     }
@@ -4385,6 +5087,19 @@ function renderPlayerSeat() {
       elements.joinAsPlayer.disabled = waitingApproval || isSettleOpen();
       elements.joinAsPlayer.textContent = waitingApproval ? "Waiting for host..." : "Join game";
     }
+    if (elements.playerJoinHelper) {
+      const showJoinHelper = !waitingApproval && !settling;
+      elements.playerJoinHelper.classList.toggle("hidden", !showJoinHelper);
+      if (showJoinHelper) {
+        const tableName = safeTrim(state.game?.name) || "this table";
+        elements.playerJoinHelper.textContent = `Welcome to ${tableName}`;
+      }
+    }
+    if (elements.playerName) {
+      elements.playerName.placeholder = state.game?.group_id
+        ? "Enter your roster name"
+        : "Enter your name";
+    }
     if (elements.playerJoinNotice) {
       if (waitingApproval) {
         elements.playerJoinNotice.textContent = "Waiting for host approval to join this table.";
@@ -4419,6 +5134,9 @@ function renderPlayerSeat() {
 
   elements.playerJoin.classList.add("hidden");
   elements.playerSeat.classList.remove("hidden");
+  if (elements.playerJoinHelper) {
+    elements.playerJoinHelper.classList.add("hidden");
+  }
   elements.playerSeat.classList.toggle("settling", settling);
   document.body.classList.toggle("player-settle-focus", playerSettleFocus);
   elements.playerBuyins.classList.add("hidden");
@@ -4841,10 +5559,18 @@ function renderSettlementSummary() {
   });
 }
 
-function renderQuarterSummary({ groupName, label, rows, transfers }) {
+function renderQuarterSummary({
+  summaryTitle = "Quarterly Summary",
+  subtitlePrefix = "",
+  label,
+  rows,
+  transfers,
+  emptyMessage = "No settled games in this range."
+}) {
   if (!elements.summaryBreakdown || !elements.summaryTransfers) return;
-  elements.summaryTitle.textContent = "Quarterly Summary";
-  elements.summarySubtitle.textContent = `${groupName} · ${label}`;
+  elements.summaryTitle.textContent = summaryTitle;
+  const subtitleParts = [subtitlePrefix, label].filter(Boolean);
+  elements.summarySubtitle.textContent = subtitleParts.join(" · ");
 
   elements.summaryBreakdown.innerHTML = "";
   elements.summaryTransfers.innerHTML = "";
@@ -4852,7 +5578,7 @@ function renderQuarterSummary({ groupName, label, rows, transfers }) {
   if (!rows.length) {
     const empty = document.createElement("p");
     empty.className = "muted";
-    empty.textContent = "No settled games in this quarter.";
+    empty.textContent = emptyMessage;
     elements.summaryBreakdown.appendChild(empty);
     return;
   }
@@ -4955,14 +5681,16 @@ function computeTransfers(rows) {
 
 async function loadQuarterSummary() {
   if (!supabase) return;
+  const isGroupScope = state.sessionsScope === "group" && Boolean(state.sessionsGroupId);
   const groupId = safeTrim(elements.summaryGroup?.value);
-  if (!groupId) {
+  if (isGroupScope && !groupId) {
     setStatus("Select a group for summary.", "error");
     return;
   }
 
-  const group = state.groups.find((item) => item.id === groupId);
-  const groupName = group?.name || "Group";
+  const group = isGroupScope ? state.groups.find((item) => item.id === groupId) : null;
+  const subtitlePrefix = isGroupScope ? group?.name || "Group" : "Casual sessions";
+  const modalTitle = isGroupScope ? "Quarterly Summary" : "One-Off Summary";
   const useCustom = Boolean(elements.summaryUseCustom?.checked);
   const startInput = safeTrim(elements.summaryStart?.value);
   const endInput = safeTrim(elements.summaryEnd?.value);
@@ -4999,13 +5727,14 @@ async function loadQuarterSummary() {
     label = `Q${parsed.quarter} ${parsed.year}`;
   }
 
-  const { data: games, error: gameError } = await supabase
+  let gamesQuery = supabase
     .from("games")
     .select("id,ended_at")
-    .eq("group_id", groupId)
     .not("ended_at", "is", null)
     .gte("ended_at", start.toISOString())
     .lt("ended_at", end.toISOString());
+  gamesQuery = isGroupScope ? gamesQuery.eq("group_id", groupId) : gamesQuery.is("group_id", null);
+  const { data: games, error: gameError } = await gamesQuery;
 
   if (gameError) {
     setStatus("Could not load summary", "error");
@@ -5013,23 +5742,40 @@ async function loadQuarterSummary() {
   }
 
   if (!games || games.length === 0) {
-    renderQuarterSummary({ groupName, label, rows: [], transfers: [] });
+    renderQuarterSummary({
+      summaryTitle: modalTitle,
+      subtitlePrefix,
+      label,
+      rows: [],
+      transfers: [],
+      emptyMessage: isGroupScope
+        ? "No settled group games in this range."
+        : "No settled one-off games in this range."
+    });
     return;
   }
 
   const gameIds = games.map((game) => game.id);
-
+  const groupPlayersPromise = isGroupScope
+    ? supabase.from("group_players").select("id,name,normalized_name").eq("group_id", groupId)
+    : Promise.resolve({ data: [], error: null });
   const [playersRes, buyinsRes, settlementsRes, adjustmentsRes, groupPlayersRes] = await Promise.all([
     supabase.from("players").select("id,name,game_id,group_player_id").in("game_id", gameIds),
     supabase.from("buyins").select("game_id,player_id,amount").in("game_id", gameIds),
     supabase.from("settlements").select("game_id,player_id,amount").in("game_id", gameIds),
     supabase.from("settlement_adjustments").select("game_id,player_id,amount").in("game_id", gameIds),
-    supabase.from("group_players").select("id,name,normalized_name").eq("group_id", groupId)
+    groupPlayersPromise
   ]);
 
   if (settlementsRes.error && settlementsRes.error.code === "42P01") {
     setStatus("Settlement table missing. Run the README SQL.", "error");
-    renderQuarterSummary({ groupName, label, rows: [], transfers: [] });
+    renderQuarterSummary({
+      summaryTitle: modalTitle,
+      subtitlePrefix,
+      label,
+      rows: [],
+      transfers: []
+    });
     return;
   }
   if (adjustmentsRes.error && adjustmentsRes.error.code === "42P01") {
@@ -5060,6 +5806,12 @@ async function loadQuarterSummary() {
   function getKey(player) {
     const cleanedName = stripHostSuffix(player.name || "Player");
     const normalized = normalizeName(cleanedName);
+    if (!isGroupScope) {
+      return {
+        key: `name:${normalized}`,
+        name: cleanedName
+      };
+    }
     const mappedGroupId = groupIdByNormalized.get(normalized) || null;
     const resolvedGroupId = player.group_player_id || mappedGroupId;
     if (resolvedGroupId && groupPlayerMap.has(resolvedGroupId)) {
@@ -5119,7 +5871,13 @@ async function loadQuarterSummary() {
 
   const rows = Array.from(ledger.values()).sort((a, b) => b.net - a.net);
   const transfers = computeTransfers(rows);
-  renderQuarterSummary({ groupName, label, rows, transfers });
+  renderQuarterSummary({
+    summaryTitle: modalTitle,
+    subtitlePrefix,
+    label,
+    rows,
+    transfers
+  });
 }
 
 async function deleteGameByCode(code) {
@@ -5474,11 +6232,18 @@ async function loadGameByCode(code, options = {}) {
   if (!supabase) return;
   const trimmed = safeTrim(code).toUpperCase();
   if (!trimmed) return;
-  const { allowSettled = false } = options;
+  const { allowSettled = false, fromUrl = false } = options;
 
   const { data, error } = await supabase.from("games").select("*").eq("code", trimmed).single();
   if (error || !data) {
     setStatus("Game not found", "error");
+    if (fromUrl) {
+      history.replaceState({}, "", window.location.pathname);
+      setLandingNotice(
+        `That table link (${trimmed}) is invalid or expired. Ask the host for the current code.`,
+        "error"
+      );
+    }
     return null;
   }
   const storedPlayer = loadStoredPlayer(trimmed);
@@ -5486,9 +6251,17 @@ async function loadGameByCode(code, options = {}) {
     Boolean(storedPlayer?.id && data.host_player_id && storedPlayer.id === data.host_player_id);
   if (data.ended_at && !allowSettled && !isLocalHostForGame(trimmed) && !isStoredHost) {
     setStatus("Game settled. Only live games can be joined by code.", "error");
+    if (fromUrl) {
+      history.replaceState({}, "", window.location.pathname);
+      setLandingNotice(
+        `Table ${trimmed} is already settled. Ask the host for a live table code.`,
+        "info"
+      );
+    }
     return null;
   }
 
+  setLandingNotice("");
   state.game = data;
   state.playerId = storedPlayer?.id || null;
   state.pendingJoinGroupPlayerId = data.group_id ? loadPendingJoin(trimmed) : null;
@@ -5899,7 +6672,7 @@ async function getOrCreateGroupPlayer(groupId, name) {
 
   const { data: existing, error } = await supabase
     .from("group_players")
-    .select("id,name,normalized_name")
+    .select("*")
     .eq("group_id", groupId)
     .eq("normalized_name", normalized)
     .maybeSingle();
@@ -5909,7 +6682,28 @@ async function getOrCreateGroupPlayer(groupId, name) {
     return null;
   }
 
-  if (existing) return existing;
+  if (existing) {
+    const needsReactivation =
+      ("archived_at" in existing && existing.archived_at) ||
+      ("is_active" in existing && existing.is_active === false);
+    if (needsReactivation) {
+      const patch = { name: cleanName };
+      if ("archived_at" in existing) patch.archived_at = null;
+      if ("is_active" in existing) patch.is_active = true;
+      const { data: revived, error: reviveError } = await supabase
+        .from("group_players")
+        .update(patch)
+        .eq("id", existing.id)
+        .select("*")
+        .single();
+      if (reviveError) {
+        setStatus("Could not reactivate group member", "error");
+        return null;
+      }
+      return revived || { ...existing, ...patch };
+    }
+    return existing;
+  }
 
   const { data, error: insertError } = await supabase
     .from("group_players")
@@ -5950,23 +6744,8 @@ async function addPlayerByName(name) {
 
   let groupPlayerId = null;
   if (state.game.group_id) {
-    const normalized = normalizeName(trimmed);
-    const { data: existing, error } = await supabase
-      .from("group_players")
-      .select("id,normalized_name")
-      .eq("group_id", state.game.group_id)
-      .eq("normalized_name", normalized)
-      .maybeSingle();
-    if (error) {
-      setStatus("Could not load group roster.", "error");
-      return;
-    }
-    if (existing) {
-      groupPlayerId = existing.id;
-    } else {
-      const groupPlayer = await getOrCreateGroupPlayer(state.game.group_id, trimmed);
-      groupPlayerId = groupPlayer?.id || null;
-    }
+    const groupPlayer = await getOrCreateGroupPlayer(state.game.group_id, trimmed);
+    groupPlayerId = groupPlayer?.id || null;
   }
 
   const { error } = await supabase
@@ -6596,24 +7375,35 @@ async function closeSettlePanel() {
 
 function openSummaryModal() {
   if (!elements.summaryModal) return;
+  const isGroupScope = state.sessionsScope === "group" && Boolean(state.sessionsGroupId);
   const groupId = safeTrim(elements.summaryGroup?.value);
-  if (!groupId) {
+  if (isGroupScope && !groupId) {
     setStatus("Select a group for summary.", "error");
     return;
   }
-  ensureGroupUnlocked(groupId).then((unlocked) => {
-    if (!unlocked) return;
+
+  const openModal = () => {
     elements.summaryModal.classList.remove("hidden");
     loadQuarterSummary();
-  });
-  return;
+  };
+
+  if (isGroupScope) {
+    ensureGroupUnlocked(groupId).then((unlocked) => {
+      if (!unlocked) return;
+      openModal();
+    });
+    return;
+  }
+
+  openModal();
 }
 
 function closeSummaryModal() {
   if (!elements.summaryModal) return;
   elements.summaryModal.classList.add("hidden");
   const groupId = safeTrim(elements.summaryGroup?.value);
-  if (groupId) {
+  const isGroupScope = state.sessionsScope === "group" && Boolean(state.sessionsGroupId);
+  if (isGroupScope && groupId) {
     setGroupUnlocked(groupId, false);
   }
 }
@@ -6916,20 +7706,100 @@ async function transferHostTo(playerId) {
   setStatus("Host transferred");
 }
 
-function openSessionsPage() {
+function resolveSessionsGroupName() {
+  if (!state.sessionsGroupId) return "Group";
+  const fromState = state.groups.find((group) => group.id === state.sessionsGroupId)?.name;
+  if (fromState) return fromState;
+  const fromRecent =
+    loadRecentGames().find((game) => game.group_id === state.sessionsGroupId)?.group_name || null;
+  return fromRecent || "Group";
+}
+
+function applySessionsScopeUi() {
+  const isGroupScope = state.sessionsScope === "group" && Boolean(state.sessionsGroupId);
+  const groupName = resolveSessionsGroupName();
+
+  if (elements.sessionsTitle) {
+    elements.sessionsTitle.textContent = isGroupScope ? `${groupName} History` : "Casual Sessions";
+  }
+
+  if (elements.archivesTitle) {
+    elements.archivesTitle.textContent = isGroupScope ? "Group archives" : "Game archives";
+  }
+
+  if (elements.summaryCardTitle) {
+    elements.summaryCardTitle.textContent = isGroupScope ? "Quarterly Summary" : "One-Off Summary";
+  }
+  if (elements.summaryCardCopy) {
+    elements.summaryCardCopy.textContent = isGroupScope
+      ? "Pick a range to compute who pays who."
+      : "Pick a range to compute who pays who for one-off games.";
+  }
+  if (elements.summaryGroupField) {
+    elements.summaryGroupField.classList.add("hidden");
+  }
+
+  if (elements.summaryGroup) {
+    if (isGroupScope) {
+      elements.summaryGroup.value = state.sessionsGroupId || "";
+      elements.summaryGroup.disabled = true;
+    } else {
+      elements.summaryGroup.disabled = true;
+    }
+  }
+  if (elements.openSummary) {
+    elements.openSummary.disabled = configMissing || (isGroupScope && !state.sessionsGroupId);
+  }
+}
+
+function openSessionsPage(options = {}) {
+  const requestedScope = options.scope === "group" ? "group" : "oneoff";
+  const requestedGroupId =
+    requestedScope === "group" ? safeTrim(options.groupId || state.activeGroupId || "") : "";
+  const canReturnToGroup =
+    requestedScope === "group" && Boolean(options.returnToGroup && requestedGroupId);
+
+  state.sessionsScope = requestedScope;
+  state.sessionsGroupId = requestedGroupId || null;
+  state.sessionsReturnToGroup = canReturnToGroup;
+
   if (!elements.sessionsPanel) return;
+  mountSessionsGrid(elements.sessionsGridHost || elements.sessionsPanel);
   elements.landing.classList.add("hidden");
   elements.gamePanel.classList.add("hidden");
+  if (elements.groupModal && canReturnToGroup) {
+    elements.groupModal.classList.add("hidden");
+  }
   elements.sessionsPanel.classList.remove("hidden");
-  refreshRecentGames();
-  refreshGroups();
+  applySessionsScopeUi();
+  void refreshRecentGames().then(() => {
+    applySessionsScopeUi();
+  });
+  void refreshGroups().then(() => {
+    applySessionsScopeUi();
+    if (state.sessionsScope === "group" && state.sessionsGroupId) {
+      void refreshRecentGames();
+    }
+  });
   setStatus("Ready");
 }
 
-function closeSessionsPage() {
+function closeSessionsPage(forceLanding = false) {
   if (!elements.sessionsPanel) return;
   elements.sessionsPanel.classList.add("hidden");
-  elements.landing.classList.remove("hidden");
+  const shouldReturnToGroup =
+    !forceLanding &&
+    state.sessionsReturnToGroup &&
+    Boolean(state.activeGroupId) &&
+    Boolean(elements.groupModal);
+  if (shouldReturnToGroup) {
+    elements.groupModal.classList.remove("hidden");
+  } else {
+    elements.landing.classList.remove("hidden");
+  }
+  state.sessionsScope = "oneoff";
+  state.sessionsGroupId = null;
+  state.sessionsReturnToGroup = false;
   history.replaceState({}, "", window.location.pathname);
 }
 
@@ -6942,15 +7812,30 @@ function setLetsDealOpen(open) {
   if (elements.joinPlayer) elements.joinPlayer.disabled = shouldDisable;
   if (elements.openSessions) elements.openSessions.disabled = shouldDisable;
   if (elements.toggleGroups) elements.toggleGroups.disabled = shouldDisable;
-  if (open) {
-    setGroupsOpen(false);
-  }
 }
 
-function setGroupsOpen(open) {
-  if (!elements.groupsPanel || !elements.toggleGroups) return;
-  elements.groupsPanel.classList.toggle("hidden", !open);
-  elements.toggleGroups.setAttribute("aria-expanded", open ? "true" : "false");
+function openGroupsHubModal() {
+  if (!elements.groupsHubModal) return;
+  const activeEl = document.activeElement;
+  if (activeEl && typeof activeEl.blur === "function") {
+    activeEl.blur();
+  }
+  elements.groupsHubModal.classList.remove("hidden");
+  if (elements.toggleGroups) {
+    elements.toggleGroups.setAttribute("aria-expanded", "true");
+  }
+  refreshGroups();
+}
+
+function closeGroupsHubModal() {
+  if (!elements.groupsHubModal) return;
+  state.groupCreateInlineOpen = false;
+  state.groupUnlockInlineId = null;
+  renderGroupList();
+  elements.groupsHubModal.classList.add("hidden");
+  if (elements.toggleGroups) {
+    elements.toggleGroups.setAttribute("aria-expanded", "false");
+  }
 }
 
 function clearCurrentGame() {
@@ -7016,9 +7901,12 @@ function clearCurrentGame() {
   if (elements.confirmModal) elements.confirmModal.classList.add("hidden");
   if (elements.playerCheatModal) elements.playerCheatModal.classList.add("hidden");
   if (elements.playerTrendModal) elements.playerTrendModal.classList.add("hidden");
+  if (elements.groupsHubModal) elements.groupsHubModal.classList.add("hidden");
+  if (elements.groupModal) elements.groupModal.classList.add("hidden");
   if (elements.settlementSummary) elements.settlementSummary.classList.add("hidden");
   if (elements.playerSettledSummary) elements.playerSettledSummary.classList.add("hidden");
   elements.landing.classList.remove("hidden");
+  setLandingNotice("");
   history.replaceState({}, "", window.location.pathname);
   refreshRecentGames();
   refreshGroups();
@@ -7147,8 +8035,12 @@ async function submitSettlement(event) {
     const params = new URLSearchParams(window.location.search);
     const incomingCode = safeTrim(params.get("code"));
     if (incomingCode) {
-      loadGameByCode(incomingCode, { allowSettled: isLocalHostForGame(incomingCode) });
+      loadGameByCode(incomingCode, {
+        allowSettled: isLocalHostForGame(incomingCode),
+        fromUrl: true
+      });
     } else {
+      setLandingNotice("");
       refreshRecentGames();
       refreshGroups();
     }
@@ -7195,7 +8087,7 @@ if (elements.joinGame) {
 if (elements.openSessions) {
   elements.openSessions.addEventListener("click", () => {
     if (configMissing) return;
-    openSessionsPage();
+    openSessionsPage({ scope: "oneoff" });
   });
 }
 
@@ -7354,8 +8246,7 @@ document.addEventListener("click", maybeCloseLetsDealOnOutsideInteraction, true)
 
 if (elements.toggleGroups) {
   elements.toggleGroups.addEventListener("click", () => {
-    const isOpen = !elements.groupsPanel?.classList.contains("hidden");
-    setGroupsOpen(!isOpen);
+    openGroupsHubModal();
   });
 }
 
@@ -7370,7 +8261,7 @@ if (elements.sessionsBack) {
 if (elements.homeTitle) {
   elements.homeTitle.addEventListener("click", () => {
     clearCurrentGame();
-    closeSessionsPage();
+    closeSessionsPage(true);
   });
 }
 
@@ -7412,25 +8303,77 @@ if (elements.ornamentToggle) {
 
 if (elements.groupList) {
   elements.groupList.addEventListener("click", (event) => {
+    const inlineSubmit = event.target.closest("[data-action='inline-create-submit']");
+    if (inlineSubmit) {
+      event.preventDefault();
+      void submitInlineGroupCreate();
+      return;
+    }
+    const inlineCancel = event.target.closest("[data-action='inline-create-cancel']");
+    if (inlineCancel) {
+      event.preventDefault();
+      state.groupCreateInlineOpen = false;
+      renderGroupList();
+      return;
+    }
+    const inlineUnlockSubmit = event.target.closest("[data-action='inline-unlock-submit']");
+    if (inlineUnlockSubmit) {
+      event.preventDefault();
+      const groupId = inlineUnlockSubmit.dataset.groupId;
+      if (groupId) void submitInlineGroupUnlock(groupId);
+      return;
+    }
+    const inlineUnlockCancel = event.target.closest("[data-action='inline-unlock-cancel']");
+    if (inlineUnlockCancel) {
+      event.preventDefault();
+      state.groupUnlockInlineId = null;
+      renderGroupList();
+      return;
+    }
+    if (event.target.closest("[data-role='inline-unlock']")) {
+      return;
+    }
     const row = event.target.closest("[data-action='open-group']");
     if (!row) return;
     const groupId = row.dataset.id;
+    const group = state.groups.find((item) => item.id === groupId);
+    if (group?.lock_phrase_hash && !isGroupUnlocked(groupId)) {
+      if (state.groupUnlockInlineId === groupId) return;
+      state.groupUnlockInlineId = groupId;
+      renderGroupList();
+      return;
+    }
     openGroupModal(groupId);
   });
 
   elements.groupList.addEventListener("keydown", (event) => {
+    if (event.target.closest("[data-role='inline-unlock']")) return;
     if (event.key !== "Enter" && event.key !== " ") return;
     const row = event.target.closest("[data-action='open-group']");
     if (!row) return;
     event.preventDefault();
-    openGroupModal(row.dataset.id);
+    const groupId = row.dataset.id;
+    const group = state.groups.find((item) => item.id === groupId);
+    if (group?.lock_phrase_hash && !isGroupUnlocked(groupId)) {
+      if (state.groupUnlockInlineId === groupId) return;
+      state.groupUnlockInlineId = groupId;
+      renderGroupList();
+      return;
+    }
+    openGroupModal(groupId);
   });
 }
 
 if (elements.createGroup) {
   elements.createGroup.addEventListener("click", () => {
     if (configMissing) return;
-    openCreateGroupModal();
+    if (state.groupCreateInlineOpen) {
+      const inlineInput = elements.groupList?.querySelector("[data-role='inline-group-name']");
+      inlineInput?.focus();
+      return;
+    }
+    state.groupCreateInlineOpen = true;
+    renderGroupList();
   });
 }
 
@@ -7456,12 +8399,41 @@ if (elements.groupModalClose) {
   elements.groupModalClose.addEventListener("click", closeGroupModal);
 }
 
+if (elements.groupTabMembers) {
+  elements.groupTabMembers.addEventListener("click", () => setGroupPageTab("members"));
+}
+
+if (elements.groupTabHistory) {
+  elements.groupTabHistory.addEventListener("click", () => setGroupPageTab("history"));
+}
+
+if (elements.groupTabLeaderboard) {
+  elements.groupTabLeaderboard.addEventListener("click", () => setGroupPageTab("stats"));
+}
+
+if (elements.groupTabSettings) {
+  elements.groupTabSettings.addEventListener("click", () => setGroupPageTab("settings"));
+}
+
+if (elements.groupEditMembers) {
+  elements.groupEditMembers.addEventListener("click", () => {
+    setGroupEditMode(!state.groupEditMode);
+  });
+}
+
 if (elements.groupRename) {
   elements.groupRename.addEventListener("click", renameActiveGroup);
 }
 
 if (elements.groupDelete) {
   elements.groupDelete.addEventListener("click", deleteActiveGroup);
+}
+
+if (elements.groupDeleteAllData) {
+  elements.groupDeleteAllData.addEventListener("click", () => {
+    if (configMissing) return;
+    deleteAllGames();
+  });
 }
 
 if (elements.groupLockSet) {
@@ -7484,7 +8456,20 @@ if (elements.groupPlayerForm) {
     elements.groupPlayerName.value = "";
     state.groupPlayers = await fetchGroupPlayers(state.activeGroupId);
     renderGroupPlayers();
+    await refreshGroupHubMeta();
+    renderGroupList();
+    const activeGroup = state.groups.find((item) => item.id === state.activeGroupId);
+    if (activeGroup) renderGroupInfo(activeGroup);
     setStatus("Player added");
+  });
+}
+
+if (elements.groupPlayerAddCancel) {
+  elements.groupPlayerAddCancel.addEventListener("click", () => {
+    if (elements.groupPlayerName) {
+      elements.groupPlayerName.value = "";
+    }
+    setGroupEditMode(false);
   });
 }
 
@@ -7546,9 +8531,16 @@ if (elements.recentGames) {
     const button = event.target.closest("button[data-action]");
     if (!button) return;
     const { action, code, groupId } = button.dataset;
+    const inActiveGroupHistory =
+      Boolean(groupId) &&
+      state.sessionsScope === "group" &&
+      state.sessionsGroupId === groupId &&
+      state.activeGroupId === groupId &&
+      Boolean(elements.groupModal && !elements.groupModal.classList.contains("hidden"));
+    const shouldRequireUnlock = Boolean(groupId) && !inActiveGroupHistory;
     if (action === "open") {
       const open = async () => {
-        if (groupId) {
+        if (shouldRequireUnlock) {
           const unlocked = await ensureGroupUnlocked(groupId);
           if (!unlocked) return;
         }
@@ -7562,17 +8554,28 @@ if (elements.recentGames) {
       event.stopPropagation();
       const open = async () => {
         if (groupId) {
-          const unlocked = await ensureGroupUnlocked(groupId);
-          if (!unlocked) return;
+          const isGroupPageOpen =
+            elements.groupModal && !elements.groupModal.classList.contains("hidden");
+          if (isGroupPageOpen && state.activeGroupId === groupId) {
+            setGroupPageTab("stats");
+            return;
+          }
+          await openGroupModal(groupId);
+          if (state.activeGroupId === groupId) {
+            setGroupPageTab("stats");
+          }
+          return;
         }
-        await openStatsModal(groupId);
+        if (groupId) {
+          await openStatsModal(groupId);
+        }
       };
       open();
       return;
     }
     if (action === "delete") {
       const run = async () => {
-        if (groupId) {
+        if (shouldRequireUnlock) {
           const unlocked = await ensureGroupUnlocked(groupId);
           if (!unlocked) return;
         }
@@ -7809,6 +8812,30 @@ if (elements.statsRange) {
   });
 }
 
+if (elements.groupStatsRange) {
+  elements.groupStatsRange.addEventListener("change", () => {
+    if (elements.groupStatsPanel && !elements.groupStatsPanel.classList.contains("hidden")) {
+      void openGroupStatsTab();
+    }
+  });
+}
+
+if (elements.groupStatsLeaderboard) {
+  elements.groupStatsLeaderboard.addEventListener("click", (event) => {
+    const row = event.target.closest("[data-action='select-group-stats-player']");
+    if (!row) return;
+    const key = row.dataset.playerKey;
+    if (!key) return;
+    state.groupStatsSelectedKey = key === state.groupStatsSelectedKey ? null : key;
+    updateGroupStatsSelectionStyles();
+    if (!state.groupStatsSelectedKey) {
+      clearGroupStatsInlineProfile();
+      return;
+    }
+    void renderGroupStatsSelectedProfile();
+  });
+}
+
 if (elements.sessionsSettings) {
   elements.sessionsSettings.addEventListener("click", openSettingsModal);
 }
@@ -7821,6 +8848,18 @@ if (elements.settingsModal) {
   elements.settingsModal.addEventListener("click", (event) => {
     if (event.target.dataset.action === "close") {
       closeSettingsModal();
+    }
+  });
+}
+
+if (elements.groupsHubClose) {
+  elements.groupsHubClose.addEventListener("click", closeGroupsHubModal);
+}
+
+if (elements.groupsHubModal) {
+  elements.groupsHubModal.addEventListener("click", (event) => {
+    if (event.target.dataset.action === "close") {
+      closeGroupsHubModal();
     }
   });
 }
@@ -7851,22 +8890,11 @@ if (elements.createGroupModal) {
 
 if (elements.groupPlayerList) {
   elements.groupPlayerList.addEventListener("click", async (event) => {
-    const button = event.target.closest("button[data-action='delete-group-player']");
-    if (!button) return;
-    const playerId = button.dataset.id;
-    if (!playerId || !state.activeGroupId) return;
-    const unlocked = await ensureGroupUnlocked(state.activeGroupId);
-    if (!unlocked) return;
-    const confirmed = await openConfirmModal("Remove this player from the group?", "Remove");
-    if (!confirmed) return;
-    const { error } = await supabase.from("group_players").delete().eq("id", playerId);
-    if (error) {
-      setStatus("Could not delete player", "error");
-      return;
+    const removeControl = event.target.closest("[data-action='remove-group-player']");
+    if (removeControl) {
+      const playerId = removeControl.dataset.id;
+      await removeGroupMember(playerId);
     }
-    state.groupPlayers = await fetchGroupPlayers(state.activeGroupId);
-    renderGroupPlayers();
-    setStatus("Player removed");
   });
 }
 
@@ -8014,6 +9042,9 @@ window.addEventListener("keydown", (event) => {
   }
   if (elements.groupModal && !elements.groupModal.classList.contains("hidden")) {
     closeGroupModal();
+  }
+  if (elements.groupsHubModal && !elements.groupsHubModal.classList.contains("hidden")) {
+    closeGroupsHubModal();
   }
   if (elements.createGroupModal && !elements.createGroupModal.classList.contains("hidden")) {
     closeCreateGroupModal();
@@ -8241,8 +9272,11 @@ if (elements.playerSettledSummary) {
     }
     const historyButton = event.target.closest("button[data-action='history']");
     if (!historyButton) return;
+    const scopeGroupId = state.game?.group_id || null;
     clearCurrentGame();
-    openSessionsPage();
+    openSessionsPage(
+      scopeGroupId ? { scope: "group", groupId: scopeGroupId } : { scope: "oneoff" }
+    );
   });
 }
 
@@ -8261,8 +9295,11 @@ if (elements.settlementSummary) {
     }
     const historyButton = event.target.closest("button[data-action='history']");
     if (!historyButton) return;
+    const scopeGroupId = state.game?.group_id || null;
     clearCurrentGame();
-    openSessionsPage();
+    openSessionsPage(
+      scopeGroupId ? { scope: "group", groupId: scopeGroupId } : { scope: "oneoff" }
+    );
   });
 }
 
