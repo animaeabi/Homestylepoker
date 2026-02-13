@@ -958,7 +958,10 @@ function buildPlayerTrendIdentity() {
   };
 }
 
-async function loadPlayerTrendRows() {
+async function loadPlayerTrendRows(options = {}) {
+  const includeComparison = options.includeComparison !== false;
+  const rawGameLimit = Number(options.gameLimit || 0);
+  const gameLimit = Number.isFinite(rawGameLimit) && rawGameLimit > 0 ? Math.floor(rawGameLimit) : 0;
   if (!supabase) {
     return { rows: [], identity: null, comparisonSeries: [], error: "Live data unavailable." };
   }
@@ -967,11 +970,15 @@ async function loadPlayerTrendRows() {
     return { rows: [], identity: null, comparisonSeries: [], error: "Join a seat to see your trend." };
   }
 
-  const { data: settledGames, error: settledGamesError } = await supabase
+  let settledGamesQuery = supabase
     .from("games")
     .select("id,name,group_id,created_at,ended_at")
     .not("ended_at", "is", null)
-    .order("ended_at", { ascending: true });
+    .order("ended_at", { ascending: gameLimit ? false : true });
+  if (gameLimit) {
+    settledGamesQuery = settledGamesQuery.limit(gameLimit);
+  }
+  const { data: settledGames, error: settledGamesError } = await settledGamesQuery;
   if (settledGamesError) {
     return { rows: [], identity, comparisonSeries: [], error: "Could not load settled games." };
   }
@@ -991,6 +998,7 @@ async function loadPlayerTrendRows() {
   ]);
 
   let games = settledGames || [];
+  if (gameLimit && games.length > 1) games = games.slice().reverse();
   const groupIds = Array.from(new Set(games.map((game) => game.group_id).filter(Boolean)));
   if (groupIds.length) {
     const { data: groupsData, error: groupsError } = await supabase
@@ -1035,9 +1043,9 @@ async function loadPlayerTrendRows() {
   const resolveSeriesKey = (player) => {
     if (player?.group_player_id) return `gp:${player.group_player_id}`;
     const normalized = normalizeName(stripHostSuffix(player?.name || ""));
-    const groupIds = normalizedToGroupIds.get(normalized);
-    if (groupIds && groupIds.size === 1) {
-      return `gp:${Array.from(groupIds)[0]}`;
+    const linkedGroupIds = normalizedToGroupIds.get(normalized);
+    if (linkedGroupIds && linkedGroupIds.size === 1) {
+      return `gp:${Array.from(linkedGroupIds)[0]}`;
     }
     return `name:${normalized}`;
   };
@@ -1046,7 +1054,6 @@ async function loadPlayerTrendRows() {
     const normalized = normalizeName(stripHostSuffix(player.name || ""));
     if (identity.groupPlayerId) {
       if (player.group_player_id === identity.groupPlayerId) return true;
-      // Handle legacy data where host/player names were linked to a different group_player_id.
       return normalized === identity.normalized;
     }
     return normalized === identity.normalized;
@@ -1062,23 +1069,36 @@ async function loadPlayerTrendRows() {
     return { rows: [], identity, comparisonSeries: [], error: null };
   }
 
-  const playersInScope = (players || []).filter((player) => matchingGameIds.includes(player.game_id));
+  const matchingPlayerIds = Array.from(new Set(matchingPlayers.map((player) => player.id).filter(Boolean)));
+  const matchingPlayerIdSet = new Set(matchingPlayerIds);
+  const playersInScope = includeComparison
+    ? (players || []).filter((player) => matchingGameIds.includes(player.game_id))
+    : matchingPlayers;
   const playerById = new Map(playersInScope.map((player) => [player.id, player]));
   const currentKey = matchingPlayers.length ? resolveSeriesKey(matchingPlayers[0]) : null;
 
   const [buyinsRes, settlementsRes, adjustmentsRes] = await Promise.all([
-    supabase
-      .from("buyins")
-      .select("game_id,player_id,amount")
-      .in("game_id", matchingGameIds),
-    supabase
-      .from("settlements")
-      .select("game_id,player_id,amount")
-      .in("game_id", matchingGameIds),
-    supabase
-      .from("settlement_adjustments")
-      .select("game_id,player_id,amount")
-      .in("game_id", matchingGameIds)
+    includeComparison
+      ? supabase.from("buyins").select("game_id,player_id,amount").in("game_id", matchingGameIds)
+      : supabase
+          .from("buyins")
+          .select("game_id,player_id,amount")
+          .in("player_id", matchingPlayerIds)
+          .in("game_id", matchingGameIds),
+    includeComparison
+      ? supabase.from("settlements").select("game_id,player_id,amount").in("game_id", matchingGameIds)
+      : supabase
+          .from("settlements")
+          .select("game_id,player_id,amount")
+          .in("player_id", matchingPlayerIds)
+          .in("game_id", matchingGameIds),
+    includeComparison
+      ? supabase.from("settlement_adjustments").select("game_id,player_id,amount").in("game_id", matchingGameIds)
+      : supabase
+          .from("settlement_adjustments")
+          .select("game_id,player_id,amount")
+          .in("player_id", matchingPlayerIds)
+          .in("game_id", matchingGameIds)
   ]);
 
   if (buyinsRes.error || settlementsRes.error) {
@@ -1088,38 +1108,42 @@ async function loadPlayerTrendRows() {
     return { rows: [], identity, comparisonSeries: [], error: "Could not load discrepancy history." };
   }
 
-  const rowsByKeyByGame = new Map();
-  const ensureSeriesRow = (key, gameId) => {
-    if (!rowsByKeyByGame.has(key)) rowsByKeyByGame.set(key, new Map());
-    const byGame = rowsByKeyByGame.get(key);
-    if (!byGame.has(gameId)) {
-      const game = gameById.get(gameId) || {};
-      const stamp = game.ended_at || game.created_at;
-      byGame.set(gameId, {
-        gameId,
-        gameName: safeTrim(game.name) || "Game",
-        settledAt: stamp || null,
-        buyins: 0,
-        cashout: 0,
-        errorShare: 0,
-        final: 0,
-        net: 0,
-        cumulative: 0
-      });
-    }
-    return byGame.get(gameId);
-  };
+  const rowsByKeyByGame = includeComparison ? new Map() : null;
+  const ensureSeriesRow = includeComparison
+    ? (key, gameId) => {
+        if (!rowsByKeyByGame.has(key)) rowsByKeyByGame.set(key, new Map());
+        const byGame = rowsByKeyByGame.get(key);
+        if (!byGame.has(gameId)) {
+          const game = gameById.get(gameId) || {};
+          const stamp = game.ended_at || game.created_at;
+          byGame.set(gameId, {
+            gameId,
+            gameName: safeTrim(game.name) || "Game",
+            settledAt: stamp || null,
+            buyins: 0,
+            cashout: 0,
+            errorShare: 0,
+            final: 0,
+            net: 0,
+            cumulative: 0
+          });
+        }
+        return byGame.get(gameId);
+      }
+    : null;
 
-  const seriesMeta = new Map();
-  playersInScope.forEach((player) => {
-    const key = resolveSeriesKey(player);
-    if (!seriesMeta.has(key)) {
-      seriesMeta.set(key, {
-        key,
-        name: stripHostSuffix(player.name || "Player")
-      });
-    }
-  });
+  const seriesMeta = includeComparison ? new Map() : null;
+  if (includeComparison) {
+    playersInScope.forEach((player) => {
+      const key = resolveSeriesKey(player);
+      if (!seriesMeta.has(key)) {
+        seriesMeta.set(key, {
+          key,
+          name: stripHostSuffix(player.name || "Player")
+        });
+      }
+    });
+  }
 
   const rowByGame = new Map();
   const ensureRow = (gameId) => {
@@ -1143,40 +1167,55 @@ async function loadPlayerTrendRows() {
 
   matchingGameIds.forEach((gameId) => ensureRow(gameId));
   (buyinsRes.data || []).forEach((buyin) => {
-    const player = playerById.get(buyin.player_id);
-    if (!player) return;
-    const key = resolveSeriesKey(player);
     const amount = Number(buyin.amount || 0);
-    const seriesRow = ensureSeriesRow(key, buyin.game_id);
-    seriesRow.buyins += amount;
-    if (key === currentKey) {
-      const row = ensureRow(buyin.game_id);
-      row.buyins += amount;
+    if (includeComparison) {
+      const player = playerById.get(buyin.player_id);
+      if (!player) return;
+      const key = resolveSeriesKey(player);
+      const seriesRow = ensureSeriesRow(key, buyin.game_id);
+      seriesRow.buyins += amount;
+      if (key === currentKey) {
+        ensureRow(buyin.game_id).buyins += amount;
+      }
+      return;
+    }
+    if (matchingPlayerIdSet.has(buyin.player_id)) {
+      ensureRow(buyin.game_id).buyins += amount;
     }
   });
   (settlementsRes.data || []).forEach((settlement) => {
-    const player = playerById.get(settlement.player_id);
-    if (!player) return;
-    const key = resolveSeriesKey(player);
     const amount = Number(settlement.amount || 0);
-    const seriesRow = ensureSeriesRow(key, settlement.game_id);
-    seriesRow.cashout += amount;
-    if (key === currentKey) {
-      const row = ensureRow(settlement.game_id);
-      row.cashout += amount;
+    if (includeComparison) {
+      const player = playerById.get(settlement.player_id);
+      if (!player) return;
+      const key = resolveSeriesKey(player);
+      const seriesRow = ensureSeriesRow(key, settlement.game_id);
+      seriesRow.cashout += amount;
+      if (key === currentKey) {
+        ensureRow(settlement.game_id).cashout += amount;
+      }
+      return;
+    }
+    if (matchingPlayerIdSet.has(settlement.player_id)) {
+      ensureRow(settlement.game_id).cashout += amount;
     }
   });
   if (!adjustmentsRes.error) {
     (adjustmentsRes.data || []).forEach((adjustment) => {
-      const player = playerById.get(adjustment.player_id);
-      if (!player) return;
-      const key = resolveSeriesKey(player);
       const amount = Number(adjustment.amount || 0);
-      const seriesRow = ensureSeriesRow(key, adjustment.game_id);
-      seriesRow.errorShare += amount;
-      if (key === currentKey) {
-        const row = ensureRow(adjustment.game_id);
-        row.errorShare += amount;
+      if (includeComparison) {
+        const player = playerById.get(adjustment.player_id);
+        if (!player) return;
+        const key = resolveSeriesKey(player);
+        const seriesRow = ensureSeriesRow(key, adjustment.game_id);
+        seriesRow.errorShare += amount;
+        if (key === currentKey) {
+          ensureRow(adjustment.game_id).errorShare += amount;
+        }
+        return;
+      }
+      if (matchingPlayerIdSet.has(adjustment.player_id)) {
+        ensureRow(adjustment.game_id).errorShare += amount;
       }
     });
   }
@@ -1197,6 +1236,10 @@ async function loadPlayerTrendRows() {
     cumulative = moneyRound(cumulative + row.net);
     row.cumulative = cumulative;
   });
+
+  if (!includeComparison) {
+    return { rows, identity, comparisonSeries: [], error: null };
+  }
 
   const rawSeries = [];
   rowsByKeyByGame.forEach((byGame, key) => {
@@ -1280,13 +1323,11 @@ async function loadPlayerTrendRows() {
   });
 
   const comparisonSeries = Array.from(mergedByName.values());
-
   comparisonSeries.sort((a, b) => {
     if (a.isCurrent && !b.isCurrent) return -1;
     if (!a.isCurrent && b.isCurrent) return 1;
     return a.name.localeCompare(b.name);
   });
-
   return { rows, identity, comparisonSeries, error: null };
 }
 
@@ -1869,7 +1910,15 @@ async function openPlayerTrendModal() {
   elements.playerTrendModal.classList.remove("hidden");
   elements.playerTrendTrigger?.setAttribute("aria-expanded", "true");
   try {
-    const payload = await loadPlayerTrendRows();
+    const isStandaloneHost = isStandaloneDisplayMode() && state.isHost;
+    const payload = await loadPlayerTrendRows(
+      isStandaloneHost
+        ? {
+            includeComparison: false,
+            gameLimit: 96
+          }
+        : {}
+    );
     if (!elements.playerTrendModal || elements.playerTrendModal.classList.contains("hidden")) return;
     renderPlayerTrendContent(payload);
   } catch (err) {
