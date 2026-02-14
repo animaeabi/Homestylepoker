@@ -2528,7 +2528,7 @@ function renderGroupList() {
         <div class="group-item-sub">${playerLabel} • ${lastPlayedText}</div>
       </div>
       <div class="group-item-meta ${isLocked ? "is-locked" : "is-open"}">
-        <span class="group-item-state-icon" aria-hidden="true">${isLocked ? "🔒" : "●"}</span>
+        <span class="group-item-state-icon" aria-hidden="true">●</span>
         <span>${isLocked ? "Locked" : "Open"}</span>
         <span aria-hidden="true">›</span>
       </div>

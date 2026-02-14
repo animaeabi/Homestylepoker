@@ -1566,7 +1566,8 @@ select:focus-visible {
 }
 
 .group-item-meta.is-locked .group-item-state-icon {
-  filter: saturate(0.9);
+  color: #ff6f72;
+  text-shadow: 0 0 10px rgba(255, 111, 114, 0.42);
 }
 
 .groups-hub-panel {
