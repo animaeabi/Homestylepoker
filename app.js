@@ -279,6 +279,8 @@ const state = {
   hostPlayersTopNonHostId: null,
   groupStatsRows: [],
   groupStatsSelectedKey: null,
+  groupStatsProfileScope: "group",
+  playerTrendScope: null,
   pendingJoinGroupPlayerId: null,
   activeJoinRequestId: null,
   dismissedJoinRequestId: null,
@@ -313,6 +315,7 @@ let realtimeResubscribeAt = 0;
 let refreshPromise = null;
 let refreshQueued = false;
 let groupStatsProfileRequestId = 0;
+let playerTrendRequestId = 0;
 
 if (configMissing) {
   elements.configNotice.classList.remove("hidden");
@@ -1012,8 +1015,20 @@ function buildPlayerTrendIdentity(options = {}) {
   };
 }
 
+function normalizeTrendScope(value, scopeGroupId = null) {
+  const normalized = safeTrim(String(value || ""))
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+  if (normalized === "group" && scopeGroupId) return "group";
+  if (normalized === "all_groups") return "all_groups";
+  if (normalized === "casual") return "casual";
+  return scopeGroupId ? "group" : "casual";
+}
+
 async function loadPlayerTrendRows(options = {}) {
   const includeComparison = options.includeComparison !== false;
+  const scope = safeTrim(options.scope || "all");
+  const scopeGroupId = options.scopeGroupId || null;
   const rawGameLimit = Number(options.gameLimit || 0);
   const gameLimit = Number.isFinite(rawGameLimit) && rawGameLimit > 0 ? Math.floor(rawGameLimit) : 0;
   if (!supabase) {
@@ -1053,6 +1068,15 @@ async function loadPlayerTrendRows(options = {}) {
 
   let games = settledGames || [];
   if (gameLimit && games.length > 1) games = games.slice().reverse();
+
+  if (scope === "group" && scopeGroupId) {
+    games = games.filter((game) => game.group_id === scopeGroupId);
+  } else if (scope === "all_groups") {
+    games = games.filter((game) => Boolean(game.group_id));
+  } else if (scope === "casual") {
+    games = games.filter((game) => !game.group_id);
+  }
+
   const groupIds = Array.from(new Set(games.map((game) => game.group_id).filter(Boolean)));
   if (groupIds.length) {
     const { data: groupsData, error: groupsError } = await supabase
@@ -1436,6 +1460,7 @@ function animateSignedCurrencyText(targetEl, amount, suffix = "", duration = 700
 function renderPlayerTrendContent(payload, options = {}) {
   const targetEl = options.target || elements.playerTrendContent;
   const showCompare = options.showCompare !== false;
+  const scopeControl = options.scopeControl || null;
   if (!targetEl) return;
   targetEl.innerHTML = "";
   const { rows, identity, comparisonSeries, error } = payload;
@@ -1448,15 +1473,55 @@ function renderPlayerTrendContent(payload, options = {}) {
     return;
   }
 
+  const seatName = identity?.name || "Player";
+  const scopeOptions = [
+    { value: "group", label: "This group" },
+    { value: "all_groups", label: "All groups" },
+    { value: "casual", label: "Casual sessions" }
+  ];
+  const scopeValue = scopeControl?.value || "group";
+  const showName = options.showSeatName ?? !scopeControl;
+  const scopeMarkup = scopeControl
+    ? `<div class="player-trend-hero-scope-row">
+        <label class="player-trend-scope-wrap">
+          <span class="sr-only">Performance scope</span>
+          <select class="player-trend-scope" data-action="group-profile-scope">
+            ${scopeOptions
+              .map(
+                (item) =>
+                  `<option value="${item.value}"${item.value === scopeValue ? " selected" : ""}>${item.label}</option>`
+              )
+              .join("")}
+          </select>
+        </label>
+      </div>`
+    : "";
+  const nameMarkup = showName
+    ? `<div class="player-trend-hero-head">
+        <p class="player-trend-hero-name">👤 ${escapeHtml(seatName)}</p>
+      </div>`
+    : "";
+
   if (!rows.length) {
-    const empty = document.createElement("p");
-    empty.className = "muted";
-    empty.textContent = "No settled games yet for this seat.";
+    const empty = document.createElement("section");
+    empty.className = "player-trend-hero";
+    empty.innerHTML = `
+      ${nameMarkup}
+      ${scopeMarkup}
+      <p class="muted">No settled games yet for this scope.</p>
+    `;
     targetEl.appendChild(empty);
+    if (scopeControl && typeof scopeControl.onChange === "function") {
+      const scopeSelect = empty.querySelector("[data-action='group-profile-scope']");
+      if (scopeSelect) {
+        scopeSelect.addEventListener("change", () => {
+          scopeControl.onChange(scopeSelect.value);
+        });
+      }
+    }
     return;
   }
 
-  const seatName = identity?.name || "Player";
   const trendRows = rows;
   const overallNet = moneyRound(trendRows.reduce((sum, row) => sum + row.net, 0));
 
@@ -1571,7 +1636,8 @@ function renderPlayerTrendContent(payload, options = {}) {
   const hero = document.createElement("section");
   hero.className = "player-trend-hero";
   hero.innerHTML = `
-    <p class="player-trend-hero-name">👤 ${escapeHtml(seatName)}</p>
+    ${nameMarkup}
+    ${scopeMarkup}
     <h3 class="${overallNet >= 0 ? "money-pos" : "money-neg"} player-trend-overall-value">${formatSignedCurrency(overallNet)} Overall</h3>
     <p class="player-trend-hero-sub">All-time · ${trendRows.length} games</p>
     <ul class="player-trend-hero-facts">
@@ -1580,6 +1646,14 @@ function renderPlayerTrendContent(payload, options = {}) {
     </ul>
   `;
   targetEl.appendChild(hero);
+  if (scopeControl && typeof scopeControl.onChange === "function") {
+    const scopeSelect = hero.querySelector("[data-action='group-profile-scope']");
+    if (scopeSelect) {
+      scopeSelect.addEventListener("change", () => {
+        scopeControl.onChange(scopeSelect.value);
+      });
+    }
+  }
   animateSignedCurrencyText(
     hero.querySelector(".player-trend-overall-value"),
     overallNet,
@@ -1968,28 +2042,60 @@ async function openPlayerTrendModal(options = {}) {
     setStatus("My Performance is unavailable for host in iOS app mode.", "error");
     return;
   }
-  elements.playerTrendContent.innerHTML = `<p class="muted">Loading profit trend…</p>`;
   elements.playerTrendModal.classList.remove("hidden");
   elements.playerTrendTrigger?.setAttribute("aria-expanded", "true");
-  try {
-    const isStandaloneHost = !hasOverrideIdentity && isStandaloneDisplayMode() && state.isHost;
-    const loadOptions = { ...options };
-    if (isStandaloneHost) {
-      loadOptions.includeComparison = false;
-      loadOptions.gameLimit = 96;
-    }
-    const payload = await loadPlayerTrendRows(loadOptions);
-    if (!elements.playerTrendModal || elements.playerTrendModal.classList.contains("hidden")) return;
-    renderPlayerTrendContent(payload);
-  } catch (err) {
-    console.error("Failed to open My Performance", err);
-    if (!elements.playerTrendModal || elements.playerTrendModal.classList.contains("hidden")) return;
-    elements.playerTrendContent.innerHTML = `<p class="muted">Could not open My Performance right now.</p>`;
+
+  const scopeGroupId = options.scopeGroupId ?? state.game?.group_id ?? null;
+  const defaultScope = scopeGroupId ? "all_groups" : "casual";
+  const initialScope = normalizeTrendScope(
+    options.scope || state.playerTrendScope || defaultScope,
+    scopeGroupId
+  );
+  const isStandaloneHost = !hasOverrideIdentity && isStandaloneDisplayMode() && state.isHost;
+  const baseLoadOptions = { ...options, scopeGroupId };
+  if (isStandaloneHost) {
+    baseLoadOptions.includeComparison = false;
+    baseLoadOptions.gameLimit = 96;
   }
+
+  const renderForScope = async (scopeValue) => {
+    const resolvedScope = normalizeTrendScope(scopeValue, scopeGroupId);
+    if (!hasOverrideIdentity) {
+      state.playerTrendScope = resolvedScope;
+    }
+    const requestId = ++playerTrendRequestId;
+    elements.playerTrendContent.innerHTML = `<p class="muted">Loading profit trend…</p>`;
+    try {
+      const payload = await loadPlayerTrendRows({
+        ...baseLoadOptions,
+        scope: resolvedScope
+      });
+      if (requestId !== playerTrendRequestId) return;
+      if (!elements.playerTrendModal || elements.playerTrendModal.classList.contains("hidden")) return;
+      renderPlayerTrendContent(payload, {
+        showSeatName: true,
+        scopeControl: {
+          value: resolvedScope,
+          onChange: (nextScope) => {
+            if (!nextScope || nextScope === resolvedScope) return;
+            void renderForScope(nextScope);
+          }
+        }
+      });
+    } catch (err) {
+      if (requestId !== playerTrendRequestId) return;
+      console.error("Failed to open My Performance", err);
+      if (!elements.playerTrendModal || elements.playerTrendModal.classList.contains("hidden")) return;
+      elements.playerTrendContent.innerHTML = `<p class="muted">Could not open My Performance right now.</p>`;
+    }
+  };
+
+  await renderForScope(initialScope);
 }
 
 function closePlayerTrendModal() {
   if (!elements.playerTrendModal) return;
+  playerTrendRequestId += 1;
   elements.playerTrendModal.classList.add("hidden");
   elements.playerTrendTrigger?.setAttribute("aria-expanded", "false");
 }
@@ -2373,7 +2479,12 @@ function renderGroupList() {
 
   state.groups.forEach((group) => {
     const groupMeta = state.groupHubMeta?.[group.id] || {};
-    const playerCount = Number(groupMeta.playerCount || 0);
+    const liveGroupCount =
+      state.activeGroupId === group.id && Array.isArray(state.groupPlayers)
+        ? state.groupPlayers.length
+        : null;
+    const playerCount =
+      liveGroupCount !== null ? liveGroupCount : Number(groupMeta.playerCount || 0);
     const playerLabel = `${playerCount} player${playerCount === 1 ? "" : "s"}`;
     const lastPlayedText = formatGroupLastPlayed(groupMeta.lastPlayedAt);
     const isLocked = Boolean(group.lock_phrase_hash);
@@ -2520,24 +2631,6 @@ async function refreshGroupHubMeta() {
   const groupIds = state.groups.map((group) => group.id).filter(Boolean);
   if (!groupIds.length) return;
 
-  let playerRows = [];
-  let playerRowsSupportActive = false;
-  {
-    const { data, error } = await supabase
-      .from("group_players")
-      .select("group_id,archived_at,is_active")
-      .in("group_id", groupIds);
-    if (!error && Array.isArray(data)) {
-      playerRows = data;
-      playerRowsSupportActive = true;
-    } else {
-      const fallback = await supabase.from("group_players").select("group_id").in("group_id", groupIds);
-      if (!fallback.error && Array.isArray(fallback.data)) {
-        playerRows = fallback.data;
-      }
-    }
-  }
-
   const { data: groupGames } = await supabase
     .from("games")
     .select("group_id,ended_at,created_at")
@@ -2548,14 +2641,16 @@ async function refreshGroupHubMeta() {
     metaByGroup[groupId] = { playerCount: 0, lastPlayedAt: null };
   });
 
-  for (const row of playerRows) {
-    if (!row?.group_id || !metaByGroup[row.group_id]) continue;
-    if (playerRowsSupportActive) {
-      if (row.archived_at) continue;
-      if (row.is_active === false) continue;
-    }
-    metaByGroup[row.group_id].playerCount += 1;
-  }
+  const playerCounts = await Promise.all(
+    groupIds.map(async (groupId) => {
+      const rows = await fetchGroupPlayers(groupId);
+      return [groupId, rows.length];
+    })
+  );
+  playerCounts.forEach(([groupId, count]) => {
+    if (!metaByGroup[groupId]) return;
+    metaByGroup[groupId].playerCount = Number(count || 0);
+  });
 
   for (const game of groupGames || []) {
     const groupId = game?.group_id;
@@ -2865,7 +2960,10 @@ function setGroupPageTab(tab) {
 function renderGroupInfo(group) {
   if (!elements.groupInfoContent || !group) return;
   const meta = state.groupHubMeta?.[group.id] || {};
-  const playerCount = Number(meta.playerCount || state.groupPlayers.length || 0);
+  const playerCount =
+    state.activeGroupId === group.id && Array.isArray(state.groupPlayers)
+      ? state.groupPlayers.length
+      : Number(meta.playerCount || 0);
   const createdLabel = group.created_at ? formatShortDate(group.created_at) : "—";
   const lastPlayedLabel = formatGroupLastPlayed(meta.lastPlayedAt);
 
@@ -2894,6 +2992,7 @@ async function openGroupModal(groupId) {
   state.activeGroupId = groupId;
   state.groupStatsRows = [];
   state.groupStatsSelectedKey = null;
+  state.groupStatsProfileScope = "group";
   groupStatsProfileRequestId += 1;
   if (elements.groupModalTitle) {
     elements.groupModalTitle.textContent = group.name;
@@ -2922,6 +3021,7 @@ function closeGroupModal() {
   elements.groupModal.classList.add("hidden");
   state.groupStatsRows = [];
   state.groupStatsSelectedKey = null;
+  state.groupStatsProfileScope = "group";
   groupStatsProfileRequestId += 1;
   mountSessionsGrid(elements.sessionsGridHost || elements.sessionsPanel);
   state.sessionsScope = "oneoff";
@@ -3937,13 +4037,24 @@ async function renderGroupStatsSelectedProfile() {
         groupPlayerId: selected.groupPlayerId || null,
         strictGroupPlayerId: Boolean(selected.groupPlayerId)
       },
+      scope: state.groupStatsProfileScope || "group",
+      scopeGroupId: state.activeGroupId,
       includeComparison: true,
       gameLimit: 96
     });
     if (profileRequestId !== groupStatsProfileRequestId) return;
     renderPlayerTrendContent(payload, {
       target: detail,
-      showCompare: false
+      showCompare: false,
+      showSeatName: false,
+      scopeControl: {
+        value: state.groupStatsProfileScope || "group",
+        onChange: (nextScope) => {
+          if (!nextScope || nextScope === state.groupStatsProfileScope) return;
+          state.groupStatsProfileScope = nextScope;
+          void renderGroupStatsSelectedProfile();
+        }
+      }
     });
   } catch (error) {
     if (profileRequestId !== groupStatsProfileRequestId) return;
@@ -8826,6 +8937,10 @@ if (elements.groupStatsLeaderboard) {
     if (!row) return;
     const key = row.dataset.playerKey;
     if (!key) return;
+    const isDifferentSelection = key !== state.groupStatsSelectedKey;
+    if (isDifferentSelection) {
+      state.groupStatsProfileScope = "group";
+    }
     state.groupStatsSelectedKey = key === state.groupStatsSelectedKey ? null : key;
     updateGroupStatsSelectionStyles();
     if (!state.groupStatsSelectedKey) {
