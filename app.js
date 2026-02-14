@@ -318,6 +318,30 @@ let refreshPromise = null;
 let refreshQueued = false;
 let groupStatsProfileRequestId = 0;
 let playerTrendRequestId = 0;
+const groupChipMotionState = new WeakMap();
+const GROUP_CHIP_SUITS = [
+  { glyph: "♠", className: "spade" },
+  { glyph: "♣", className: "club" },
+  { glyph: "♦", className: "diamond" },
+  { glyph: "♥", className: "heart" }
+];
+
+function applyGroupChipSuit(target, index) {
+  if (!target) return;
+  const safeIndex = Number.isInteger(index) ? index : 0;
+  const suit = GROUP_CHIP_SUITS[safeIndex] || GROUP_CHIP_SUITS[0];
+  target.textContent = suit.glyph;
+  target.className = `group-player-suit ${suit.className}`;
+}
+
+function pickGroupChipSuitIndex(previousIndex = -1) {
+  if (GROUP_CHIP_SUITS.length <= 1) return 0;
+  let next = previousIndex;
+  while (next === previousIndex) {
+    next = Math.floor(Math.random() * GROUP_CHIP_SUITS.length);
+  }
+  return next;
+}
 
 if (configMissing) {
   elements.configNotice.classList.remove("hidden");
@@ -2857,6 +2881,185 @@ async function loadGameGroupPlayers() {
   state.gameGroupPlayersGroupId = state.game.group_id;
 }
 
+function initGroupChipPhysics(container) {
+  if (!container) return;
+  const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  if (reduceMotion) return;
+
+  const chips = container.querySelectorAll(".group-player-media[data-chip-interactive='true']");
+  chips.forEach((chip) => {
+    if (groupChipMotionState.has(chip)) return;
+    const backSuitNode = chip.querySelector(".group-player-suit");
+
+    const model = {
+      active: false,
+      pointerId: null,
+      side: "front",
+      backSuitNode,
+      lastSuitIndex: 0,
+      baseRotateY: 0,
+      startX: 0,
+      startY: 0,
+      startTime: 0,
+      lastX: 0,
+      lastTime: 0,
+      dragVelocity: 0,
+      currentTiltX: 0,
+      currentTiltY: 0,
+      currentRotateY: 0,
+      currentLift: 0,
+      targetTiltX: 0,
+      targetTiltY: 0,
+      targetRotateY: 0,
+      targetLift: 0,
+      velocityTiltX: 0,
+      velocityTiltY: 0,
+      velocityRotateY: 0,
+      velocityLift: 0,
+      raf: 0
+    };
+
+    const setChipStyle = () => {
+      chip.style.setProperty("--chip-tilt-x", `${model.currentTiltX.toFixed(3)}deg`);
+      chip.style.setProperty("--chip-tilt-y", `${model.currentTiltY.toFixed(3)}deg`);
+      chip.style.setProperty("--chip-rotate-y", `${model.currentRotateY.toFixed(3)}deg`);
+      chip.style.setProperty("--chip-lift", `${model.currentLift.toFixed(3)}px`);
+    };
+
+    const stopTickIfSettled = () => {
+      const settled =
+        Math.abs(model.currentTiltX - model.targetTiltX) < 0.02 &&
+        Math.abs(model.currentTiltY - model.targetTiltY) < 0.02 &&
+        Math.abs(model.currentRotateY - model.targetRotateY) < 0.04 &&
+        Math.abs(model.currentLift - model.targetLift) < 0.02 &&
+        Math.abs(model.velocityTiltX) < 0.01 &&
+        Math.abs(model.velocityTiltY) < 0.01 &&
+        Math.abs(model.velocityRotateY) < 0.02 &&
+        Math.abs(model.velocityLift) < 0.01;
+      if (!model.active && settled) {
+        model.currentTiltX = model.targetTiltX;
+        model.currentTiltY = model.targetTiltY;
+        model.currentRotateY = model.targetRotateY;
+        model.currentLift = model.targetLift;
+        setChipStyle();
+        model.raf = 0;
+        return true;
+      }
+      return false;
+    };
+
+    const tick = () => {
+      const tension = model.active ? 0.085 : 0.095;
+      const damping = model.active ? 0.8 : 0.84;
+
+      model.velocityTiltX = (model.velocityTiltX + (model.targetTiltX - model.currentTiltX) * tension) * damping;
+      model.velocityTiltY = (model.velocityTiltY + (model.targetTiltY - model.currentTiltY) * tension) * damping;
+      model.velocityRotateY =
+        (model.velocityRotateY + (model.targetRotateY - model.currentRotateY) * (tension * 0.95)) *
+        (damping - 0.02);
+      model.velocityLift = (model.velocityLift + (model.targetLift - model.currentLift) * (tension + 0.02)) * damping;
+
+      model.currentTiltX += model.velocityTiltX;
+      model.currentTiltY += model.velocityTiltY;
+      model.currentRotateY += model.velocityRotateY;
+      model.currentLift += model.velocityLift;
+
+      setChipStyle();
+      if (stopTickIfSettled()) return;
+      model.raf = requestAnimationFrame(tick);
+    };
+
+    const startTick = () => {
+      if (model.raf) return;
+      model.raf = requestAnimationFrame(tick);
+    };
+
+    const pointerUp = (event) => {
+      if (!model.active || (model.pointerId !== null && event.pointerId !== model.pointerId)) return;
+
+      model.active = false;
+      model.pointerId = null;
+      chip.classList.remove("is-dragging");
+      if (chip.hasPointerCapture(event.pointerId)) {
+        chip.releasePointerCapture(event.pointerId);
+      }
+
+      const dragDelta = model.targetRotateY - model.baseRotateY;
+      const dragDistance = Math.hypot(event.clientX - model.startX, event.clientY - model.startY);
+      const tapDuration = performance.now() - model.startTime;
+      const isTapFlip = dragDistance < 7 && tapDuration < 340;
+      const shouldFlip = isTapFlip || Math.abs(dragDelta) > 50 || Math.abs(model.dragVelocity) > 1.3;
+      if (shouldFlip) {
+        model.side = model.side === "front" ? "back" : "front";
+        chip.dataset.side = model.side;
+        if (model.side === "back" && model.backSuitNode) {
+          model.lastSuitIndex = pickGroupChipSuitIndex(model.lastSuitIndex);
+          applyGroupChipSuit(model.backSuitNode, model.lastSuitIndex);
+        }
+      }
+
+      model.baseRotateY = model.side === "back" ? 180 : 0;
+      model.targetRotateY = model.baseRotateY;
+      model.targetTiltX = 0;
+      model.targetTiltY = 0;
+      model.targetLift = 0;
+      startTick();
+    };
+
+    chip.addEventListener("pointerdown", (event) => {
+      if (event.pointerType === "mouse" && event.button !== 0) return;
+
+      model.active = true;
+      model.pointerId = event.pointerId;
+      model.startX = event.clientX;
+      model.startY = event.clientY;
+      model.startTime = performance.now();
+      model.lastX = event.clientX;
+      model.lastTime = performance.now();
+      model.dragVelocity = 0;
+      model.baseRotateY = model.side === "back" ? 180 : 0;
+      model.targetRotateY = model.baseRotateY;
+      model.targetLift = 3.6;
+      chip.classList.add("is-dragging");
+      chip.setPointerCapture(event.pointerId);
+      startTick();
+    });
+
+    chip.addEventListener("pointermove", (event) => {
+      if (!model.active || (model.pointerId !== null && event.pointerId !== model.pointerId)) return;
+
+      const dx = event.clientX - model.startX;
+      const dy = event.clientY - model.startY;
+      const resistedX = (dx * 0.58) / (1 + Math.abs(dx) / 220);
+      const resistedY = (dy * 0.42) / (1 + Math.abs(dy) / 180);
+
+      model.targetTiltY = clamp(resistedX * 0.16, -11, 11);
+      model.targetTiltX = clamp(-resistedY * 0.17, -9, 9);
+      model.targetRotateY = model.baseRotateY + clamp(resistedX * 1.52, -145, 145);
+      model.targetLift = 5.2;
+
+      const now = performance.now();
+      const dt = Math.max(16, now - model.lastTime);
+      model.dragVelocity = ((event.clientX - model.lastX) / dt) * 4.2;
+      model.lastX = event.clientX;
+      model.lastTime = now;
+      startTick();
+    });
+
+    chip.addEventListener("pointerup", pointerUp);
+    chip.addEventListener("pointercancel", pointerUp);
+    chip.addEventListener("lostpointercapture", pointerUp);
+
+    if (model.backSuitNode) {
+      model.lastSuitIndex = Math.floor(Math.random() * GROUP_CHIP_SUITS.length);
+      applyGroupChipSuit(model.backSuitNode, model.lastSuitIndex);
+    }
+    chip.dataset.side = "front";
+
+    groupChipMotionState.set(chip, model);
+  });
+}
+
 function renderGroupPlayers() {
   if (!elements.groupPlayerList) return;
   elements.groupPlayerList.innerHTML = "";
@@ -2879,10 +3082,14 @@ function renderGroupPlayers() {
       .slice(0, 2)
       .map((chunk) => chunk[0]?.toUpperCase() || "")
       .join("");
+    const safeInitials = escapeHtml(initials || "•");
     const tile = document.createElement("div");
     tile.className = "group-player-tile";
     tile.innerHTML = `
-      <div class="group-player-media" aria-hidden="true"><span class="group-player-initial">${initials || "•"}</span></div>
+      <div class="group-player-media" data-chip-interactive="true" aria-hidden="true">
+        <span class="group-player-face group-player-face-front"><span class="group-player-initial">${safeInitials}</span></span>
+        <span class="group-player-face group-player-face-back"><span class="group-player-suit spade">♠</span></span>
+      </div>
       <strong>${player.name}</strong>
       ${
         state.groupEditMode
@@ -2892,6 +3099,8 @@ function renderGroupPlayers() {
     `;
     elements.groupPlayerList.appendChild(tile);
   });
+
+  initGroupChipPhysics(elements.groupPlayerList);
 }
 
 function setGroupEditMode(editMode) {
