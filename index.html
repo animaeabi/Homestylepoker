@@ -27,6 +27,7 @@
       <section id="landing" class="landing">
         <div id="landingNotice" class="landing-notice hidden" role="status" aria-live="polite"></div>
         <div class="landing-card lets-play" id="letsDealCard">
+          <h3 class="sessions-block-title">Game Lobby</h3>
           <button
             id="letsDealToggle"
             class="lets-deal-toggle"
@@ -41,6 +42,7 @@
             <span class="host-icon host-icon-right host-icon-expanded" aria-hidden="true"></span>
             <span class="deal-chevron" aria-hidden="true"></span>
           </button>
+          <p id="hostingHint" class="landing-inline-hint">Hosting ? Start here</p>
           <div id="letsDealBody" class="lets-deal-body hidden">
             <label class="field">
               <span>Game name</span>
@@ -66,13 +68,14 @@
             <img class="join-icon" src="assets/table.png" alt="" aria-hidden="true" />
             <span class="join-text">Join table</span>
           </button>
-          <p class="landing-inline-hint">Joining a game? Start here.</p>
+          <p id="joiningHint" class="landing-inline-hint">Joining ? Start here</p>
         </div>
 
         <div class="landing-side">
           <div class="landing-card compact action-card">
+            <h3 class="sessions-block-title">Sessions</h3>
             <div class="landing-actions">
-              <button id="openSessions" class="deal-button deal-secondary" type="button">Casual Sessions</button>
+              <button id="openSessions" class="deal-button deal-secondary" type="button">Casual</button>
               <button
                 id="toggleGroups"
                 class="deal-button deal-secondary"
@@ -80,7 +83,7 @@
                 aria-expanded="false"
                 aria-controls="groupsHubModal"
               >
-                Group Sessions
+                Group
               </button>
             </div>
           </div>

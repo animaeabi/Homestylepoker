@@ -1196,6 +1196,21 @@ body.theme-light .settings-button:hover {
   gap: 0;
 }
 
+.sessions-block-title {
+  margin: 0 4px 12px;
+  font-family: "Cinzel", "Fraunces", serif;
+  font-size: 1.18rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(245, 225, 185, 0.95);
+  text-shadow: 0 0 10px rgba(221, 173, 95, 0.28);
+}
+
+.lets-play .sessions-block-title {
+  margin-left: -2px;
+}
+
 .join-standalone {
   margin: 22px 16px 30px;
   width: calc(100% - 32px);
@@ -1304,7 +1319,7 @@ select:focus-visible {
   gap: 12px;
   justify-items: stretch;
   width: 100%;
-  margin-top: 18px;
+  margin-top: 38px;
 }
 
 .group-card {

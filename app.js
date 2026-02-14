@@ -8,6 +8,8 @@ const $ = (selector) => document.querySelector(selector);
 const elements = {
   landing: $("#landing"),
   landingNotice: $("#landingNotice"),
+  hostingHint: $("#hostingHint"),
+  joiningHint: $("#joiningHint"),
   letsDealCard: $("#letsDealCard"),
   letsDealToggle: $("#letsDealToggle"),
   letsDealBody: $("#letsDealBody"),
@@ -341,6 +343,7 @@ const playerKey = (code) => `poker_player_${code}`;
 const hostKey = (code) => `poker_host_${code}`;
 const recentGamesKey = "poker_recent_games";
 const themeKey = "poker_theme";
+const landingHintsHiddenKey = "poker_landing_hints_hidden_v1";
 const lightsOffKey = "poker_lights_off";
 const cheatHintDismissedKey = "poker_cheat_hint_dismissed_v1";
 const suitCycleRandom = ["♠", "♣", "♦", "♥", "😂", "😉"];
@@ -645,6 +648,30 @@ function initTheme() {
     return;
   }
   applyTheme("dark");
+}
+
+function setLandingHintsHidden(hidden) {
+  elements.hostingHint?.classList.toggle("hidden", hidden);
+  elements.joiningHint?.classList.toggle("hidden", hidden);
+}
+
+function markLandingHintsSeen() {
+  try {
+    localStorage.setItem(landingHintsHiddenKey, "1");
+  } catch (_error) {
+    // Ignore private-mode/localStorage errors and still hide in-memory.
+  }
+  setLandingHintsHidden(true);
+}
+
+function initLandingHints() {
+  let hidden = false;
+  try {
+    hidden = localStorage.getItem(landingHintsHiddenKey) === "1";
+  } catch (_error) {
+    hidden = false;
+  }
+  setLandingHintsHidden(hidden);
 }
 
 function applyLightsOff(isOff) {
@@ -8162,6 +8189,7 @@ async function submitSettlement(event) {
 buildQuarterOptions();
 buildStatsRanges();
 initTheme();
+initLandingHints();
 state.cheatHintDismissedRanks = loadDismissedCheatHints();
 initHeaderLights();
 initFeltParallax();
@@ -8175,6 +8203,15 @@ if (elements.themeToggle) {
     const next = elements.themeToggle.checked ? "light" : "dark";
     localStorage.setItem(themeKey, next);
     applyTheme(next);
+  });
+}
+
+if (elements.landing) {
+  elements.landing.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    if (!target.closest("button")) return;
+    markLandingHintsSeen();
   });
 }
 
