@@ -230,6 +230,7 @@ const elements = {
   playerTrendClose: $("#playerTrendClose"),
   playerTrendContent: $("#playerTrendContent"),
   playerAddDefault: $("#playerAddDefault"),
+  playerBuyinWarning: $("#playerBuyinWarning"),
   playerLeave: $("#playerLeave"),
   playerSettle: $("#playerSettle"),
   playerSettleLabel: $("#playerSettleLabel"),
@@ -289,6 +290,7 @@ const state = {
   playerJoinFeedbackText: "",
   playerJoinFeedbackTone: "info",
   playerPulseRecentMs: {},
+  buyinLockWarnings: {},
   playerPulseExpanded: false,
   playerBuyinPulseUntil: 0,
   playerBuyinPulsePlayerId: null,
@@ -510,6 +512,7 @@ const REALTIME_RECOVERY_POLL_MS = 3200;
 const REALTIME_STANDALONE_POLL_MS = 5200;
 const REALTIME_RESUBSCRIBE_COOLDOWN_MS = 1800;
 const PLAYER_BUYIN_PULSE_MS = 950;
+const BUYIN_LOCK_MS = 5 * 60 * 1000;
 const POT_TICKER_MIN_MS = 320;
 const POT_TICKER_MAX_MS = 820;
 const PARALLAX_MAX_X = 10;
@@ -522,6 +525,7 @@ let suitCycleRoundsDone = 0;
 let suitCycleEnabled = false;
 let lastAutoLightsOff = null;
 let playerBuyinPulseTimer = null;
+const buyinLockWarningTimers = new Map();
 let potTickerRaf = null;
 let potTickerClassTimer = null;
 let potTickerCurrent = null;
@@ -632,6 +636,14 @@ function isMissingTableError(error) {
   if (code === "42P01" || code === "PGRST205") return true;
   const message = `${safeTrim(error.message)} ${safeTrim(error.details)} ${safeTrim(error.hint)}`.toLowerCase();
   return message.includes("does not exist") || message.includes("schema cache");
+}
+
+function isMissingBuyinEventColumnError(error) {
+  if (!error) return false;
+  const code = safeTrim(error.code).toUpperCase();
+  if (code === "42703" || code === "PGRST204") return true;
+  const message = `${safeTrim(error.message)} ${safeTrim(error.details)} ${safeTrim(error.hint)}`.toLowerCase();
+  return message.includes("buyin_event_at") && (message.includes("column") || message.includes("schema cache"));
 }
 
 function stripHostSuffix(name) {
@@ -4970,16 +4982,127 @@ function buildBuyinMap() {
   return map;
 }
 
+function normalizeTimestampValue(raw) {
+  if (raw == null) return "";
+  if (raw instanceof Date) return raw.toISOString();
+  const text = String(raw).trim();
+  if (!text) return "";
+
+  // Postgres timestamps can come with a space separator and high-precision fractions.
+  let normalized = text.replace(" ", "T").replace(/(\.\d{3})\d+/, "$1");
+  // Safari can fail to parse offsets like +00 / -05 without minutes.
+  normalized = normalized.replace(/([+-]\d{2})$/, "$1:00");
+  return normalized;
+}
+
+function getBuyinTimestampMs(buyin) {
+  const normalized = normalizeTimestampValue(buyin?.buyin_event_at || buyin?.created_at);
+  if (!normalized) return 0;
+  const parsed = Date.parse(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function getLatestBuyinMs(playerId, buyinMap) {
   const buyins = buyinMap.get(playerId) || [];
   let latest = 0;
   buyins.forEach((buyin) => {
-    const stamp = new Date(buyin.created_at || 0).getTime();
-    if (Number.isFinite(stamp) && stamp > latest) {
+    const stamp = getBuyinTimestampMs(buyin);
+    if (stamp > latest) {
       latest = stamp;
     }
   });
   return latest;
+}
+
+function formatBuyinLockDuration(ms) {
+  const totalSeconds = Math.max(1, Math.ceil(Number(ms || 0) / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes && seconds) return `${minutes}m ${seconds}s`;
+  if (minutes) return `${minutes}m`;
+  return `${seconds}s`;
+}
+
+function getLatestBuyinLockMs(playerId) {
+  if (!playerId) return 0;
+  const recentMapMs = Number(state.playerPulseRecentMs?.[playerId] || 0);
+  const fromMap = Number.isFinite(recentMapMs) ? recentMapMs : 0;
+  const fromRows = getLatestBuyinMs(playerId, buildBuyinMap());
+  return Math.max(fromMap, fromRows, 0);
+}
+
+async function fetchLatestBuyinLockMsFromDb(playerId) {
+  if (!supabase || !state.game || !playerId) return { ms: 0, missingColumn: false, error: null };
+  const { data, error } = await supabase
+    .from("buyins")
+    .select("buyin_event_at,created_at")
+    .eq("game_id", state.game.id)
+    .eq("player_id", playerId);
+
+  if (error) {
+    if (isMissingBuyinEventColumnError(error)) {
+      return { ms: 0, missingColumn: true, error };
+    }
+    return { ms: 0, missingColumn: false, error };
+  }
+
+  let latest = 0;
+  (Array.isArray(data) ? data : []).forEach((row) => {
+    const stamp = getBuyinTimestampMs(row);
+    if (stamp > latest) latest = stamp;
+  });
+  return { ms: latest, missingColumn: false, error: null };
+}
+
+function renderBuyinLockWarning(playerId) {
+  if (!playerId) return;
+  const text = safeTrim(state.buyinLockWarnings?.[playerId] || "");
+  const hostWarning = elements.players?.querySelector(
+    `.player-tile[data-player-id="${playerId}"] [data-role="buyin-lock-warning"]`
+  );
+  if (hostWarning) {
+    hostWarning.textContent = text;
+    hostWarning.classList.toggle("hidden", !text);
+  }
+  if (elements.playerBuyinWarning && state.playerId === playerId) {
+    elements.playerBuyinWarning.textContent = text;
+    elements.playerBuyinWarning.classList.toggle("hidden", !text);
+  }
+}
+
+function clearBuyinLockWarning(playerId) {
+  if (!playerId) return;
+  const timer = buyinLockWarningTimers.get(playerId);
+  if (timer) {
+    clearTimeout(timer);
+    buyinLockWarningTimers.delete(playerId);
+  }
+  if (state.buyinLockWarnings && state.buyinLockWarnings[playerId]) {
+    delete state.buyinLockWarnings[playerId];
+  }
+  renderBuyinLockWarning(playerId);
+}
+
+function showBuyinLockWarning(playerId, text) {
+  if (!playerId) return;
+  const message = safeTrim(text);
+  if (!message) {
+    clearBuyinLockWarning(playerId);
+    return;
+  }
+  state.buyinLockWarnings = state.buyinLockWarnings || {};
+  state.buyinLockWarnings[playerId] = message;
+  renderBuyinLockWarning(playerId);
+  const existingTimer = buyinLockWarningTimers.get(playerId);
+  if (existingTimer) clearTimeout(existingTimer);
+  const timer = setTimeout(() => {
+    if (state.buyinLockWarnings?.[playerId] === message) {
+      delete state.buyinLockWarnings[playerId];
+      renderBuyinLockWarning(playerId);
+    }
+    buyinLockWarningTimers.delete(playerId);
+  }, 5200);
+  buyinLockWarningTimers.set(playerId, timer);
 }
 
 function updatePlayersShowMore(totalNonHostPlayers, totalPages) {
@@ -5242,6 +5365,7 @@ function renderPlayers() {
     const hostFlag = isHostPlayer(player);
     const displayName = displayPlayerName(player);
     const editName = stripHostSuffix(player.name || "");
+    const warningText = safeTrim(state.buyinLockWarnings?.[player.id] || "");
 
     card.innerHTML = `
       <div class="player-header">
@@ -5272,6 +5396,7 @@ function renderPlayers() {
         <button class="primary" data-action="add-default">Add buy-in (${formatCurrency(
           state.game?.default_buyin || 0
         )})</button>
+        <p class="buyin-lock-warning ${warningText ? "" : "hidden"}" data-role="buyin-lock-warning">${warningText}</p>
       </div>
     `;
 
@@ -5637,6 +5762,7 @@ function renderPlayerSeat() {
     state.game?.default_buyin || 0
   )})`;
   elements.playerAddDefault.disabled = settling || exited;
+  renderBuyinLockWarning(player.id);
   if (elements.playerLeave) {
     elements.playerLeave.textContent = exited ? `Cashed out (${formatCurrency(exitedAmount)})` : "Cash out & leave";
     elements.playerLeave.disabled = settling || exited;
@@ -6438,8 +6564,8 @@ async function refreshData() {
 
       state.buyins.forEach((buyin) => {
         if (!buyin?.player_id || !activePlayerIds.has(buyin.player_id)) return;
-        const stamp = new Date(buyin.created_at || 0).getTime();
-        if (Number.isFinite(stamp) && stamp > (pulseRecentMs[buyin.player_id] || 0)) {
+        const stamp = getBuyinTimestampMs(buyin);
+        if (stamp > (pulseRecentMs[buyin.player_id] || 0)) {
           pulseRecentMs[buyin.player_id] = stamp;
         }
       });
@@ -6451,11 +6577,13 @@ async function refreshData() {
         pulseRecentMs[playerId] = Math.max(pulseRecentMs[playerId] || 0, parsed);
       });
 
-      const now = Date.now();
       state.buyins.forEach((buyin) => {
         if (!buyin?.id || !buyin?.player_id || !activePlayerIds.has(buyin.player_id)) return;
         if (!previousBuyinIds.has(buyin.id)) {
-          pulseRecentMs[buyin.player_id] = now;
+          const stamp = getBuyinTimestampMs(buyin);
+          if (stamp > (pulseRecentMs[buyin.player_id] || 0)) {
+            pulseRecentMs[buyin.player_id] = stamp;
+          }
           if (hasPriorBuyins && state.playerId && buyin.player_id === state.playerId) {
             hasNewBuyinForCurrentPlayer = true;
           }
@@ -7136,13 +7264,54 @@ async function addBuyin(playerId, amount, options = {}) {
   if (!Number.isFinite(numeric) || numeric <= 0) return;
 
   const source = options.source || "host";
+  const latestFromStateMs = getLatestBuyinLockMs(playerId);
+  const latestFromDb = await fetchLatestBuyinLockMsFromDb(playerId);
+  if (latestFromDb.missingColumn) {
+    setStatus("Run README SQL to enable 5-minute buy-in lock.", "error");
+    return;
+  }
+  if (latestFromDb.error) {
+    setStatus("Could not verify recent buy-in. Please retry.", "error");
+    return;
+  }
+  const latestBuyinMs = Math.max(latestFromStateMs, Number(latestFromDb.ms || 0));
+  const now = Date.now();
+  if (latestBuyinMs > 0) {
+    const elapsedMs = Math.max(0, now - latestBuyinMs);
+    if (elapsedMs < BUYIN_LOCK_MS) {
+      const remainingMs = BUYIN_LOCK_MS - elapsedMs;
+      const elapsedLabel = formatBuyinLockDuration(elapsedMs);
+      const remainingLabel = formatBuyinLockDuration(remainingMs);
+      const player = state.players.find((item) => item.id === playerId);
+      const playerName = stripHostSuffix(player?.name || "This player");
+      if (source === "self" && state.playerId === playerId) {
+        showBuyinLockWarning(
+          playerId,
+          `You just bought in ${elapsedLabel} ago. Please wait ${remainingLabel}.`
+        );
+      } else {
+        showBuyinLockWarning(
+          playerId,
+          `${playerName} just bought in ${elapsedLabel} ago. Please wait ${remainingLabel}.`
+        );
+      }
+      return;
+    }
+  }
+  clearBuyinLockWarning(playerId);
+
   if (state.exitsAvailable && getPlayerExit(playerId)) {
     const removed = await removePlayerExit(playerId, { silent: true });
     if (!removed && !state.exitsAvailable) {
       return;
     }
   }
-  const payload = { game_id: state.game.id, player_id: playerId, amount: numeric };
+  const payload = {
+    game_id: state.game.id,
+    player_id: playerId,
+    amount: numeric,
+    buyin_event_at: new Date(now).toISOString()
+  };
   if (source !== "self") {
     const neutralCreatedAt = getHostNeutralBuyinCreatedAt(playerId);
     if (neutralCreatedAt) payload.created_at = neutralCreatedAt;
@@ -7151,8 +7320,17 @@ async function addBuyin(playerId, amount, options = {}) {
   const { error } = await supabase.from("buyins").insert(payload);
 
   if (error) {
+    if (isMissingBuyinEventColumnError(error)) {
+      setStatus("Run README SQL to enable 5-minute buy-in lock.", "error");
+      return;
+    }
     setStatus("Buy-in failed", "error");
     return;
+  }
+
+  if (playerId) {
+    state.playerPulseRecentMs = state.playerPulseRecentMs || {};
+    state.playerPulseRecentMs[playerId] = now;
   }
 
   if (playerId && state.playerId && playerId === state.playerId) {
@@ -8218,6 +8396,10 @@ function clearCurrentGame() {
   state.dismissedJoinRequestId = null;
   state.playerJoinFeedbackText = "";
   state.playerJoinFeedbackTone = "info";
+  state.playerPulseRecentMs = {};
+  state.buyinLockWarnings = {};
+  buyinLockWarningTimers.forEach((timer) => clearTimeout(timer));
+  buyinLockWarningTimers.clear();
   state.playerBuyinPulseUntil = 0;
   state.playerBuyinPulsePlayerId = null;
   state.pendingSettleAdjustments = new Map();
@@ -8242,6 +8424,10 @@ function clearCurrentGame() {
   elements.gamePanel.classList.add("hidden");
   if (elements.sessionsPanel) elements.sessionsPanel.classList.add("hidden");
   if (elements.settledNotice) elements.settledNotice.classList.add("hidden");
+  if (elements.playerBuyinWarning) {
+    elements.playerBuyinWarning.textContent = "";
+    elements.playerBuyinWarning.classList.add("hidden");
+  }
   if (elements.settleModal) elements.settleModal.classList.add("hidden");
   if (elements.discrepancyModal) elements.discrepancyModal.classList.add("hidden");
   if (elements.qrModal) elements.qrModal.classList.add("hidden");

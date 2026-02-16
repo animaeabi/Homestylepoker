@@ -50,6 +50,7 @@ create table if not exists buyins (
   game_id uuid references games(id) on delete cascade,
   player_id uuid references players(id) on delete cascade,
   amount numeric not null,
+  buyin_event_at timestamptz default now(),
   created_at timestamptz default now()
 );
 
@@ -132,6 +133,8 @@ alter table group_players add column if not exists archived_at timestamptz;
 alter table games add column if not exists settle_open boolean default false;
 alter table games add column if not exists ended_at timestamptz;
 alter table players add column if not exists group_player_id uuid references group_players(id) on delete set null;
+alter table buyins add column if not exists buyin_event_at timestamptz default now();
+update buyins set buyin_event_at = created_at where buyin_event_at is null;
 create table if not exists settlements (
   id uuid primary key default gen_random_uuid(),
   game_id uuid references games(id) on delete cascade,

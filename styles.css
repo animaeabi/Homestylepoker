@@ -5535,6 +5535,14 @@ body.theme-light .stats-btn {
   gap: 10px;
 }
 
+.buyin-lock-warning {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  color: rgba(224, 120, 106, 0.96);
+  letter-spacing: 0.01em;
+}
+
 .player-actions .primary {
   padding: 8px 12px;
   font-size: 0.84rem;
@@ -5749,6 +5757,11 @@ body.theme-light .player-tile {
   position: relative;
   padding-bottom: 10px;
   margin-bottom: 4px;
+}
+
+.player-panel .buyin-lock-warning {
+  text-align: center;
+  margin-top: -2px;
 }
 
 .player-panel .player-actions::after {
