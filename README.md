@@ -197,6 +197,33 @@ python3 -m http.server 8000
 
 Then open `http://localhost:8000`.
 
+## 3.1) Optional: Online Poker Foundation (MVP backend)
+
+If you want to start building online Hold'em tables (additive; does not modify existing tracker flows):
+
+1. Open Supabase SQL Editor.
+2. Run `/Users/abishek/Documents/poker-buyins/supabase/online_poker_schema.sql`.
+3. Use `/Users/abishek/Documents/poker-buyins/online/client.js` as the thin RPC wrapper from app/server code.
+4. Refer to `/Users/abishek/Documents/poker-buyins/docs/ONLINE_POKER_MVP.md` for the scope and milestones.
+5. For showdown payout resolution, use:
+   - `/Users/abishek/Documents/poker-buyins/online/showdown.js`
+   - `/Users/abishek/Documents/poker-buyins/online/settle_showdown.js`
+6. For backend runtime automation (auto-advance all-in streets + auto-settle showdown), run:
+   - `SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node /Users/abishek/Documents/poker-buyins/online/runtime_worker.js`
+
+### 3.2) Optional: Online backend smoke checks
+
+Run local checks before frontend integration:
+
+```bash
+node --check /Users/abishek/Documents/poker-buyins/online/client.js
+node --check /Users/abishek/Documents/poker-buyins/online/showdown.js
+node --check /Users/abishek/Documents/poker-buyins/online/settle_showdown.js
+node --check /Users/abishek/Documents/poker-buyins/online/runtime_worker.js
+node /Users/abishek/Documents/poker-buyins/online/showdown.test.js
+node /Users/abishek/Documents/poker-buyins/online/runtime_worker.test.js
+```
+
 ## 4) Security hardening (production)
 
 Use this only when you are ready to require signed-in users.
