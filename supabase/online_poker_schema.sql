@@ -1890,7 +1890,11 @@ begin
   limit 1;
 
   if v_active_hand_id is not null then
-    raise exception 'cannot_rebuy_during_active_hand';
+    -- Allow rebuy if player is busted (stack = 0) even during active hand
+    -- They'll join the next hand, not the current one
+    if v_seat.chip_stack > 0 then
+      raise exception 'cannot_rebuy_during_active_hand';
+    end if;
   end if;
 
   update online_table_seats

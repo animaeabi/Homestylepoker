@@ -503,26 +503,7 @@
         border-color: rgba(248,113,113,0.2);
       }
 
-      .dealer-chip {
-        position: absolute;
-        z-index: 15;
-        width: 28px;
-        height: 28px;
-        border-radius: 50%;
-        background: radial-gradient(circle at 40% 35%, #ffffff, #e8e0d0 50%, #c8b898 100%);
-        border: 2px solid #a89870;
-        box-shadow: 0 2px 6px rgba(0,0,0,0.4), inset 0 1px 2px rgba(255,255,255,0.6);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 11px;
-        font-weight: 900;
-        color: #1a1a1a;
-        letter-spacing: -0.5px;
-        text-shadow: none;
-        pointer-events: none;
-        transition: left 0.5s ease, top 0.5s ease;
-      }
+      /* dealer chip is now inline in seat header -- see .seat-dealer-dot */
 
       /* Seat Nodes */
       .seats-layer {
@@ -614,44 +595,39 @@
         color: var(--gold-bright);
       }
 
-      .seat-badges {
+      .seat-dealer-dot {
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: radial-gradient(circle at 40% 35%, #fff, #e8e0d0 50%, #c8b898 100%);
+        border: 1.5px solid #a89870;
         display: flex;
-        gap: 3px;
-        flex-wrap: wrap;
+        align-items: center;
+        justify-content: center;
+        font-size: 9px;
+        font-weight: 900;
+        color: #1a1a1a;
+        flex-shrink: 0;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.3);
       }
 
-      .seat-badge {
-        font-size: 9px;
+      .seat-pos-label {
+        font-size: 8px;
         font-weight: 700;
-        padding: 1px 5px;
-        border-radius: 4px;
+        color: var(--text-muted);
         text-transform: uppercase;
         letter-spacing: 0.06em;
+        flex-shrink: 0;
       }
 
-      .seat-badge.dealer {
-        background: rgba(212,175,85,0.2);
-        color: var(--gold-bright);
+      .seat-node.allin-seat {
+        border-color: var(--red);
+        animation: allinPulse 1.5s ease-in-out infinite;
       }
 
-      .seat-badge.sb, .seat-badge.bb {
-        background: rgba(255,255,255,0.08);
-        color: var(--text-muted);
-      }
-
-      .seat-badge.turn-badge {
-        background: var(--green-dim);
-        color: var(--green);
-      }
-
-      .seat-badge.folded-badge {
-        background: rgba(255,255,255,0.06);
-        color: var(--text-muted);
-      }
-
-      .seat-badge.allin-badge {
-        background: var(--red-dim);
-        color: var(--red);
+      @keyframes allinPulse {
+        0%, 100% { box-shadow: 0 0 0 2px rgba(248,113,113,0.3), 0 0 12px rgba(248,113,113,0.1); }
+        50% { box-shadow: 0 0 0 3px rgba(248,113,113,0.5), 0 0 20px rgba(248,113,113,0.2); }
       }
 
       .seat-cards-row {
@@ -703,181 +679,215 @@
       .seat-timer-fg.warn { stroke: var(--orange); }
       .seat-timer-fg.danger { stroke: var(--red); }
 
-      .seat-win-overlay {
+      .seat-win-amount {
         position: absolute;
-        inset: -2px;
-        border-radius: var(--radius);
-        border: 2px solid var(--gold);
-        background: rgba(212,175,85,0.1);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 14px;
+        left: 50%;
+        bottom: calc(100% + 8px);
+        transform: translateX(-50%);
+        font-size: 15px;
         font-weight: 800;
-        color: var(--gold-bright);
-        animation: winFlash 0.5s ease-out;
+        color: #fff;
+        background: linear-gradient(135deg, #d4af55, #b8942e);
+        padding: 5px 14px;
+        border-radius: 999px;
+        border: none;
+        white-space: nowrap;
         pointer-events: none;
+        z-index: 30;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.4), 0 0 20px rgba(212,175,85,0.3);
+        animation: winPop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+        text-shadow: 0 1px 2px rgba(0,0,0,0.3);
       }
 
-      @keyframes winFlash {
-        0% { opacity: 0; transform: scale(1.1); }
-        100% { opacity: 1; transform: scale(1); }
+      @keyframes winPop {
+        0% { opacity: 0; transform: translateX(-50%) scale(0.5) translateY(10px); }
+        100% { opacity: 1; transform: translateX(-50%) scale(1) translateY(0); }
       }
 
-      /* Action Bar */
-      .action-bar {
-        background: var(--surface);
-        border-top: 1px solid var(--border);
-        padding: 12px 16px;
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
+      .seat-rebuy-btn {
+        position: absolute;
+        left: 50%;
+        top: calc(100% + 6px);
+        transform: translateX(-50%);
+        z-index: 22;
+        font: inherit;
+        font-size: 11px;
+        font-weight: 700;
+        padding: 6px 16px;
+        border-radius: 999px;
+        border: 1px solid var(--border-gold);
+        background: linear-gradient(135deg, var(--gold), #c49b3a);
+        color: #1a1200;
+        cursor: pointer;
+        white-space: nowrap;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        animation: winPop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
       }
 
-      .action-buttons {
-        display: flex;
-        gap: 8px;
-        flex-wrap: wrap;
-        align-items: center;
+      .seat-rebuy-btn:hover { filter: brightness(1.1); }
+
+      .seat-node.winner-seat {
+        border-color: var(--gold) !important;
+        box-shadow: 0 0 0 3px rgba(212,175,85,0.5), 0 0 24px rgba(212,175,85,0.25) !important;
+        animation: none !important;
       }
 
-      .action-btn {
+      /* Deal button on table surface */
+      .table-deal-btn {
+        position: absolute;
+        bottom: 38%;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 20;
         font: inherit;
         font-size: 14px;
         font-weight: 700;
-        padding: 12px 20px;
-        border-radius: var(--radius);
-        border: 1px solid var(--border);
-        background: rgba(255,255,255,0.04);
-        color: var(--text);
+        padding: 10px 28px;
+        border-radius: 999px;
+        border: 1px solid var(--border-gold);
+        background: linear-gradient(135deg, var(--gold), #c49b3a);
+        color: #1a1200;
+        cursor: pointer;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+        transition: all 0.2s;
+      }
+
+      .table-deal-btn:hover:not(:disabled) { filter: brightness(1.1); transform: translateX(-50%) scale(1.03); }
+      .table-deal-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+      /* Action Strip -- slim single row */
+      .action-strip {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 12px;
+        background: linear-gradient(to top, rgba(11,15,13,0.96), rgba(11,15,13,0.88));
+        border-top: 1px solid var(--border);
+        animation: stripSlideIn 0.2s ease-out;
+      }
+
+      @keyframes stripSlideIn {
+        0% { opacity: 0; transform: translateY(8px); }
+        100% { opacity: 1; transform: translateY(0); }
+      }
+
+      .astrip-btn {
+        font: inherit;
+        font-size: 13px;
+        font-weight: 700;
+        padding: 10px 16px;
+        border-radius: 999px;
+        border: none;
         cursor: pointer;
         transition: all 0.15s;
         text-transform: uppercase;
-        letter-spacing: 0.04em;
+        letter-spacing: 0.03em;
         white-space: nowrap;
+        flex-shrink: 0;
       }
 
-      .action-btn:disabled { opacity: 0.3; cursor: not-allowed; }
-
-      .action-btn.fold {
-        background: var(--red-dim);
+      .astrip-fold {
+        background: transparent;
         color: var(--red);
-        border-color: rgba(248,113,113,0.2);
       }
 
-      .action-btn.fold:hover:not(:disabled) { background: rgba(248,113,113,0.25); }
+      .astrip-fold:hover { background: var(--red-dim); }
 
-      .action-btn.check-call {
+      .astrip-call {
         background: var(--green-dim);
         color: var(--green);
-        border-color: rgba(74,222,128,0.2);
       }
 
-      .action-btn.check-call:hover:not(:disabled) { background: rgba(74,222,128,0.25); }
+      .astrip-call:hover { background: rgba(74,222,128,0.25); }
 
-      .action-btn.bet-raise {
-        background: rgba(212,175,85,0.12);
+      .astrip-raise {
+        background: rgba(212,175,85,0.15);
         color: var(--gold-bright);
-        border-color: var(--border-gold);
       }
 
-      .action-btn.bet-raise:hover:not(:disabled) { background: rgba(212,175,85,0.2); }
+      .astrip-raise:hover { background: rgba(212,175,85,0.25); }
 
-      .action-btn.all-in {
-        background: rgba(248,113,113,0.08);
+      .astrip-allin {
+        background: transparent;
         color: var(--orange);
-        border-color: rgba(251,146,60,0.2);
+        font-size: 11px;
       }
 
-      .action-btn.all-in:hover:not(:disabled) { background: rgba(251,146,60,0.15); }
+      .astrip-allin:hover { background: rgba(251,146,60,0.12); }
 
-      .bet-controls {
+      .astrip-raise-group {
         display: flex;
-        gap: 8px;
         align-items: center;
-        flex-wrap: wrap;
+        gap: 6px;
+        flex: 1;
+        min-width: 0;
       }
 
-      .bet-slider {
+      .astrip-slider {
         flex: 1;
-        min-width: 120px;
-        height: 6px;
+        min-width: 60px;
+        height: 4px;
         -webkit-appearance: none;
         appearance: none;
-        background: rgba(255,255,255,0.1);
-        border-radius: 3px;
+        background: rgba(255,255,255,0.12);
+        border-radius: 2px;
         outline: none;
       }
 
-      .bet-slider::-webkit-slider-thumb {
+      .astrip-slider::-webkit-slider-thumb {
         -webkit-appearance: none;
-        width: 20px;
-        height: 20px;
+        width: 18px;
+        height: 18px;
         border-radius: 50%;
         background: var(--gold);
         cursor: pointer;
-        box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+        box-shadow: 0 1px 4px rgba(0,0,0,0.3);
       }
 
-      .bet-amount-input {
+      .astrip-amount {
         font: inherit;
-        font-size: 14px;
+        font-size: 13px;
         font-weight: 700;
-        width: 90px;
-        padding: 8px 10px;
-        background: var(--surface2);
+        width: 64px;
+        padding: 6px 8px;
+        background: rgba(255,255,255,0.06);
         border: 1px solid var(--border);
-        border-radius: var(--radius);
+        border-radius: 8px;
         color: var(--gold-bright);
         text-align: center;
         outline: none;
+        flex-shrink: 0;
       }
 
-      .bet-amount-input:focus { border-color: var(--gold); }
+      .astrip-amount:focus { border-color: var(--gold); }
 
-      .bet-presets {
+      .preset-row {
         display: flex;
-        gap: 4px;
+        justify-content: center;
+        gap: 6px;
+        padding: 4px 12px 6px;
+        background: rgba(11,15,13,0.92);
+        border-top: 1px solid rgba(255,255,255,0.03);
       }
 
-      .bet-preset {
+      .preset-chip {
         font: inherit;
         font-size: 11px;
         font-weight: 600;
-        padding: 5px 10px;
-        border-radius: 6px;
+        padding: 4px 12px;
+        border-radius: 999px;
         border: 1px solid var(--border);
         background: rgba(255,255,255,0.04);
         color: var(--text-muted);
         cursor: pointer;
-        transition: all 0.15s;
+        transition: all 0.12s;
       }
 
-      .bet-preset:hover { background: rgba(255,255,255,0.08); color: var(--text); }
-
-      .host-controls {
-        display: flex;
-        gap: 8px;
-        align-items: center;
-      }
-
-      .host-btn {
-        font: inherit;
-        font-size: 12px;
-        font-weight: 600;
-        padding: 8px 16px;
-        border-radius: var(--radius);
-        border: 1px solid var(--border-gold);
-        background: rgba(212,175,85,0.08);
-        color: var(--gold);
-        cursor: pointer;
-        transition: all 0.15s;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-      }
-
-      .host-btn:hover:not(:disabled) { background: rgba(212,175,85,0.15); }
-      .host-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+      .preset-chip:hover { background: rgba(255,255,255,0.08); color: var(--text); }
 
       /* Hand Log */
       .hand-log {
@@ -963,7 +973,7 @@
       /* Responsive */
       @supports (padding: env(safe-area-inset-top)) {
         .top-bar { padding-top: max(10px, env(safe-area-inset-top)); }
-        .action-bar { padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+        .action-strip { padding-bottom: max(8px, env(safe-area-inset-bottom)); }
         #lobby { padding-top: max(24px, env(safe-area-inset-top)); padding-bottom: max(24px, env(safe-area-inset-bottom)); }
       }
 
@@ -992,7 +1002,8 @@
         .seat-node.empty { width: 68px; padding: 10px 6px; min-height: 44px; }
         .seat-name { font-size: 11px; }
         .seat-stack { font-size: 12px; }
-        .seat-badge { font-size: 8px; padding: 1px 5px; }
+        .seat-dealer-dot { width: 15px; height: 15px; font-size: 8px; }
+        .seat-pos-label { font-size: 7px; }
         .seat-cards-row .card-sm { width: 26px; height: 36px; font-size: 11px; }
         .seat-cards-row .card-mine { width: 36px; height: 50px; font-size: 14px; }
 
@@ -1000,9 +1011,8 @@
         .pot-display { font-size: 18px; }
         .street-label { font-size: 10px; }
 
-        .action-buttons { gap: 6px; }
-        .action-btn { font-size: 13px; padding: 10px 14px; min-height: 44px; }
-        .bet-amount-input { width: 70px; font-size: 16px; }
+        .astrip-btn { font-size: 12px; padding: 8px 12px; min-height: 40px; }
+        .astrip-amount { width: 58px; font-size: 12px; }
         .form-input { font-size: 16px; }
 
         .top-bar { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; }
@@ -1010,13 +1020,9 @@
         .top-bar-actions { flex-shrink: 0; }
         .top-btn { padding: 7px 10px; font-size: 11px; }
 
-        .bet-controls { flex-wrap: wrap; }
-        .bet-slider { min-width: 100%; order: -1; }
-        .bet-presets { width: 100%; justify-content: space-between; }
-        .bet-preset { flex: 1; text-align: center; min-height: 36px; display: flex; align-items: center; justify-content: center; }
+        .table-deal-btn { font-size: 13px; padding: 8px 22px; }
 
         .hand-log.open { max-height: 200px; }
-        .host-btn { min-height: 44px; }
       }
 
       @media (max-width: 480px) {
@@ -1032,8 +1038,9 @@
         .card { width: 38px; height: 54px; font-size: 14px; }
         .pot-display { font-size: 16px; }
 
-        .action-btn { padding: 10px 10px; font-size: 12px; flex: 1; min-width: 0; }
-        .action-buttons { flex-wrap: nowrap; }
+        .astrip-btn { font-size: 11px; padding: 7px 10px; }
+        .astrip-raise-group { gap: 4px; }
+        .astrip-amount { width: 50px; font-size: 11px; padding: 5px 6px; }
       }
 
       /* ========== LANDSCAPE MODE ========== */
@@ -1106,55 +1113,35 @@
         .seat-empty-label { font-size: 9px; }
         .seat-name { font-size: 9px; }
         .seat-stack { font-size: 10px; }
-        .seat-badge { font-size: 7px; padding: 0px 3px; }
+        .seat-dealer-dot { width: 14px; height: 14px; font-size: 7px; }
         .seat-cards-row .card-sm { width: 20px; height: 28px; font-size: 9px; border-radius: 3px; }
         .seat-cards-row .card-mine { width: 34px; height: 48px; font-size: 13px; border-radius: 5px; }
         .seat-color-dot { width: 5px; height: 5px; }
 
-        .dealer-chip { width: 22px; height: 22px; font-size: 9px; border-width: 1.5px; }
-
         .seat-timer-ring { width: 18px; height: 18px; top: -3px; right: -3px; }
 
-        .action-bar {
+        .action-strip {
           position: fixed;
           bottom: 0;
           left: 0;
           right: 0;
           z-index: 30;
-          padding: 6px 10px;
-          background: linear-gradient(to top, rgba(11,15,13,0.97) 60%, rgba(11,15,13,0.85));
-          border-top: 1px solid var(--border);
-          gap: 6px;
-          max-height: 50dvh;
-          overflow-y: auto;
+          padding: 5px 8px;
         }
 
-        .action-buttons { gap: 4px; flex-wrap: nowrap; }
-        .action-btn {
-          font-size: 11px;
-          padding: 8px 10px;
-          min-height: 36px;
-          flex: 1;
-          min-width: 0;
-        }
+        .astrip-btn { font-size: 10px; padding: 6px 8px; }
+        .astrip-amount { width: 50px; font-size: 11px; }
 
-        .bet-controls { gap: 6px; flex-wrap: nowrap; }
-        .bet-slider { min-width: 80px; flex: 1; order: 0; }
-        .bet-amount-input { width: 60px; font-size: 14px; padding: 6px 8px; }
-        .bet-presets { gap: 2px; }
-        .bet-preset { font-size: 10px; padding: 4px 6px; min-height: 28px; }
-
-        .host-controls { gap: 4px; }
-        .host-btn { font-size: 11px; padding: 6px 12px; min-height: 34px; }
+        .table-deal-btn { font-size: 12px; padding: 7px 18px; }
 
         .log-toggle { display: none; }
         .hand-log { display: none; }
       }
 
       @media (orientation: landscape) and (max-height: 500px) and (min-width: 668px) {
-        .action-bar {
+        .action-strip {
           left: auto;
-          width: 320px;
+          width: 340px;
           right: 0;
           border-radius: var(--radius) 0 0 0;
           border-left: 1px solid var(--border);
@@ -1241,7 +1228,6 @@
           <div class="connection-dot" id="connDot" title="Connection status"></div>
           <button class="mute-btn" id="muteBtn" type="button" title="Toggle sound">🔊</button>
           <button class="top-btn" id="copyLinkBtn" type="button">Copy Link</button>
-          <button class="top-btn" id="rebuyBtn" type="button">Rebuy</button>
           <button class="top-btn" id="removeBotsBtn" type="button" style="display:none">Remove Bots</button>
           <button class="top-btn" id="leaveBtn" type="button" style="color:var(--red)">Leave</button>
         </div>
@@ -1255,31 +1241,26 @@
             <div class="board-cards" id="boardCards"></div>
           </div>
           <div class="seats-layer" id="seatsLayer"></div>
+          <button class="table-deal-btn hidden" id="startHandBtn" type="button">Deal</button>
         </div>
       </div>
 
-      <div class="action-bar" id="actionBar">
-        <div class="host-controls" id="hostControls">
-          <button class="host-btn" id="startHandBtn" type="button">Deal Hand</button>
+      <div class="action-strip hidden" id="actionStrip">
+        <button class="astrip-btn astrip-fold" id="foldBtn" type="button">Fold</button>
+        <button class="astrip-btn astrip-call" id="callBtn" type="button">Check</button>
+        <div class="astrip-raise-group">
+          <input class="astrip-slider" id="betSlider" type="range" min="0" max="1000" value="0" step="1" />
+          <input class="astrip-amount" id="betAmount" type="number" min="0" step="0.1" value="0" />
         </div>
+        <button class="astrip-btn astrip-raise" id="betRaiseBtn" type="button">Bet</button>
+        <button class="astrip-btn astrip-allin" id="allInBtn" type="button">All-in</button>
+      </div>
 
-        <div class="action-buttons" id="actionButtons">
-          <button class="action-btn fold" id="foldBtn" type="button" disabled>Fold</button>
-          <button class="action-btn check-call" id="callBtn" type="button" disabled>Check</button>
-          <button class="action-btn bet-raise" id="betRaiseBtn" type="button" disabled>Bet</button>
-          <button class="action-btn all-in" id="allInBtn" type="button" disabled>All-in</button>
-        </div>
-
-        <div class="bet-controls" id="betControls">
-          <input class="bet-slider" id="betSlider" type="range" min="0" max="1000" value="0" step="1" />
-          <input class="bet-amount-input" id="betAmount" type="number" min="0" step="0.1" value="0" />
-          <div class="bet-presets">
-            <button class="bet-preset" type="button" data-fraction="0.33">⅓</button>
-            <button class="bet-preset" type="button" data-fraction="0.5">½</button>
-            <button class="bet-preset" type="button" data-fraction="0.75">¾</button>
-            <button class="bet-preset" type="button" data-fraction="1">Pot</button>
-          </div>
-        </div>
+      <div class="preset-row hidden" id="presetRow">
+        <button class="preset-chip" type="button" data-fraction="0.33">⅓</button>
+        <button class="preset-chip" type="button" data-fraction="0.5">½</button>
+        <button class="preset-chip" type="button" data-fraction="0.75">¾</button>
+        <button class="preset-chip" type="button" data-fraction="1">Pot</button>
       </div>
 
       <button class="log-toggle" id="logToggle" type="button">Hand Log ▲</button>

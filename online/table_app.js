@@ -54,7 +54,6 @@ const el = {
   connDot: document.getElementById("connDot"),
   muteBtn: document.getElementById("muteBtn"),
   copyLinkBtn: document.getElementById("copyLinkBtn"),
-  rebuyBtn: document.getElementById("rebuyBtn"),
   removeBotsBtn: document.getElementById("removeBotsBtn"),
   leaveBtn: document.getElementById("leaveBtn"),
   tableSurface: document.getElementById("tableSurface"),
@@ -62,15 +61,13 @@ const el = {
   potDisplay: document.getElementById("potDisplay"),
   streetLabel: document.getElementById("streetLabel"),
   boardCards: document.getElementById("boardCards"),
-  actionBar: document.getElementById("actionBar"),
-  hostControls: document.getElementById("hostControls"),
   startHandBtn: document.getElementById("startHandBtn"),
-  actionButtons: document.getElementById("actionButtons"),
+  actionStrip: document.getElementById("actionStrip"),
+  presetRow: document.getElementById("presetRow"),
   foldBtn: document.getElementById("foldBtn"),
   callBtn: document.getElementById("callBtn"),
   betRaiseBtn: document.getElementById("betRaiseBtn"),
   allInBtn: document.getElementById("allInBtn"),
-  betControls: document.getElementById("betControls"),
   betSlider: document.getElementById("betSlider"),
   betAmount: document.getElementById("betAmount"),
   logToggle: document.getElementById("logToggle"),
@@ -632,7 +629,7 @@ async function tryAutoDeal() {
       const rebuys = botInfo.rebuyCount || 0;
       if (rebuys >= 5) {
         botsToRemove.push(seatNo);
-      } else {
+    } else {
         try {
           await online.rebuyChips({ tableId: state.tableId, groupPlayerId: botInfo.groupPlayerId, seatToken: botInfo.seatToken });
           botInfo.rebuyCount = rebuys + 1;
@@ -646,8 +643,11 @@ async function tryAutoDeal() {
     toast(`Bot at seat ${seatNo} left after 5 rebuys`);
   }
 
-  const busted = getSeats().filter(s => s.group_player_id && !s.left_at && Number(s.chip_stack || 0) <= 0).length;
-  if (seated - busted < 2) return;
+  // Refresh state after bot rebuys/removals to get accurate chip counts
+  await loadTableState();
+  const freshSeated = getSeats().filter(s => s.group_player_id && !s.left_at).length;
+  const freshBusted = getSeats().filter(s => s.group_player_id && !s.left_at && Number(s.chip_stack || 0) <= 0).length;
+  if (freshSeated - freshBusted < 2) return;
 
   try {
     sounds.deal();
@@ -693,7 +693,7 @@ function trackOpponentActions() {
       const facingBet = Number(p.to_call_before || 0) > 0;
       if (street === "preflop") {
         tracker.recordPreflopAction(actorId, action);
-      } else {
+    } else {
         tracker.recordPostflopAction(actorId, action, facingBet);
       }
     }
@@ -709,6 +709,40 @@ function getPrimaryOpponentProfile() {
   });
   if (humans.length === 0) return null;
   return state.opponentTracker.getProfile(humans[0].group_player_id);
+}
+
+// ============ SHOWDOWN HELPERS ============
+function getLastAggressor(hand) {
+  if (!hand) return null;
+  const events = getHandEvents();
+  let lastAgg = null;
+  for (const ev of events) {
+    if (ev.event_type === "action_taken") {
+      const action = ev.payload?.action_type;
+      if (action === "bet" || action === "raise" || action === "all_in") {
+        const seatNo = ev.payload?.seat_no;
+        if (seatNo) lastAgg = seatNo;
+      }
+    }
+  }
+  return lastAgg;
+}
+
+// ============ REBUY ============
+async function doRebuy() {
+  const token = getSeatToken();
+  if (!token) { toast("Not seated.", "error"); return; }
+  try {
+    await online.rebuyChips({
+      tableId: state.tableId,
+      groupPlayerId: state.identity.groupPlayerId,
+      seatToken: token,
+    });
+    toast("Chips added!", "success");
+    await loadTableState();
+  } catch (err) {
+    toast(err.message || "Rebuy failed", "error");
+  }
 }
 
 // ============ SIT FROM TABLE VIEW ============
@@ -876,7 +910,7 @@ function checkBotTurn() {
     } catch (err) {
       console.warn("[bot-action]", err?.message || err);
     }
-    await loadTableState();
+  await loadTableState();
   }, delay);
 }
 
@@ -937,8 +971,17 @@ function renderSeats() {
   el.seatsLayer.innerHTML = "";
   const total = seats.length;
 
+  // Rotate seats so main player is always at the bottom (position index that maps to 3pi/2)
+  const bottomIdx = Math.floor(total / 2);
+  let rotateOffset = 0;
+  if (mySeat) {
+    const myIdx = seats.findIndex(s => s.seat_no === mySeat.seat_no);
+    if (myIdx >= 0) rotateOffset = bottomIdx - myIdx;
+  }
+
   seats.forEach((seat, idx) => {
-    const pos = seatPosition(idx + 1, total);
+    const rotatedIdx = ((idx + rotateOffset) % total + total) % total;
+    const pos = seatPosition(rotatedIdx + 1, total);
     const hp = hpBySeat.get(seat.seat_no);
     const occupied = seat.group_player_id && !seat.left_at;
     const pid = occupied ? seat.group_player_id : null;
@@ -964,8 +1007,8 @@ function renderSeats() {
         if (state.selectedSeatNo === seat.seat_no) {
           state.selectedSeatNo = null;
           renderSeats();
-          return;
-        }
+      return;
+    }
         state.selectedSeatNo = seat.seat_no;
         renderSeats();
       });
@@ -1005,16 +1048,36 @@ function renderSeats() {
       if (isBot) nameEl.style.color = "#a78bfa";
       else nameEl.style.color = color;
 
-      const dot = document.createElement("span");
-      dot.className = "seat-color-dot";
-      dot.style.background = color;
+      // Inline dealer button
+      if (hand && hand.button_seat === seat.seat_no) {
+        const dChip = document.createElement("span");
+        dChip.className = "seat-dealer-dot";
+        dChip.textContent = "D";
+        header.appendChild(dChip);
+      }
 
-      header.append(nameEl, dot);
+      // SB/BB label
+      if (hand) {
+        if (hand.small_blind_seat === seat.seat_no) {
+          const lbl = document.createElement("span");
+          lbl.className = "seat-pos-label";
+          lbl.textContent = "SB";
+          header.appendChild(lbl);
+        } else if (hand.big_blind_seat === seat.seat_no) {
+          const lbl = document.createElement("span");
+          lbl.className = "seat-pos-label";
+          lbl.textContent = "BB";
+          header.appendChild(lbl);
+        }
+      }
+
+      header.append(nameEl);
       node.appendChild(header);
 
       const stackEl = document.createElement("div");
       stackEl.className = "seat-stack";
-      stackEl.textContent = fmtShort(seat.chip_stack);
+      const displayStack = (hp && hp.stack_end != null) ? hp.stack_end : seat.chip_stack;
+      stackEl.textContent = fmtShort(displayStack);
       node.appendChild(stackEl);
 
       if (botInfo) {
@@ -1024,23 +1087,20 @@ function renderSeats() {
         node.appendChild(botTag);
       }
 
-      const badges = document.createElement("div");
-      badges.className = "seat-badges";
-      if (hand) {
-        if (hand.button_seat === seat.seat_no) badges.innerHTML += '<span class="seat-badge dealer">D</span>';
-        if (hand.small_blind_seat === seat.seat_no) badges.innerHTML += '<span class="seat-badge sb">SB</span>';
-        if (hand.big_blind_seat === seat.seat_no) badges.innerHTML += '<span class="seat-badge bb">BB</span>';
-        if (isTurn) badges.innerHTML += '<span class="seat-badge turn-badge">ACT</span>';
-        if (isFolded) badges.innerHTML += '<span class="seat-badge folded-badge">FOLD</span>';
-        if (isAllIn) badges.innerHTML += '<span class="seat-badge allin-badge">ALL-IN</span>';
-      }
-      if (badges.innerHTML) node.appendChild(badges);
+      // Visual cues instead of text badges
+      if (isAllIn) node.classList.add("allin-seat");
 
       const isMe = pid === state.identity?.groupPlayerId;
       if (isMe) node.classList.add("my-seat");
 
       if (hp && Array.isArray(hp.hole_cards) && hp.hole_cards.length >= 2) {
-        const reveal = isMe || ["showdown","settled"].includes(hand?.state);
+        const isShowdown = ["showdown","settled"].includes(hand?.state);
+        let reveal = isMe;
+        if (isShowdown && !isFolded) {
+          const isWinner = Number(hp.result_amount || 0) > 0;
+          const isAggressor = getLastAggressor(hand) === seat.seat_no;
+          reveal = isMe || isWinner || isAggressor;
+        }
         const cards = document.createElement("div");
         cards.className = "seat-cards-row";
         if (isMe && reveal) {
@@ -1087,25 +1147,47 @@ function renderSeats() {
 
       const winData = state.winOverlays.get(seat.seat_no);
       if (winData && Date.now() < winData.until) {
-        const overlay = document.createElement("div");
-        overlay.className = "seat-win-overlay";
-        overlay.textContent = `+${fmtShort(winData.amount)}`;
-        node.appendChild(overlay);
+        node.classList.add("winner-seat");
+        const winAmt = document.createElement("div");
+        winAmt.className = "seat-win-amount";
+        winAmt.textContent = `+${fmtShort(winData.amount)}`;
+        node.appendChild(winAmt);
       }
 
       if (hp && !isFolded && hp.street_contribution > 0) {
         const betEl = document.createElement("div");
         betEl.className = "seat-bet";
         betEl.textContent = fmtShort(hp.street_contribution);
-        const pct = parseFloat(pos.x);
-        const pctY = parseFloat(pos.y);
-        const offsetX = pct < 50 ? "calc(100% + 6px)" : pct > 50 ? "-6px" : "50%";
-        const offsetY = pctY < 50 ? "calc(100% + 4px)" : "-4px";
-        betEl.style.left = offsetX;
-        betEl.style.top = offsetY;
-        betEl.style.transform = pct === 50 ? "translateX(-50%)" : pct > 50 ? "translateX(-100%)" : "";
-        node.style.position = "absolute";
-        node.appendChild(betEl);
+        const px = parseFloat(pos.x);
+        const py = parseFloat(pos.y);
+        // Position bet chip toward center of table from seat
+        const cx = 50, cy = 50;
+        const dx = (cx - px) * 0.35;
+        const dy = (cy - py) * 0.35;
+        betEl.style.left = `${px + dx}%`;
+        betEl.style.top = `${py + dy}%`;
+        betEl.style.transform = "translate(-50%, -50%)";
+        betEl.style.position = "absolute";
+        el.seatsLayer.appendChild(betEl);
+      }
+
+      // Rebuy button below player's own seat
+      if (isMe) {
+        const tbl = getTable();
+        const stk = Number(seat.chip_stack || 0);
+        const startStk = Number(tbl?.starting_stack || 200);
+        const handActive = hand && !["settled","canceled"].includes(hand.state);
+        const playerInHand = hp && !hp.folded;
+        const busted = stk <= 0;
+        const low = stk <= startStk * 0.2;
+        const showRebuy = busted && !playerInHand || (!handActive && low);
+        if (showRebuy) {
+          const rbBtn = document.createElement("button");
+          rbBtn.className = "seat-rebuy-btn";
+          rbBtn.textContent = busted ? "Buy In" : "Top Up";
+          rbBtn.addEventListener("click", (e) => { e.stopPropagation(); doRebuy(); });
+          node.appendChild(rbBtn);
+        }
       }
     }
 
@@ -1116,23 +1198,6 @@ function renderSeats() {
     if (Date.now() >= data.until) state.winOverlays.delete(seatNo);
   }
 
-  if (hand && hand.button_seat) {
-    const dealerIdx = seats.findIndex(s => s.seat_no === hand.button_seat);
-    if (dealerIdx >= 0) {
-      const dPos = seatPosition(dealerIdx + 1, total);
-      const dx = parseFloat(dPos.x);
-      const dy = parseFloat(dPos.y);
-      const chipX = dx + (dx < 50 ? 5 : dx > 50 ? -5 : 0);
-      const chipY = dy + (dy < 50 ? 6 : dy > 50 ? -6 : 5);
-      const chip = document.createElement("div");
-      chip.className = "dealer-chip";
-      chip.textContent = "D";
-      chip.style.left = `${chipX}%`;
-      chip.style.top = `${chipY}%`;
-      chip.style.transform = "translate(-50%, -50%)";
-      el.seatsLayer.appendChild(chip);
-    }
-  }
 }
 
 function updateTimerRings() {
@@ -1160,27 +1225,30 @@ function renderActions() {
   const noActiveHand = !hand || ["settled","canceled"].includes(hand.state);
 
   const autoDealPending = Boolean(state.autoDealTimer);
-  if (autoDealPending && noActiveHand) {
+  const hasWinOverlays = state.winOverlays.size > 0 && [...state.winOverlays.values()].some(d => Date.now() < d.until);
+  if (autoDealPending && noActiveHand && hasWinOverlays) {
+    el.startHandBtn.classList.add("hidden");
+  } else if (autoDealPending && noActiveHand) {
     el.startHandBtn.classList.remove("hidden");
     el.startHandBtn.disabled = true;
-    el.startHandBtn.textContent = "Dealing soon...";
+    el.startHandBtn.textContent = "Dealing...";
   } else if (isHost && noActiveHand) {
     el.startHandBtn.classList.remove("hidden");
     el.startHandBtn.disabled = false;
-    el.startHandBtn.textContent = "Deal Hand";
+    el.startHandBtn.textContent = "Deal";
   } else {
     el.startHandBtn.classList.add("hidden");
   }
 
-  [el.foldBtn, el.callBtn, el.betRaiseBtn, el.allInBtn].forEach(b => b.disabled = !myTurn);
-  el.betSlider.disabled = !myTurn;
-  el.betAmount.disabled = !myTurn;
-
+  // Show action strip only when it's your turn
   if (myTurn) {
+    el.actionStrip.classList.remove("hidden");
+    el.presetRow.classList.remove("hidden");
+
     const toCall = Math.max(0, Number(hand.current_bet || 0) - Number(hp.street_contribution || 0));
     el.callBtn.textContent = toCall > 0 ? `Call ${fmtShort(toCall)}` : "Check";
     el.betRaiseBtn.textContent = Number(hand.current_bet || 0) > 0 ? "Raise" : "Bet";
-    el.allInBtn.textContent = `All-in ${fmtShort(hp.stack_end)}`;
+    el.allInBtn.textContent = `All-in`;
 
     const minBet = Number(hand.current_bet || 0) > 0
       ? Number(hand.current_bet || 0) + Math.max(Number(hand.min_raise || 0), Number(getTable()?.big_blind || 2))
@@ -1192,10 +1260,11 @@ function renderActions() {
       el.betSlider.value = minBet;
       el.betAmount.value = minBet;
     }
+  } else {
+    el.actionStrip.classList.add("hidden");
+    el.presetRow.classList.add("hidden");
   }
 
-  const mySeat = getMySeat();
-  el.rebuyBtn.classList.toggle("hidden", !(mySeat && Number(mySeat.chip_stack || 0) <= 0 && noActiveHand));
 }
 
 function updateTurnUI() {
@@ -1294,13 +1363,13 @@ async function doAction(actionType) {
 function bindEvents() {
   el.foldBtn.addEventListener("click", () => withAction("Fold", () => doAction("fold")));
   el.callBtn.addEventListener("click", () => {
-    const hand = getLatestHand();
+  const hand = getLatestHand();
     const hp = getMyHandPlayer();
     const toCall = Math.max(0, Number(hand?.current_bet || 0) - Number(hp?.street_contribution || 0));
     withAction(toCall > 0 ? "Call" : "Check", () => doAction(toCall > 0 ? "call" : "check"));
   });
   el.betRaiseBtn.addEventListener("click", () => {
-    const hand = getLatestHand();
+  const hand = getLatestHand();
     const actionType = Number(hand?.current_bet || 0) > 0 ? "raise" : "bet";
     withAction(actionType, () => doAction(actionType));
   });
@@ -1314,8 +1383,8 @@ function bindEvents() {
         hostSeatToken: getSeatToken(),
       });
       sounds.deal();
-    });
   });
+});
 
   el.copyLinkBtn.addEventListener("click", async () => {
     const url = new URL(window.location.href);
@@ -1345,19 +1414,6 @@ function bindEvents() {
       return;
     }
     window.location.href = "index.html";
-  });
-
-  el.rebuyBtn.addEventListener("click", () => {
-    withAction("Rebuy", async () => {
-      const token = getSeatToken();
-      if (!token) { toast("Not seated.", "error"); return; }
-      await online.rebuyChips({
-        tableId: state.tableId,
-        groupPlayerId: state.identity.groupPlayerId,
-        seatToken: token,
-      });
-      toast("Chips added!", "success");
-    });
   });
 
   el.removeBotsBtn.addEventListener("click", () => {
@@ -1390,7 +1446,7 @@ function bindEvents() {
     el.betSlider.value = el.betAmount.value;
   });
 
-  document.querySelectorAll(".bet-preset").forEach(btn => {
+  document.querySelectorAll(".preset-chip").forEach(btn => {
     btn.addEventListener("click", () => {
       const frac = Number(btn.dataset.fraction || 0);
       const pot = Number(getLatestHand()?.pot_total || 0);
