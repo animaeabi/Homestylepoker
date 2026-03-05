@@ -28,20 +28,28 @@
         <div id="landingNotice" class="landing-notice hidden" role="status" aria-live="polite"></div>
         <div class="landing-card lets-play" id="letsDealCard">
           <h3 class="sessions-block-title">Game Lobby</h3>
-          <button
-            id="letsDealToggle"
-            class="lets-deal-toggle"
-            type="button"
-            aria-expanded="false"
-            aria-controls="letsDealBody"
-          >
-            <span class="host-icon host-icon-collapsed" aria-hidden="true"></span>
-            <span class="host-icon host-icon-expanded" aria-hidden="true"></span>
-            <span class="lets-deal-title">Deal</span>
-            <span class="host-icon host-icon-right host-icon-collapsed" aria-hidden="true"></span>
-            <span class="host-icon host-icon-right host-icon-expanded" aria-hidden="true"></span>
-            <span class="deal-chevron" aria-hidden="true"></span>
-          </button>
+          <div class="lobby-toggle-row">
+            <button
+              id="letsDealToggle"
+              class="lobby-accordion-toggle"
+              type="button"
+              aria-expanded="false"
+              aria-controls="letsDealBody"
+            >
+              <span class="lobby-accordion-label">Home Game</span>
+              <span class="deal-chevron" aria-hidden="true"></span>
+            </button>
+            <button
+              id="onlineToggle"
+              class="lobby-accordion-toggle"
+              type="button"
+              aria-expanded="false"
+              aria-controls="onlineBody"
+            >
+              <span class="lobby-accordion-label">Online</span>
+              <span class="deal-chevron" aria-hidden="true"></span>
+            </button>
+          </div>
           <p id="hostingHint" class="landing-inline-hint">Hosting ? Start here</p>
           <div id="letsDealBody" class="lets-deal-body hidden">
             <label class="field">
@@ -64,6 +72,44 @@
             </label>
           <button id="createGame" class="primary host-game-btn">Host game</button>
           </div>
+          <div id="onlineBody" class="lets-deal-body hidden">
+            <label class="field">
+              <span>Your name</span>
+              <input id="onlineName" type="text" placeholder="Enter your name" required />
+            </label>
+            <label class="field">
+              <span>Table name (optional)</span>
+              <input id="onlineTableName" type="text" placeholder="Leave blank for random name" />
+            </label>
+            <div class="field-row-2">
+              <label class="field">
+                <span>Small blind</span>
+                <input id="onlineSB" type="number" min="0.01" step="0.01" value="1" />
+              </label>
+              <label class="field">
+                <span>Big blind</span>
+                <input id="onlineBB" type="number" min="0.01" step="0.01" value="2" />
+              </label>
+            </div>
+            <div class="field-row-2">
+              <label class="field">
+                <span>Starting stack</span>
+                <input id="onlineStack" type="number" min="1" step="1" value="200" />
+              </label>
+              <label class="field">
+                <span>Max seats</span>
+                <select id="onlineSeats">
+                  <option value="2">2</option>
+                  <option value="4">4</option>
+                  <option value="6" selected>6</option>
+                  <option value="8">8</option>
+                  <option value="9">9</option>
+                  <option value="10">10</option>
+                </select>
+              </label>
+            </div>
+            <button id="createOnlineGame" class="primary host-game-btn">Create & Play</button>
+          </div>
           <button id="joinPlayer" class="deal-button deal-bronze join-standalone" type="button">
             <img class="join-icon" src="assets/table.png" alt="" aria-hidden="true" />
             <span class="join-text">Join table</span>
@@ -85,6 +131,7 @@
               >
                 Group
               </button>
+              <button id="openOnlineSessions" class="deal-button deal-secondary" type="button">Online Games</button>
             </div>
           </div>
         </div>
@@ -284,6 +331,47 @@
           </section>
         </div>
       </section>
+
+      <section id="onlineSessionsPanel" class="sessions hidden">
+        <div class="sessions-bar">
+          <div><h2>Online Games</h2></div>
+          <div class="sessions-actions">
+            <button id="onlineSessionsBack" class="ghost small stats-btn">Back</button>
+            <button id="onlineSettingsToggle" class="ghost small icon-button settings-button" type="button" aria-label="Settings">
+              <svg class="gear-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M12 8.6a3.4 3.4 0 1 1 0 6.8 3.4 3.4 0 0 1 0-6.8Zm8.2 3.4c0-.4 0-.9-.1-1.3l-2-.3a6.9 6.9 0 0 0-.7-1.7l1.2-1.6c-.5-.6-1-1.1-1.6-1.6l-1.6 1.2c-.5-.3-1.1-.6-1.7-.7l-.3-2c-.4 0-.9-.1-1.3-.1s-.9 0-1.3.1l-.3 2c-.6.1-1.2.4-1.7.7L7 5.4c-.6.5-1.1 1-1.6 1.6l1.2 1.6c-.3.5-.6 1.1-.7 1.7l-2 .3c0 .4-.1.9-.1 1.3s0 .9.1 1.3l2 .3c.1.6.4 1.2.7 1.7l-1.2 1.6c.5.6 1 1.1 1.6 1.6l1.6-1.2c.5.3 1.1.6 1.7.7l.3 2c.4 0 .9.1 1.3.1s.9 0 1.3-.1l.3-2c.6-.1 1.2-.4 1.7-.7l1.6 1.2c.6-.5 1.1-1 1.6-1.6l-1.2-1.6c.3-.5.6-1.1.7-1.7l2-.3c.1-.4.1-.9.1-1.3Z"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.6"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div id="onlineSettingsDropdown" class="online-settings-dropdown hidden">
+          <button id="deleteAllOnlineGames" class="danger-btn" type="button">Delete all online games</button>
+          <p class="muted" style="font-size:0.78rem;margin-top:4px;">This only removes online poker tables and hands. In-person games are not affected.</p>
+        </div>
+        <div class="landing-card">
+          <h5>Past Online Tables</h5>
+          <p class="muted">Review your completed online poker sessions.</p>
+          <div id="onlineGamesList" class="recent-games"></div>
+        </div>
+      </section>
+
+      <div id="onlineGameModal" class="modal-overlay hidden">
+        <div class="modal-content online-game-detail">
+          <div class="modal-header">
+            <h3 id="onlineGameTitle">Game Details</h3>
+            <button id="onlineGameClose" class="ghost small stats-btn">Close</button>
+          </div>
+          <p id="onlineGameMeta" class="muted"></p>
+          <div id="onlineGameResults"></div>
+        </div>
+      </div>
 
       <section id="sessionsPanel" class="sessions hidden">
         <div class="sessions-bar">

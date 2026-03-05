@@ -208,8 +208,11 @@ If you want to start building online Hold'em tables (additive; does not modify e
 5. For showdown payout resolution, use:
    - `/Users/abishek/Documents/poker-buyins/online/showdown.js`
    - `/Users/abishek/Documents/poker-buyins/online/settle_showdown.js`
-6. For backend runtime automation (auto-advance all-in streets + auto-settle showdown), run:
-   - `SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node /Users/abishek/Documents/poker-buyins/online/runtime_worker.js`
+6. Deploy Supabase Edge runtime automation once:
+   - `supabase functions deploy online-runtime-tick`
+7. Runtime ticks are invoked by the online clients (`online/table_app.js`, `online/lab.js`), so no local worker process is required.
+8. Optional (local/self-host only): if your function env is missing defaults, set:
+   - `supabase secrets set SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=...`
 
 ### 3.2) Optional: Online backend smoke checks
 
@@ -219,10 +222,25 @@ Run local checks before frontend integration:
 node --check /Users/abishek/Documents/poker-buyins/online/client.js
 node --check /Users/abishek/Documents/poker-buyins/online/showdown.js
 node --check /Users/abishek/Documents/poker-buyins/online/settle_showdown.js
-node --check /Users/abishek/Documents/poker-buyins/online/runtime_worker.js
 node /Users/abishek/Documents/poker-buyins/online/showdown.test.js
 node /Users/abishek/Documents/poker-buyins/online/runtime_worker.test.js
 ```
+
+### 3.3) Optional: Online frontend lab (manual testing)
+
+After SQL + edge function are running, open:
+
+- `http://localhost:8000/online-lab.html`
+
+This page is a backend test harness for:
+
+- group/table selection
+- table creation
+- join/leave seat
+- start hand
+- submit actions (`fold/check/call/bet/raise/all_in`)
+- force advance
+- seat/event/state inspection
 
 ## 4) Security hardening (production)
 

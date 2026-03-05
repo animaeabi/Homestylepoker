@@ -13,6 +13,27 @@ const elements = {
   letsDealCard: $("#letsDealCard"),
   letsDealToggle: $("#letsDealToggle"),
   letsDealBody: $("#letsDealBody"),
+  onlineToggle: $("#onlineToggle"),
+  onlineBody: $("#onlineBody"),
+  onlineName: $("#onlineName"),
+  onlineTableName: $("#onlineTableName"),
+  onlineSB: $("#onlineSB"),
+  onlineBB: $("#onlineBB"),
+  onlineStack: $("#onlineStack"),
+  onlineSeats: $("#onlineSeats"),
+  createOnlineGame: $("#createOnlineGame"),
+  openOnlineSessions: $("#openOnlineSessions"),
+  onlineSessionsPanel: $("#onlineSessionsPanel"),
+  onlineSessionsBack: $("#onlineSessionsBack"),
+  onlineGamesList: $("#onlineGamesList"),
+  onlineGameModal: $("#onlineGameModal"),
+  onlineGameTitle: $("#onlineGameTitle"),
+  onlineGameMeta: $("#onlineGameMeta"),
+  onlineGameResults: $("#onlineGameResults"),
+  onlineGameClose: $("#onlineGameClose"),
+  onlineSettingsToggle: $("#onlineSettingsToggle"),
+  onlineSettingsDropdown: $("#onlineSettingsDropdown"),
+  deleteAllOnlineGames: $("#deleteAllOnlineGames"),
   toggleGroups: $("#toggleGroups"),
   groupsHubModal: $("#groupsHubModal"),
   groupsHubClose: $("#groupsHubClose"),
@@ -25,6 +46,7 @@ const elements = {
   joinCode: $("#joinCode"),
   joinGame: $("#joinGame"),
   openSessions: $("#openSessions"),
+  openOnlineTable: $("#openOnlineTable"),
   homeTitle: $("#homeTitle"),
   brandIcon: $("#brandIcon"),
   ornamentToggle: $("#ornamentToggle"),
@@ -361,6 +383,7 @@ if (configMissing) {
   if (elements.toggleGroups) elements.toggleGroups.disabled = true;
   if (elements.openSummary) elements.openSummary.disabled = true;
   if (elements.openSessions) elements.openSessions.disabled = true;
+  if (elements.createOnlineGame) elements.createOnlineGame.disabled = true;
 }
 
 const supabase = configMissing ? null : createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -865,7 +888,7 @@ function showJoinStep(step) {
   elements.joinPlayerStepCode.classList.toggle("hidden", step !== "code");
 }
 
-function openJoinPlayerModal() {
+function openJoinPlayerModal(options = {}) {
   if (!elements.joinPlayerModal) return;
   setLandingNotice("");
   joinFlowName = "";
@@ -2781,7 +2804,7 @@ async function refreshGroups() {
     renderGroupSelects();
     return;
   }
-  state.groups = data || [];
+  state.groups = (data || []).filter(g => g.name !== "__online_lobby__");
   await refreshGroupHubMeta();
   renderGroupList();
   renderGroupSelects();
@@ -8330,13 +8353,30 @@ function closeSessionsPage(forceLanding = false) {
 
 function setLetsDealOpen(open) {
   if (!elements.letsDealBody || !elements.letsDealToggle) return;
+  if (open) setOnlineOpen(false);
   elements.letsDealBody.classList.toggle("hidden", !open);
   elements.letsDealToggle.setAttribute("aria-expanded", open ? "true" : "false");
   elements.letsDealCard?.classList.toggle("is-open", open);
-  const shouldDisable = open || configMissing;
+  const anyAccordionOpen = open || (elements.onlineBody && !elements.onlineBody.classList.contains("hidden"));
+  const shouldDisable = anyAccordionOpen || configMissing;
   if (elements.joinPlayer) elements.joinPlayer.disabled = shouldDisable;
   if (elements.openSessions) elements.openSessions.disabled = shouldDisable;
   if (elements.toggleGroups) elements.toggleGroups.disabled = shouldDisable;
+  if (elements.openOnlineSessions) elements.openOnlineSessions.disabled = shouldDisable;
+}
+
+function setOnlineOpen(open) {
+  if (!elements.onlineBody || !elements.onlineToggle) return;
+  if (open) setLetsDealOpen(false);
+  elements.onlineBody.classList.toggle("hidden", !open);
+  elements.onlineToggle.setAttribute("aria-expanded", open ? "true" : "false");
+  elements.letsDealCard?.classList.toggle("is-open", open);
+  const anyAccordionOpen = open || (elements.letsDealBody && !elements.letsDealBody.classList.contains("hidden"));
+  const shouldDisable = anyAccordionOpen || configMissing;
+  if (elements.joinPlayer) elements.joinPlayer.disabled = shouldDisable;
+  if (elements.openSessions) elements.openSessions.disabled = shouldDisable;
+  if (elements.toggleGroups) elements.toggleGroups.disabled = shouldDisable;
+  if (elements.openOnlineSessions) elements.openOnlineSessions.disabled = shouldDisable;
 }
 
 function openGroupsHubModal() {
@@ -8634,6 +8674,345 @@ if (elements.openSessions) {
   });
 }
 
+function getOnlineLaunchContext() {
+  const launch = {
+    groupId: "",
+    playerId: "",
+    hostPlayerId: "",
+    tableId: ""
+  };
+
+  if (state.game?.group_id) {
+    launch.groupId = safeTrim(state.game.group_id);
+  } else if (state.activeGroupId) {
+    launch.groupId = safeTrim(state.activeGroupId);
+  } else {
+    launch.groupId = safeTrim(elements.gameGroup?.value);
+  }
+
+  const currentPlayerId = safeTrim(state.playerId);
+  const hostPlayerId = safeTrim(state.game?.host_player_id);
+  launch.playerId = currentPlayerId || hostPlayerId || "";
+  launch.hostPlayerId = hostPlayerId || launch.playerId;
+
+  if (launch.groupId) {
+    launch.tableId = safeTrim(localStorage.getItem(`online_table_id:${launch.groupId}`));
+  }
+
+  return launch;
+}
+
+function openOnlineTableWithLaunch(launch) {
+  const url = new URL("online-table.html", window.location.href);
+  if (launch.groupId) url.searchParams.set("group", launch.groupId);
+  if (launch.playerId) url.searchParams.set("player", launch.playerId);
+  if (launch.hostPlayerId) url.searchParams.set("host", launch.hostPlayerId);
+  if (launch.tableId) url.searchParams.set("table", launch.tableId);
+  url.searchParams.set("mode", "integrated");
+  window.location.href = `${url.pathname}${url.search}`;
+}
+
+if (elements.createOnlineGame) {
+  elements.createOnlineGame.addEventListener("click", async () => {
+    if (configMissing) return;
+    const name = (elements.onlineName?.value || "").trim();
+    if (!name) {
+      if (elements.onlineName) elements.onlineName.focus();
+      return;
+    }
+    elements.createOnlineGame.disabled = true;
+    elements.createOnlineGame.textContent = "Creating...";
+    try {
+      const TABLE_ADJS = ["Velvet","Midnight","Golden","Shadow","Royal","Crimson","Silver","Emerald","Diamond","Sapphire"];
+      const TABLE_NOUNS = ["River","Bluff","Stakes","Aces","Flush","Kings","Edge","Pot","Draw","Jackpot"];
+      const autoName = `${TABLE_ADJS[Math.floor(Math.random()*TABLE_ADJS.length)]} ${TABLE_NOUNS[Math.floor(Math.random()*TABLE_NOUNS.length)]}`;
+
+      const { data: identity, error: idErr } = await supabase.rpc("online_ensure_lobby_player", { p_name: name });
+      if (idErr) throw idErr;
+
+      localStorage.setItem("online_lobby_identity", JSON.stringify({
+        name: identity.name,
+        groupId: identity.group_id,
+        groupPlayerId: identity.group_player_id
+      }));
+      localStorage.setItem("online_player_name", name);
+
+      const { data: table, error: tErr } = await supabase.rpc("online_create_table", {
+        p_group_id: identity.group_id,
+        p_name: (elements.onlineTableName?.value || "").trim() || autoName,
+        p_created_by_group_player_id: identity.group_player_id,
+        p_small_blind: Number(elements.onlineSB?.value) || 1,
+        p_big_blind: Number(elements.onlineBB?.value) || 2,
+        p_max_seats: Number(elements.onlineSeats?.value) || 6,
+        p_starting_stack: Number(elements.onlineStack?.value) || 200,
+      });
+      if (tErr) throw tErr;
+
+      const { data: seat, error: sErr } = await supabase.rpc("online_join_table", {
+        p_table_id: table.id,
+        p_group_player_id: identity.group_player_id,
+        p_preferred_seat: 1,
+      });
+      if (sErr) throw sErr;
+
+      if (seat?.seat_token) {
+        localStorage.setItem(`online_seat_token:${table.id}:${identity.group_player_id}`, seat.seat_token);
+      }
+
+      window.location.href = `online-table.html?table=${table.id}`;
+    } catch (err) {
+      console.error("[createOnlineGame]", err);
+      elements.createOnlineGame.textContent = "Create & Play";
+      elements.createOnlineGame.disabled = false;
+    }
+  });
+}
+
+
+// -------- Online Sessions (History) --------
+
+if (elements.openOnlineSessions) {
+  elements.openOnlineSessions.addEventListener("click", () => {
+    if (configMissing) return;
+    openOnlineSessions();
+  });
+}
+
+if (elements.onlineSessionsBack) {
+  elements.onlineSessionsBack.addEventListener("click", closeOnlineSessions);
+}
+
+if (elements.onlineGameClose) {
+  elements.onlineGameClose.addEventListener("click", () => {
+    if (elements.onlineGameModal) elements.onlineGameModal.classList.add("hidden");
+  });
+}
+
+if (elements.onlineSettingsToggle) {
+  elements.onlineSettingsToggle.addEventListener("click", () => {
+    if (elements.onlineSettingsDropdown) {
+      elements.onlineSettingsDropdown.classList.toggle("hidden");
+    }
+  });
+}
+
+if (elements.deleteAllOnlineGames) {
+  elements.deleteAllOnlineGames.addEventListener("click", async () => {
+    if (!supabase) return;
+    const authorized = await ensureDeletePin();
+    if (!authorized) return;
+    const confirmed = await openConfirmModal("Delete ALL online games? This only affects online poker tables and hands. In-person games are untouched. This cannot be undone.", "Erase online games");
+    if (!confirmed) return;
+
+    elements.deleteAllOnlineGames.disabled = true;
+    elements.deleteAllOnlineGames.textContent = "Deleting...";
+
+    try {
+      await supabase.from("online_hand_events").delete().neq("id", 0);
+      await supabase.from("online_hand_snapshots").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+      await supabase.from("online_actions").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+      await supabase.from("online_hand_players").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+      await supabase.from("online_hands").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+      await supabase.from("online_table_seats").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+      await supabase.from("online_tables").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+
+      if (elements.onlineSettingsDropdown) elements.onlineSettingsDropdown.classList.add("hidden");
+      await loadOnlineGamesList();
+      setStatus("All online games deleted");
+    } catch (err) {
+      console.error("[deleteAllOnlineGames]", err);
+      setStatus("Delete failed", "error");
+    } finally {
+      elements.deleteAllOnlineGames.disabled = false;
+      elements.deleteAllOnlineGames.textContent = "Delete all online games";
+    }
+  });
+}
+
+async function openOnlineSessions() {
+  if (!elements.onlineSessionsPanel) return;
+  elements.landing.classList.add("hidden");
+  elements.onlineSessionsPanel.classList.remove("hidden");
+  await loadOnlineGamesList();
+}
+
+function closeOnlineSessions() {
+  if (elements.onlineSessionsPanel) elements.onlineSessionsPanel.classList.add("hidden");
+  elements.landing.classList.remove("hidden");
+}
+
+async function loadOnlineGamesList() {
+  if (!elements.onlineGamesList || !supabase) return;
+  elements.onlineGamesList.innerHTML = '<p class="muted">Loading...</p>';
+
+  const { data: tables, error } = await supabase
+    .from("online_tables")
+    .select("id,name,small_blind,big_blind,max_seats,starting_stack,status,created_at,updated_at")
+    .in("status", ["closed", "active", "waiting"])
+    .order("created_at", { ascending: false })
+    .limit(50);
+
+  if (error || !tables || tables.length === 0) {
+    elements.onlineGamesList.innerHTML = '<p class="muted">No online games found.</p>';
+    return;
+  }
+
+  const tableIds = tables.map(t => t.id);
+  const { data: handCounts } = await supabase
+    .from("online_hands")
+    .select("table_id")
+    .in("table_id", tableIds)
+    .eq("state", "settled");
+
+  const countMap = new Map();
+  (handCounts || []).forEach(h => countMap.set(h.table_id, (countMap.get(h.table_id) || 0) + 1));
+
+  elements.onlineGamesList.innerHTML = "";
+  const listWrap = document.createElement("div");
+  listWrap.className = "recent-group-list";
+  if (tables.length > 6) listWrap.classList.add("scrollable");
+
+  tables.forEach(table => {
+    const hands = countMap.get(table.id) || 0;
+    const dateStr = formatShortDate(table.updated_at || table.created_at);
+    const statusLabel = table.status === "closed" ? "Ended" : table.status === "active" ? "Active" : "Waiting";
+    const row = document.createElement("div");
+    row.className = "recent-item";
+    row.innerHTML = `
+      <div>
+        <strong>${table.name || "Online Table"}</strong>
+        <span>${dateStr} · ${hands} hand${hands !== 1 ? "s" : ""} · ${statusLabel}</span>
+      </div>
+      <div class="recent-actions">
+        <button class="ghost" data-online-action="open" data-table-id="${table.id}">Open</button>
+      </div>
+    `;
+    listWrap.appendChild(row);
+  });
+
+  elements.onlineGamesList.appendChild(listWrap);
+
+  elements.onlineGamesList.addEventListener("click", (event) => {
+    const btn = event.target.closest("button[data-online-action]");
+    if (!btn) return;
+    if (btn.dataset.onlineAction === "open") {
+      openOnlineGameDetail(btn.dataset.tableId);
+    }
+  });
+}
+
+async function openOnlineGameDetail(tableId) {
+  if (!supabase || !elements.onlineGameModal) return;
+
+  const { data: table } = await supabase
+    .from("online_tables")
+    .select("*")
+    .eq("id", tableId)
+    .single();
+
+  if (!table) return;
+
+  const { data: hands } = await supabase
+    .from("online_hands")
+    .select("id,hand_no,state,pot_total,started_at,ended_at")
+    .eq("table_id", tableId)
+    .eq("state", "settled")
+    .order("hand_no", { ascending: false });
+
+  const settledHands = hands || [];
+
+  const { data: seats } = await supabase
+    .from("online_table_seats")
+    .select("seat_no,group_player_id,chip_stack")
+    .eq("table_id", tableId);
+
+  const gpIds = [...new Set((seats || []).map(s => s.group_player_id).filter(Boolean))];
+  let playerNames = new Map();
+  if (gpIds.length > 0) {
+    const { data: players } = await supabase
+      .from("group_players")
+      .select("id,name")
+      .in("id", gpIds);
+    (players || []).forEach(p => playerNames.set(p.id, p.name));
+  }
+
+  let playerResults = new Map();
+  if (settledHands.length > 0) {
+    const handIds = settledHands.map(h => h.id);
+    const { data: allHp } = await supabase
+      .from("online_hand_players")
+      .select("hand_id,seat_no,group_player_id,stack_start,stack_end,committed,result_amount")
+      .in("hand_id", handIds);
+
+    (allHp || []).forEach(hp => {
+      if (!hp.group_player_id) return;
+      if (!playerResults.has(hp.group_player_id)) {
+        playerResults.set(hp.group_player_id, { totalIn: 0, totalWon: 0, hands: 0 });
+      }
+      const r = playerResults.get(hp.group_player_id);
+      r.totalIn += Number(hp.committed || 0);
+      r.totalWon += Number(hp.result_amount || 0);
+      r.hands += 1;
+    });
+  }
+
+  elements.onlineGameTitle.textContent = table.name || "Online Table";
+  const dateStr = table.created_at ? new Date(table.created_at).toLocaleString() : "";
+  const statusLabel = table.status === "closed" ? "Ended" : table.status;
+  elements.onlineGameMeta.textContent = `${statusLabel} · ${dateStr} · Blinds ${table.small_blind}/${table.big_blind} · ${settledHands.length} hand${settledHands.length !== 1 ? "s" : ""} played`;
+
+  const resultsDiv = elements.onlineGameResults;
+  resultsDiv.innerHTML = "";
+  const resultTable = document.createElement("div");
+  resultTable.className = "online-results-table";
+
+  const headerRow = document.createElement("div");
+  headerRow.className = "online-results-row header-row";
+  headerRow.innerHTML = "<span>Player</span><span>Put In</span><span>Won</span><span>Net</span>";
+  resultTable.appendChild(headerRow);
+
+  let totalIn = 0, totalWon = 0;
+  const sortedPlayers = [...playerResults.entries()]
+    .map(([gpId, r]) => ({ name: playerNames.get(gpId) || "Player", ...r, net: r.totalWon - r.totalIn }))
+    .sort((a, b) => b.net - a.net);
+
+  sortedPlayers.forEach(p => {
+    totalIn += p.totalIn;
+    totalWon += p.totalWon;
+    const netClass = p.net > 0 ? "money-pos" : p.net < 0 ? "money-neg" : "";
+    const row = document.createElement("div");
+    row.className = "online-results-row";
+    row.innerHTML = `
+      <span>${p.name}</span>
+      <strong>$${Number(p.totalIn).toFixed(2)}</strong>
+      <strong>$${Number(p.totalWon).toFixed(2)}</strong>
+      <strong class="${netClass}">${p.net >= 0 ? "+" : ""}$${Number(p.net).toFixed(2)}</strong>
+    `;
+    resultTable.appendChild(row);
+  });
+
+  if (sortedPlayers.length === 0) {
+    const emptyRow = document.createElement("div");
+    emptyRow.className = "online-results-row";
+    emptyRow.innerHTML = '<span class="muted" style="grid-column:1/-1;text-align:center;">No hand data available.</span>';
+    resultTable.appendChild(emptyRow);
+  }
+
+  const totalRow = document.createElement("div");
+  totalRow.className = "online-results-row total-row";
+  const totalNet = totalWon - totalIn;
+  totalRow.innerHTML = `
+    <span>Total</span>
+    <strong>$${Number(totalIn).toFixed(2)}</strong>
+    <strong>$${Number(totalWon).toFixed(2)}</strong>
+    <strong>$${Number(totalNet).toFixed(2)}</strong>
+  `;
+  resultTable.appendChild(totalRow);
+
+  resultsDiv.appendChild(resultTable);
+  elements.onlineGameModal.classList.remove("hidden");
+}
+
 if (elements.qrButton) {
   elements.qrButton.addEventListener("click", () => {
     if (elements.qrModal) elements.qrModal.classList.remove("hidden");
@@ -8778,10 +9157,20 @@ if (elements.letsDealToggle) {
   });
 }
 
+if (elements.onlineToggle) {
+  elements.onlineToggle.addEventListener("click", () => {
+    const isOpen = !elements.onlineBody?.classList.contains("hidden");
+    setOnlineOpen(!isOpen);
+  });
+}
+
 function maybeCloseLetsDealOnOutsideInteraction(event) {
-  if (!elements.letsDealBody || elements.letsDealBody.classList.contains("hidden")) return;
+  const dealOpen = elements.letsDealBody && !elements.letsDealBody.classList.contains("hidden");
+  const onlineOpen = elements.onlineBody && !elements.onlineBody.classList.contains("hidden");
+  if (!dealOpen && !onlineOpen) return;
   if (elements.letsDealCard && elements.letsDealCard.contains(event.target)) return;
-  setLetsDealOpen(false);
+  if (dealOpen) setLetsDealOpen(false);
+  if (onlineOpen) setOnlineOpen(false);
 }
 
 document.addEventListener("pointerdown", maybeCloseLetsDealOnOutsideInteraction, true);
@@ -9152,7 +9541,7 @@ if (elements.openGuide) {
 if (elements.joinPlayer) {
   elements.joinPlayer.addEventListener("click", () => {
     if (configMissing) return;
-    openJoinPlayerModal();
+    openJoinPlayerModal({ onlineLaunchAfterJoin: false });
   });
 }
 

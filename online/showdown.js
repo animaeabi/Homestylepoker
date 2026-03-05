@@ -27,26 +27,23 @@ function toCard(token) {
   return { rank: RANK_TO_VALUE[rank], suit };
 }
 
-function rankCounts(cards) {
-  const counts = new Map();
-  for (const c of cards) counts.set(c.rank, (counts.get(c.rank) || 0) + 1);
-  return counts;
-}
-
-function sortedRanksDesc(cards) {
-  return [...new Set(cards.map((c) => c.rank))].sort((a, b) => b - a);
-}
-
-function straightHighFromRanks(ranks) {
-  const uniq = [...new Set(ranks)].sort((a, b) => b - a);
-  if (uniq.includes(14)) uniq.push(1); // wheel
-  for (let i = 0; i <= uniq.length - 5; i += 1) {
-    const slice = uniq.slice(i, i + 5);
-    if (slice[0] - slice[4] === 4 && new Set(slice).size === 5) {
-      return slice[0] === 1 ? 5 : slice[0];
-    }
+// Bitmask straight detection: each rank 2-14 maps to a bit position.
+// Bit 0 = rank 2, bit 12 = rank 14 (Ace). Bit 13 = rank 1 (Ace low for wheel).
+const STRAIGHT_MASKS = [];
+(function initStraightMasks() {
+  for (let high = 14; high >= 5; high--) {
+    let mask = 0;
+    for (let r = high; r > high - 5; r--) mask |= (1 << (r - 2));
+    STRAIGHT_MASKS.push({ mask, high });
   }
-  return null;
+  STRAIGHT_MASKS.push({ mask: (1 << 12) | (1 << 0) | (1 << 1) | (1 << 2) | (1 << 3), high: 5 });
+})();
+
+function straightHighFromBitmask(bitmask) {
+  for (const { mask, high } of STRAIGHT_MASKS) {
+    if ((bitmask & mask) === mask) return high;
+  }
+  return 0;
 }
 
 function compareTuples(a, b) {
@@ -63,81 +60,147 @@ function compareTuples(a, b) {
 function best5Rank(cards7) {
   if (cards7.length < 5) throw new Error("Need at least 5 cards");
 
-  const suits = new Map();
+  // Count ranks and suits using fixed arrays (faster than Map)
+  const rc = new Uint8Array(15); // rc[2..14] = count per rank
+  const suitCounts = [0, 0, 0, 0]; // S=0, H=1, D=2, C=3
+  const suitIdx = { S: 0, H: 1, D: 2, C: 3 };
+  const suitCards = [[], [], [], []];
+
   for (const c of cards7) {
-    if (!suits.has(c.suit)) suits.set(c.suit, []);
-    suits.get(c.suit).push(c);
+    rc[c.rank]++;
+    const si = suitIdx[c.suit];
+    suitCounts[si]++;
+    suitCards[si].push(c.rank);
   }
 
-  let flushSuit = null;
-  for (const [suit, cards] of suits.entries()) {
-    if (cards.length >= 5) {
-      flushSuit = suit;
-      break;
+  // Flush detection
+  let flushSi = -1;
+  for (let i = 0; i < 4; i++) { if (suitCounts[i] >= 5) { flushSi = i; break; } }
+
+  // Straight flush check using bitmask
+  if (flushSi >= 0) {
+    let fMask = 0;
+    for (const r of suitCards[flushSi]) fMask |= (1 << (r - 2));
+    const sfHigh = straightHighFromBitmask(fMask);
+    if (sfHigh) return [8, sfHigh];
+  }
+
+  // Categorize ranks by count
+  const quads = [];
+  const trips = [];
+  const pairsArr = [];
+  const singles = [];
+  for (let r = 14; r >= 2; r--) {
+    if (rc[r] === 4) quads.push(r);
+    else if (rc[r] === 3) trips.push(r);
+    else if (rc[r] === 2) pairsArr.push(r);
+    else if (rc[r] === 1) singles.push(r);
+  }
+
+  // Four of a kind
+  if (quads.length > 0) {
+    const qr = quads[0];
+    let kicker = 0;
+    for (let r = 14; r >= 2; r--) { if (r !== qr && rc[r] > 0) { kicker = r; break; } }
+    return [7, qr, kicker];
+  }
+
+  // Full house
+  if (trips.length >= 1) {
+    const tripRank = trips[0];
+    const pairRank = trips.length >= 2 ? trips[1] : (pairsArr.length > 0 ? pairsArr[0] : 0);
+    if (pairRank > 0) return [6, tripRank, pairRank];
+  }
+
+  // Flush (no straight flush already checked)
+  if (flushSi >= 0) {
+    const fRanks = suitCards[flushSi].sort((a, b) => b - a).slice(0, 5);
+    return [5, ...fRanks];
+  }
+
+  // Straight using bitmask on all ranks
+  let allMask = 0;
+  for (let r = 2; r <= 14; r++) { if (rc[r] > 0) allMask |= (1 << (r - 2)); }
+  const stHigh = straightHighFromBitmask(allMask);
+  if (stHigh) return [4, stHigh];
+
+  // Three of a kind (no full house)
+  if (trips.length >= 1) {
+    const tr = trips[0];
+    const kickers = [];
+    for (let r = 14; r >= 2 && kickers.length < 2; r--) {
+      if (r !== tr && rc[r] > 0) kickers.push(r);
     }
+    return [3, tr, ...kickers];
   }
 
-  if (flushSuit) {
-    const flushCards = suits.get(flushSuit).sort((a, b) => b.rank - a.rank);
-    const sfHigh = straightHighFromRanks(flushCards.map((c) => c.rank));
-    if (sfHigh) return [8, sfHigh]; // straight flush
+  // Two pair
+  if (pairsArr.length >= 2) {
+    const hp = pairsArr[0];
+    const lp = pairsArr[1];
+    let kicker = 0;
+    for (let r = 14; r >= 2; r--) { if (r !== hp && r !== lp && rc[r] > 0) { kicker = r; break; } }
+    return [2, hp, lp, kicker];
   }
 
-  const counts = rankCounts(cards7);
-  const byCountThenRank = [...counts.entries()].sort((a, b) => {
-    const countDiff = b[1] - a[1];
-    if (countDiff !== 0) return countDiff;
-    return b[0] - a[0];
-  });
-
-  const quads = byCountThenRank.find(([, c]) => c === 4);
-  if (quads) {
-    const quadRank = quads[0];
-    const kicker = sortedRanksDesc(cards7.filter((c) => c.rank !== quadRank))[0] || 0;
-    return [7, quadRank, kicker];
+  // One pair
+  if (pairsArr.length === 1) {
+    const pr = pairsArr[0];
+    const kickers = [];
+    for (let r = 14; r >= 2 && kickers.length < 3; r--) {
+      if (r !== pr && rc[r] > 0) kickers.push(r);
+    }
+    return [1, pr, ...kickers];
   }
 
-  const trips = byCountThenRank.filter(([, c]) => c === 3).map(([r]) => r).sort((a, b) => b - a);
-  const pairs = byCountThenRank.filter(([, c]) => c >= 2).map(([r]) => r).sort((a, b) => b - a);
-  if (trips.length >= 1) {
-    const tripRank = trips[0];
-    const pairRank = pairs.find((r) => r !== tripRank);
-    if (pairRank) return [6, tripRank, pairRank]; // full house
-  }
-
-  if (flushSuit) {
-    const top5 = suits
-      .get(flushSuit)
-      .sort((a, b) => b.rank - a.rank)
-      .slice(0, 5)
-      .map((c) => c.rank);
-    return [5, ...top5];
-  }
-
-  const straightHigh = straightHighFromRanks(cards7.map((c) => c.rank));
-  if (straightHigh) return [4, straightHigh];
-
-  if (trips.length >= 1) {
-    const tripRank = trips[0];
-    const kickers = sortedRanksDesc(cards7.filter((c) => c.rank !== tripRank)).slice(0, 2);
-    return [3, tripRank, ...kickers];
-  }
-
-  const pairRanks = byCountThenRank.filter(([, c]) => c === 2).map(([r]) => r).sort((a, b) => b - a);
-  if (pairRanks.length >= 2) {
-    const [highPair, lowPair] = pairRanks.slice(0, 2);
-    const kicker = sortedRanksDesc(cards7.filter((c) => c.rank !== highPair && c.rank !== lowPair))[0] || 0;
-    return [2, highPair, lowPair, kicker];
-  }
-
-  if (pairRanks.length === 1) {
-    const pair = pairRanks[0];
-    const kickers = sortedRanksDesc(cards7.filter((c) => c.rank !== pair)).slice(0, 3);
-    return [1, pair, ...kickers];
-  }
-
-  const highs = sortedRanksDesc(cards7).slice(0, 5);
+  // High card
+  const highs = [];
+  for (let r = 14; r >= 2 && highs.length < 5; r--) { if (rc[r] > 0) highs.push(r); }
   return [0, ...highs];
+}
+
+const HAND_CLASS_NAMES = {
+  8: "Straight Flush",
+  7: "Four of a Kind",
+  6: "Full House",
+  5: "Flush",
+  4: "Straight",
+  3: "Three of a Kind",
+  2: "Two Pair",
+  1: "One Pair",
+  0: "High Card"
+};
+
+function rankToFace(rankValue) {
+  if (rankValue === 14) return "A";
+  if (rankValue === 13) return "K";
+  if (rankValue === 12) return "Q";
+  if (rankValue === 11) return "J";
+  if (rankValue === 10) return "10";
+  if (rankValue === 1) return "A";
+  return String(rankValue || "");
+}
+
+export function describeSevenCardHand(cardTokens) {
+  const cards = (cardTokens || []).map(toCard);
+  if (cards.length < 5) {
+    return { classRank: null, className: "", label: "", tuple: [] };
+  }
+
+  const tuple = best5Rank(cards);
+  const classRank = Number(tuple[0]);
+  const className = HAND_CLASS_NAMES[classRank] || "Hand";
+  let label = className;
+
+  if (classRank === 8 && Number(tuple[1]) === 14) {
+    label = "Royal Flush";
+  } else if (classRank === 4 || classRank === 8) {
+    label = `${className} (${rankToFace(tuple[1])} high)`;
+  } else if (classRank === 7 || classRank === 3 || classRank === 1) {
+    label = `${className} (${rankToFace(tuple[1])})`;
+  }
+
+  return { classRank, className, label, tuple };
 }
 
 export function compareHands(cardsA, cardsB) {

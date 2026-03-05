@@ -172,10 +172,10 @@ Implemented:
 - Event + snapshot persistence on each transition
 - Showdown settlement RPC (`online_settle_showdown`) with strict payout sum validation
 - Table state aggregate RPC (`online_get_table_state`)
-- Runtime worker for backend-only automation:
+- Edge runtime function for backend-only automation:
   - auto-advance streets when no actor remains (`allin_progress`)
   - auto-resolve showdown payouts and settle hands
-  - file: `/Users/abishek/Documents/poker-buyins/online/runtime_worker.js`
+  - file: `/Users/abishek/Documents/poker-buyins/supabase/functions/online-runtime-tick/index.ts`
 
 Showdown resolver helper (server-side):
 
@@ -184,7 +184,7 @@ Showdown resolver helper (server-side):
 
 These compute side-pot payouts from board + hole cards and feed `online_settle_showdown`.
 
-Runtime worker test helper:
+Runtime core test helper:
 
 - `/Users/abishek/Documents/poker-buyins/online/runtime_worker.test.js`
 

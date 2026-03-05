@@ -23,14 +23,23 @@ create table if not exists online_table_seats (
   group_player_id uuid references group_players(id) on delete set null,
   chip_stack numeric not null default 0,
   is_sitting_out boolean not null default false,
+  seat_token text not null default encode(gen_random_bytes(16), 'hex'),
   joined_at timestamptz not null default now(),
   left_at timestamptz,
   unique (table_id, seat_no)
 );
 
+-- Migration-safe: add seat token to existing installs where table already existed.
+alter table online_table_seats
+  add column if not exists seat_token text not null default encode(gen_random_bytes(16), 'hex');
+
 create unique index if not exists idx_online_table_seats_active_player
   on online_table_seats(table_id, group_player_id)
   where left_at is null and group_player_id is not null;
+
+create unique index if not exists idx_online_table_seats_active_token
+  on online_table_seats(table_id, seat_token)
+  where left_at is null and seat_token is not null;
 
 create table if not exists online_hands (
   id uuid primary key default gen_random_uuid(),
@@ -157,6 +166,141 @@ begin
 end;
 $$;
 
+-- Viewer-safe state RPCs for client reads.
+-- Runtime/settlement services should keep using online_get_hand_state for full cards.
+drop function if exists online_get_hand_state_viewer(uuid, uuid, text, bigint);
+create or replace function online_get_hand_state_viewer(
+  p_hand_id uuid,
+  p_viewer_group_player_id uuid default null,
+  p_viewer_seat_token text default null,
+  p_since_seq bigint default null
+)
+returns jsonb
+language plpgsql
+as $$
+declare
+  v_hand_row online_hands%rowtype;
+  v_hand jsonb;
+  v_snapshot jsonb;
+  v_players jsonb;
+  v_events jsonb;
+  v_viewer_seat_no int;
+  v_reveal_all boolean := false;
+begin
+  select * into v_hand_row
+  from online_hands h
+  where h.id = p_hand_id;
+
+  if not found then
+    raise exception 'online_hand_not_found';
+  end if;
+
+  v_hand := to_jsonb(v_hand_row);
+  v_reveal_all := v_hand_row.state in ('showdown', 'settled');
+
+  if p_viewer_group_player_id is not null
+     and coalesce(nullif(trim(p_viewer_seat_token), ''), '') <> ''
+  then
+    select s.seat_no
+    into v_viewer_seat_no
+    from online_table_seats s
+    where s.table_id = v_hand_row.table_id
+      and s.group_player_id = p_viewer_group_player_id
+      and s.left_at is null
+      and s.seat_token = p_viewer_seat_token
+    limit 1;
+  end if;
+
+  select state into v_snapshot
+  from online_hand_snapshots
+  where hand_id = p_hand_id
+  order by seq desc
+  limit 1;
+
+  select coalesce(
+    jsonb_agg(
+      case
+        when v_reveal_all
+             or (v_viewer_seat_no is not null and hp.seat_no = v_viewer_seat_no)
+          then to_jsonb(hp)
+        else (to_jsonb(hp) - 'hole_cards') || jsonb_build_object('hole_cards', '[]'::jsonb)
+      end
+      order by hp.seat_no
+    ),
+    '[]'::jsonb
+  )
+  into v_players
+  from online_hand_players hp
+  where hp.hand_id = p_hand_id;
+
+  select coalesce(jsonb_agg(to_jsonb(ev) order by ev.seq), '[]'::jsonb)
+  into v_events
+  from online_hand_events ev
+  where ev.hand_id = p_hand_id
+    and (p_since_seq is null or ev.seq > p_since_seq);
+
+  return jsonb_build_object(
+    'hand', v_hand,
+    'snapshot', coalesce(v_snapshot, '{}'::jsonb),
+    'players', v_players,
+    'events', v_events
+  );
+end;
+$$;
+
+drop function if exists online_get_table_state_viewer(uuid, uuid, text, bigint);
+create or replace function online_get_table_state_viewer(
+  p_table_id uuid,
+  p_viewer_group_player_id uuid default null,
+  p_viewer_seat_token text default null,
+  p_since_seq bigint default null
+)
+returns jsonb
+language plpgsql
+as $$
+declare
+  v_table jsonb;
+  v_seats jsonb;
+  v_hand_id uuid;
+  v_hand_state jsonb := '{}'::jsonb;
+begin
+  select to_jsonb(t) into v_table
+  from online_tables t
+  where t.id = p_table_id;
+
+  if v_table is null then
+    raise exception 'online_table_not_found';
+  end if;
+
+  select coalesce(jsonb_agg((to_jsonb(s) - 'seat_token') order by s.seat_no), '[]'::jsonb)
+  into v_seats
+  from online_table_seats s
+  where s.table_id = p_table_id;
+
+  select h.id
+  into v_hand_id
+  from online_hands h
+  where h.table_id = p_table_id
+  order by h.hand_no desc
+  limit 1;
+
+  if v_hand_id is not null then
+    v_hand_state := online_get_hand_state_viewer(
+      v_hand_id,
+      p_viewer_group_player_id,
+      p_viewer_seat_token,
+      p_since_seq
+    );
+  end if;
+
+  return jsonb_build_object(
+    'table', v_table,
+    'seats', coalesce(v_seats, '[]'::jsonb),
+    'latest_hand', coalesce(v_hand_state, '{}'::jsonb)
+  );
+end;
+$$;
+
 create or replace function online_random_card_token()
 returns text
 language sql
@@ -262,190 +406,13 @@ begin
 end;
 $$;
 
-create or replace function online_create_table(
-  p_group_id uuid,
-  p_name text,
-  p_created_by_group_player_id uuid default null,
-  p_variant text default 'nlhe',
-  p_betting_structure text default 'no_limit',
-  p_small_blind numeric default 1,
-  p_big_blind numeric default 2,
-  p_max_seats int default 6
-)
-returns online_tables
-language plpgsql
-as $$
-declare
-  v_table online_tables%rowtype;
-begin
-  if p_group_id is null then
-    raise exception 'group_id_required';
-  end if;
-  if coalesce(trim(p_name), '') = '' then
-    raise exception 'table_name_required';
-  end if;
-  if p_small_blind <= 0 or p_big_blind <= 0 then
-    raise exception 'invalid_blinds';
-  end if;
-  if p_small_blind > p_big_blind then
-    raise exception 'small_blind_cannot_exceed_big_blind';
-  end if;
-  if p_max_seats < 2 or p_max_seats > 10 then
-    raise exception 'max_seats_out_of_range';
-  end if;
+-- online_create_table and online_join_table are defined below with revamp params.
 
-  perform 1 from groups where id = p_group_id;
-  if not found then
-    raise exception 'group_not_found';
-  end if;
-
-  if p_created_by_group_player_id is not null then
-    perform 1
-    from group_players
-    where id = p_created_by_group_player_id
-      and group_id = p_group_id
-      and archived_at is null;
-    if not found then
-      raise exception 'creator_not_in_group';
-    end if;
-  end if;
-
-  insert into online_tables(
-    group_id,
-    name,
-    variant,
-    betting_structure,
-    small_blind,
-    big_blind,
-    max_seats,
-    status,
-    created_by_group_player_id
-  )
-  values (
-    p_group_id,
-    trim(p_name),
-    coalesce(p_variant, 'nlhe'),
-    coalesce(p_betting_structure, 'no_limit'),
-    p_small_blind,
-    p_big_blind,
-    p_max_seats,
-    'waiting',
-    p_created_by_group_player_id
-  )
-  returning * into v_table;
-
-  insert into online_table_seats(table_id, seat_no, chip_stack)
-  select v_table.id, gs, 0
-  from generate_series(1, v_table.max_seats) as gs
-  on conflict (table_id, seat_no) do nothing;
-
-  return v_table;
-end;
-$$;
-
-create or replace function online_join_table(
-  p_table_id uuid,
-  p_group_player_id uuid,
-  p_preferred_seat int default null,
-  p_chip_stack numeric default 200
-)
-returns online_table_seats
-language plpgsql
-as $$
-declare
-  v_table online_tables%rowtype;
-  v_existing online_table_seats%rowtype;
-  v_joined online_table_seats%rowtype;
-begin
-  select * into v_table from online_tables where id = p_table_id for update;
-  if not found then
-    raise exception 'online_table_not_found';
-  end if;
-  if v_table.status = 'closed' then
-    raise exception 'online_table_closed';
-  end if;
-
-  perform 1
-  from group_players
-  where id = p_group_player_id
-    and group_id = v_table.group_id
-    and archived_at is null;
-  if not found then
-    raise exception 'player_not_eligible_for_group';
-  end if;
-
-  insert into online_table_seats(table_id, seat_no, chip_stack)
-  select p_table_id, gs, 0
-  from generate_series(1, v_table.max_seats) as gs
-  on conflict (table_id, seat_no) do nothing;
-
-  select * into v_existing
-  from online_table_seats
-  where table_id = p_table_id
-    and group_player_id = p_group_player_id
-    and left_at is null
-  limit 1;
-  if found then
-    return v_existing;
-  end if;
-
-  if p_preferred_seat is not null then
-    if p_preferred_seat < 1 or p_preferred_seat > v_table.max_seats then
-      raise exception 'preferred_seat_out_of_range';
-    end if;
-
-    update online_table_seats
-    set
-      group_player_id = p_group_player_id,
-      chip_stack = greatest(coalesce(p_chip_stack, 0), 0),
-      is_sitting_out = false,
-      joined_at = now(),
-      left_at = null
-    where id in (
-      select id
-      from online_table_seats
-      where table_id = p_table_id
-        and seat_no = p_preferred_seat
-        and (group_player_id is null or left_at is not null)
-      for update skip locked
-      limit 1
-    )
-    returning * into v_joined;
-  else
-    update online_table_seats
-    set
-      group_player_id = p_group_player_id,
-      chip_stack = greatest(coalesce(p_chip_stack, 0), 0),
-      is_sitting_out = false,
-      joined_at = now(),
-      left_at = null
-    where id in (
-      select id
-      from online_table_seats
-      where table_id = p_table_id
-        and (group_player_id is null or left_at is not null)
-      order by seat_no
-      for update skip locked
-      limit 1
-    )
-    returning * into v_joined;
-  end if;
-
-  if not found then
-    raise exception 'online_table_full_or_seat_taken';
-  end if;
-
-  if v_table.status = 'waiting' then
-    update online_tables set status = 'active' where id = p_table_id;
-  end if;
-
-  return v_joined;
-end;
-$$;
-
+drop function if exists online_leave_table(uuid, uuid);
 create or replace function online_leave_table(
   p_table_id uuid,
-  p_group_player_id uuid
+  p_group_player_id uuid,
+  p_seat_token text
 )
 returns online_table_seats
 language plpgsql
@@ -454,14 +421,20 @@ declare
   v_left online_table_seats%rowtype;
   v_active_count int;
 begin
+  if coalesce(nullif(trim(p_seat_token), ''), '') = '' then
+    raise exception 'seat_token_required';
+  end if;
+
   update online_table_seats
   set
     group_player_id = null,
     is_sitting_out = false,
+    seat_token = encode(gen_random_bytes(16), 'hex'),
     left_at = now()
   where table_id = p_table_id
     and group_player_id = p_group_player_id
     and left_at is null
+    and seat_token = p_seat_token
   returning * into v_left;
 
   if not found then
@@ -475,350 +448,96 @@ begin
     and group_player_id is not null
     and left_at is null;
 
+  -- Transfer host if the leaving player was the host and others remain
+  if v_active_count > 0 then
+    declare
+      v_is_host boolean;
+      v_new_host uuid;
+    begin
+      select (created_by_group_player_id = p_group_player_id) into v_is_host
+      from online_tables where id = p_table_id;
+
+      if v_is_host then
+        select group_player_id into v_new_host
+        from online_table_seats
+        where table_id = p_table_id
+          and group_player_id is not null
+          and left_at is null
+        order by seat_no
+        limit 1;
+
+        if v_new_host is not null then
+          update online_tables
+          set created_by_group_player_id = v_new_host
+          where id = p_table_id;
+        end if;
+      end if;
+    end;
+  end if;
+
   if v_active_count = 0 then
+    update online_hands
+    set state = 'canceled', ended_at = now(), action_seat = null
+    where table_id = p_table_id
+      and state not in ('settled', 'canceled');
+
     update online_tables
-    set status = 'waiting'
+    set status = 'closed'
     where id = p_table_id
-      and status = 'active';
+      and status in ('active', 'waiting');
+  elsif v_active_count = 1 then
+    -- With only 1 player left mid-hand, cancel the hand and award pot to remaining player
+    declare
+      v_active_hand_id uuid;
+      v_last_seat int;
+      v_pot numeric;
+    begin
+      select id, pot_total into v_active_hand_id, v_pot
+      from online_hands
+      where table_id = p_table_id
+        and state not in ('settled', 'canceled')
+      order by hand_no desc
+      limit 1;
+
+      if v_active_hand_id is not null then
+        select seat_no into v_last_seat
+        from online_hand_players
+        where hand_id = v_active_hand_id
+          and not folded
+          and group_player_id is not null
+          and group_player_id in (
+            select group_player_id from online_table_seats
+            where table_id = p_table_id and group_player_id is not null and left_at is null
+          )
+        limit 1;
+
+        if v_last_seat is not null then
+          update online_hand_players
+          set result_amount = case when seat_no = v_last_seat then coalesce(v_pot, 0) else 0 end
+          where hand_id = v_active_hand_id;
+
+          update online_hand_players
+          set stack_end = coalesce(stack_end, 0) + coalesce(v_pot, 0)
+          where hand_id = v_active_hand_id and seat_no = v_last_seat;
+
+          update online_table_seats s
+          set chip_stack = hp.stack_end
+          from online_hand_players hp
+          where hp.hand_id = v_active_hand_id
+            and s.table_id = p_table_id
+            and s.seat_no = hp.seat_no
+            and s.group_player_id = hp.group_player_id
+            and s.left_at is null;
+        end if;
+
+        update online_hands
+        set state = 'settled', ended_at = now(), action_seat = null
+        where id = v_active_hand_id;
+      end if;
+    end;
   end if;
 
   return v_left;
-end;
-$$;
-
-create or replace function online_start_hand(
-  p_table_id uuid,
-  p_started_by_group_player_id uuid default null
-)
-returns online_hands
-language plpgsql
-as $$
-declare
-  v_table online_tables%rowtype;
-  v_active_hand_id uuid;
-  v_hand online_hands%rowtype;
-  v_hand_no bigint;
-  v_active_seats int[];
-  v_last_button_seat int;
-  v_button_seat int;
-  v_small_blind_seat int;
-  v_big_blind_seat int;
-begin
-  select * into v_table from online_tables where id = p_table_id for update;
-  if not found then
-    raise exception 'online_table_not_found';
-  end if;
-  if v_table.status = 'closed' then
-    raise exception 'online_table_closed';
-  end if;
-
-  select id
-  into v_active_hand_id
-  from online_hands
-  where table_id = p_table_id
-    and state not in ('settled', 'canceled')
-  order by hand_no desc
-  limit 1
-  for update;
-
-  if v_active_hand_id is not null then
-    raise exception 'online_hand_already_active';
-  end if;
-
-  select array_agg(seat_no order by seat_no)
-  into v_active_seats
-  from online_table_seats
-  where table_id = p_table_id
-    and group_player_id is not null
-    and left_at is null
-    and not is_sitting_out;
-
-  if coalesce(array_length(v_active_seats, 1), 0) < 2 then
-    raise exception 'not_enough_active_players';
-  end if;
-
-  select button_seat
-  into v_last_button_seat
-  from online_hands
-  where table_id = p_table_id
-  order by hand_no desc
-  limit 1;
-
-  v_button_seat := online_next_active_seat(v_active_seats, v_last_button_seat);
-  v_small_blind_seat := online_next_active_seat(v_active_seats, v_button_seat);
-  v_big_blind_seat := online_next_active_seat(v_active_seats, v_small_blind_seat);
-
-  select coalesce(max(hand_no), 0) + 1 into v_hand_no from online_hands where table_id = p_table_id;
-
-  insert into online_hands(
-    table_id,
-    hand_no,
-    state,
-    button_seat,
-    small_blind_seat,
-    big_blind_seat,
-    board_cards,
-    pot_total
-  )
-  values (
-    p_table_id,
-    v_hand_no,
-    'hand_init',
-    v_button_seat,
-    v_small_blind_seat,
-    v_big_blind_seat,
-    '[]'::jsonb,
-    0
-  )
-  returning * into v_hand;
-
-  insert into online_hand_players(
-    hand_id,
-    seat_no,
-    group_player_id,
-    stack_start,
-    stack_end,
-    committed,
-    folded,
-    all_in,
-    hole_cards
-  )
-  select
-    v_hand.id,
-    s.seat_no,
-    s.group_player_id,
-    s.chip_stack,
-    s.chip_stack,
-    0,
-    false,
-    false,
-    '[]'::jsonb
-  from online_table_seats s
-  where s.table_id = p_table_id
-    and s.group_player_id is not null
-    and s.left_at is null
-    and not s.is_sitting_out
-  order by s.seat_no;
-
-  perform online_append_hand_event(
-    v_hand.id,
-    p_table_id,
-    'hand_started',
-    p_started_by_group_player_id,
-    jsonb_build_object(
-      'hand_no', v_hand_no,
-      'button_seat', v_button_seat,
-      'small_blind_seat', v_small_blind_seat,
-      'big_blind_seat', v_big_blind_seat
-    )
-  );
-
-  perform online_write_hand_snapshot(v_hand.id);
-  update online_tables set status = 'active' where id = p_table_id;
-
-  return v_hand;
-end;
-$$;
-
-create or replace function online_submit_action(
-  p_hand_id uuid,
-  p_actor_group_player_id uuid,
-  p_action_type text,
-  p_amount numeric default null,
-  p_client_action_id text default null
-)
-returns online_actions
-language plpgsql
-as $$
-declare
-  v_hand online_hands%rowtype;
-  v_hand_player online_hand_players%rowtype;
-  v_action online_actions%rowtype;
-  v_amount numeric := greatest(coalesce(p_amount, 0), 0);
-begin
-  select * into v_hand from online_hands where id = p_hand_id for update;
-  if not found then
-    raise exception 'online_hand_not_found';
-  end if;
-
-  if v_hand.state not in ('preflop', 'flop', 'turn', 'river') then
-    raise exception 'hand_not_accepting_actions';
-  end if;
-
-  if p_client_action_id is not null then
-    select * into v_action
-    from online_actions
-    where hand_id = p_hand_id
-      and actor_group_player_id = p_actor_group_player_id
-      and client_action_id = p_client_action_id
-    order by created_at desc
-    limit 1;
-    if found then
-      return v_action;
-    end if;
-  end if;
-
-  select * into v_hand_player
-  from online_hand_players
-  where hand_id = p_hand_id
-    and group_player_id = p_actor_group_player_id
-  for update;
-
-  if not found then
-    raise exception 'actor_not_in_hand';
-  end if;
-  if v_hand_player.folded then
-    raise exception 'actor_already_folded';
-  end if;
-  if v_hand_player.all_in then
-    raise exception 'actor_already_all_in';
-  end if;
-
-  if p_action_type not in ('fold', 'check', 'call', 'bet', 'raise', 'all_in') then
-    raise exception 'invalid_action_type';
-  end if;
-
-  if p_action_type in ('bet', 'raise', 'call') and v_amount <= 0 then
-    raise exception 'positive_amount_required';
-  end if;
-
-  if p_action_type = 'all_in' then
-    v_amount := greatest(0, coalesce(v_hand_player.stack_end, v_hand_player.stack_start, 0));
-  end if;
-
-  if p_action_type = 'fold' then
-    update online_hand_players
-    set folded = true
-    where id = v_hand_player.id;
-  elsif p_action_type in ('call', 'bet', 'raise', 'all_in') then
-    update online_hand_players
-    set
-      committed = committed + v_amount,
-      stack_end = greatest(0, coalesce(stack_end, stack_start) - v_amount),
-      all_in = case when greatest(0, coalesce(stack_end, stack_start) - v_amount) = 0 then true else all_in end
-    where id = v_hand_player.id;
-
-    update online_hands
-    set pot_total = coalesce(pot_total, 0) + v_amount
-    where id = p_hand_id
-    returning * into v_hand;
-  end if;
-
-  insert into online_actions(
-    hand_id,
-    table_id,
-    actor_group_player_id,
-    client_action_id,
-    action_type,
-    amount,
-    status
-  )
-  values (
-    p_hand_id,
-    v_hand.table_id,
-    p_actor_group_player_id,
-    p_client_action_id,
-    p_action_type,
-    case when p_action_type in ('call', 'bet', 'raise', 'all_in') then v_amount else null end,
-    'accepted'
-  )
-  returning * into v_action;
-
-  perform online_append_hand_event(
-    p_hand_id,
-    v_hand.table_id,
-    'action_taken',
-    p_actor_group_player_id,
-    jsonb_build_object(
-      'action_type', p_action_type,
-      'amount', case when p_action_type in ('call', 'bet', 'raise', 'all_in') then v_amount else null end
-    )
-  );
-
-  perform online_write_hand_snapshot(p_hand_id);
-  return v_action;
-end;
-$$;
-
-create or replace function online_advance_hand(
-  p_hand_id uuid,
-  p_actor_group_player_id uuid default null,
-  p_reason text default 'tick'
-)
-returns online_hands
-language plpgsql
-as $$
-declare
-  v_hand online_hands%rowtype;
-  v_prev_state text;
-  v_next_state text;
-  v_board jsonb;
-begin
-  select * into v_hand from online_hands where id = p_hand_id for update;
-  if not found then
-    raise exception 'online_hand_not_found';
-  end if;
-  v_prev_state := v_hand.state;
-
-  case v_hand.state
-    when 'hand_init' then v_next_state := 'post_blinds';
-    when 'post_blinds' then v_next_state := 'deal_hole';
-    when 'deal_hole' then v_next_state := 'preflop';
-    when 'preflop' then v_next_state := 'flop';
-    when 'flop' then v_next_state := 'turn';
-    when 'turn' then v_next_state := 'river';
-    when 'river' then v_next_state := 'showdown';
-    when 'showdown' then v_next_state := 'settled';
-    else
-      return v_hand;
-  end case;
-
-  v_board := coalesce(v_hand.board_cards, '[]'::jsonb);
-  if v_next_state = 'flop' and jsonb_array_length(v_board) < 3 then
-    v_board := v_board || jsonb_build_array(
-      online_random_card_token(),
-      online_random_card_token(),
-      online_random_card_token()
-    );
-  elsif v_next_state = 'turn' and jsonb_array_length(v_board) < 4 then
-    v_board := v_board || jsonb_build_array(online_random_card_token());
-  elsif v_next_state = 'river' and jsonb_array_length(v_board) < 5 then
-    v_board := v_board || jsonb_build_array(online_random_card_token());
-  end if;
-
-  update online_hands
-  set
-    state = v_next_state,
-    board_cards = v_board,
-    ended_at = case when v_next_state = 'settled' then now() else ended_at end
-  where id = p_hand_id
-  returning * into v_hand;
-
-  perform online_append_hand_event(
-    v_hand.id,
-    v_hand.table_id,
-    'street_advanced',
-    p_actor_group_player_id,
-    jsonb_build_object(
-      'from', v_prev_state,
-      'to', v_next_state,
-      'reason', coalesce(p_reason, 'tick'),
-      'board_cards', v_board
-    )
-  );
-
-  if v_next_state = 'settled' then
-    perform online_append_hand_event(
-      v_hand.id,
-      v_hand.table_id,
-      'hand_settled',
-      p_actor_group_player_id,
-      jsonb_build_object('reason', coalesce(p_reason, 'tick'))
-    );
-  end if;
-
-  perform online_write_hand_snapshot(v_hand.id);
-  return v_hand;
 end;
 $$;
 
@@ -884,16 +603,30 @@ alter table online_hand_players
 
 create or replace function online_shuffled_deck()
 returns text[]
-language sql
+language plpgsql
 as $$
-  select array_agg(card order by rnd)
-  from (
-    select
-      rr.rank || ss.suit as card,
-      gen_random_uuid() as rnd
-    from unnest(array['A','K','Q','J','T','9','8','7','6','5','4','3','2']) as rr(rank)
-    cross join unnest(array['s','h','d','c']) as ss(suit)
-  ) cards;
+declare
+  v_deck text[];
+  v_i int;
+  v_j int;
+  v_tmp text;
+begin
+  select array_agg(rr.rank || ss.suit)
+  into v_deck
+  from unnest(array['A','K','Q','J','T','9','8','7','6','5','4','3','2']) as rr(rank)
+  cross join unnest(array['s','h','d','c']) as ss(suit);
+
+  for v_i in reverse 52..2 loop
+    v_j := floor(random() * v_i) + 1;
+    if v_i <> v_j then
+      v_tmp := v_deck[v_i];
+      v_deck[v_i] := v_deck[v_j];
+      v_deck[v_j] := v_tmp;
+    end if;
+  end loop;
+
+  return v_deck;
+end;
 $$;
 
 create or replace function online_next_action_seat(
@@ -949,13 +682,15 @@ $$;
 
 create or replace function online_start_hand(
   p_table_id uuid,
-  p_started_by_group_player_id uuid default null
+  p_started_by_group_player_id uuid default null,
+  p_host_seat_token text default null
 )
 returns online_hands
 language plpgsql
 as $$
 declare
   v_table online_tables%rowtype;
+  v_host_seat online_table_seats%rowtype;
   v_active_hand_id uuid;
   v_hand online_hands%rowtype;
   v_hand_no bigint;
@@ -972,6 +707,8 @@ declare
   v_bb_post numeric := 0;
   v_pot_total numeric := 0;
   v_seat record;
+  v_round int;
+  v_seat_no int;
 begin
   select * into v_table
   from online_tables
@@ -983,6 +720,58 @@ begin
   end if;
   if v_table.status = 'closed' then
     raise exception 'online_table_closed';
+  end if;
+
+  -- Enforce host-only table controls. For legacy rows without host set, first starter claims host.
+  if v_table.created_by_group_player_id is null then
+    if p_started_by_group_player_id is null then
+      raise exception 'host_identity_required';
+    end if;
+
+    perform 1
+    from group_players gp
+    where gp.id = p_started_by_group_player_id
+      and gp.group_id = v_table.group_id
+      and gp.archived_at is null;
+    if not found then
+      raise exception 'starter_not_in_group';
+    end if;
+
+    update online_tables
+    set created_by_group_player_id = p_started_by_group_player_id
+    where id = p_table_id
+      and created_by_group_player_id is null;
+
+    select * into v_table
+    from online_tables
+    where id = p_table_id
+    for update;
+  end if;
+
+  if p_started_by_group_player_id is null
+     or p_started_by_group_player_id <> v_table.created_by_group_player_id
+  then
+    raise exception 'host_required_to_start_hand';
+  end if;
+
+  if coalesce(nullif(trim(p_host_seat_token), ''), '') = '' then
+    raise exception 'host_seat_token_required';
+  end if;
+
+  select *
+  into v_host_seat
+  from online_table_seats
+  where table_id = p_table_id
+    and group_player_id = v_table.created_by_group_player_id
+    and left_at is null
+  limit 1;
+
+  if not found then
+    raise exception 'host_not_seated';
+  end if;
+
+  if v_host_seat.seat_token is distinct from p_host_seat_token then
+    raise exception 'host_seat_token_invalid';
   end if;
 
   select id
@@ -1095,9 +884,19 @@ begin
       false,
       false,
       false,
-      jsonb_build_array(v_deck[v_cursor], v_deck[v_cursor + 1])
+      '[]'::jsonb
     );
-    v_cursor := v_cursor + 2;
+  end loop;
+
+  -- Deal hole cards like a real table: one card per seat, two rounds.
+  for v_round in 1..2 loop
+    foreach v_seat_no in array v_active_seats loop
+      update online_hand_players
+      set hole_cards = coalesce(hole_cards, '[]'::jsonb) || to_jsonb(v_deck[v_cursor])
+      where hand_id = v_hand.id
+        and seat_no = v_seat_no;
+      v_cursor := v_cursor + 1;
+    end loop;
   end loop;
 
   update online_hand_players
@@ -1188,12 +987,15 @@ begin
 end;
 $$;
 
+drop function if exists online_submit_action(uuid, uuid, text, numeric, text);
+drop function if exists online_submit_action(uuid, uuid, text, numeric, text, text);
 create or replace function online_submit_action(
   p_hand_id uuid,
   p_actor_group_player_id uuid,
   p_action_type text,
   p_amount numeric default null,
-  p_client_action_id text default null
+  p_client_action_id text default null,
+  p_seat_token text default null
 )
 returns online_actions
 language plpgsql
@@ -1218,8 +1020,9 @@ declare
   v_board jsonb;
   v_deck text[];
   v_deal_count int := 0;
-  v_start_idx int;
+  v_burn_card text;
   v_winner_seat int;
+  v_active_seat online_table_seats%rowtype;
 begin
   select * into v_hand
   from online_hands
@@ -1258,6 +1061,26 @@ begin
 
   if not found then
     raise exception 'actor_not_in_hand';
+  end if;
+
+  if coalesce(nullif(trim(p_seat_token), ''), '') = '' then
+    raise exception 'seat_token_required';
+  end if;
+
+  select *
+  into v_active_seat
+  from online_table_seats
+  where table_id = v_hand.table_id
+    and group_player_id = p_actor_group_player_id
+    and left_at is null
+  limit 1;
+
+  if not found then
+    raise exception 'actor_not_seated';
+  end if;
+
+  if v_active_seat.seat_token <> p_seat_token then
+    raise exception 'seat_token_invalid';
   end if;
 
   if v_hand.action_seat is null or v_hand_player.seat_no <> v_hand.action_seat then
@@ -1489,18 +1312,19 @@ begin
           select jsonb_array_elements_text(coalesce(v_hand.deck_cards, '[]'::jsonb))
         );
 
-        if coalesce(array_length(v_deck, 1), 0) < v_deal_count then
+        -- Real table dealing: burn one card before every board reveal.
+        if coalesce(array_length(v_deck, 1), 0) < (v_deal_count + 1) then
           raise exception 'deck_exhausted';
         end if;
 
         if v_deal_count > 0 then
-          v_start_idx := coalesce(jsonb_array_length(v_board), 0) + 1;
+          v_burn_card := v_deck[1];
           if v_deal_count = 3 then
-            v_board := v_board || jsonb_build_array(v_deck[1], v_deck[2], v_deck[3]);
-            v_deck := coalesce(v_deck[4:array_length(v_deck, 1)], array[]::text[]);
+            v_board := v_board || jsonb_build_array(v_deck[2], v_deck[3], v_deck[4]);
+            v_deck := coalesce(v_deck[5:array_length(v_deck, 1)], array[]::text[]);
           else
-            v_board := v_board || jsonb_build_array(v_deck[1]);
-            v_deck := coalesce(v_deck[2:array_length(v_deck, 1)], array[]::text[]);
+            v_board := v_board || jsonb_build_array(v_deck[2]);
+            v_deck := coalesce(v_deck[3:array_length(v_deck, 1)], array[]::text[]);
           end if;
         end if;
 
@@ -1532,7 +1356,8 @@ begin
           p_actor_group_player_id,
           jsonb_build_object(
             'street', v_next_state,
-            'board_cards', v_board
+            'board_cards', v_board,
+            'burned', v_burn_card is not null
           )
         );
       end if;
@@ -1727,7 +1552,7 @@ begin
     raise exception 'online_table_not_found';
   end if;
 
-  select coalesce(jsonb_agg(to_jsonb(s) order by s.seat_no), '[]'::jsonb)
+  select coalesce(jsonb_agg((to_jsonb(s) - 'seat_token') order by s.seat_no), '[]'::jsonb)
   into v_seats
   from online_table_seats s
   where s.table_id = p_table_id;
@@ -1751,10 +1576,13 @@ begin
 end;
 $$;
 
+drop function if exists online_advance_hand(uuid, uuid, text);
+drop function if exists online_advance_hand(uuid, uuid, text, text);
 create or replace function online_advance_hand(
   p_hand_id uuid,
   p_actor_group_player_id uuid default null,
-  p_reason text default 'tick'
+  p_reason text default 'tick',
+  p_host_seat_token text default null
 )
 returns online_hands
 language plpgsql
@@ -1762,12 +1590,14 @@ as $$
 declare
   v_hand online_hands%rowtype;
   v_table online_tables%rowtype;
+  v_host_seat online_table_seats%rowtype;
   v_prev_state text;
   v_next_state text;
   v_board jsonb;
   v_deck text[];
   v_next_actor int;
   v_deal_count int := 0;
+  v_burn_card text;
 begin
   select * into v_hand
   from online_hands
@@ -1776,6 +1606,69 @@ begin
 
   if not found then
     raise exception 'online_hand_not_found';
+  end if;
+
+  select * into v_table
+  from online_tables
+  where id = v_hand.table_id
+  for update;
+
+  if not found then
+    raise exception 'online_table_not_found';
+  end if;
+
+  -- Only host can force-advance a hand manually.
+  if coalesce(nullif(trim(lower(p_reason)), ''), 'tick') = 'force' then
+    if v_table.created_by_group_player_id is null then
+      if p_actor_group_player_id is null then
+        raise exception 'host_identity_required';
+      end if;
+
+      perform 1
+      from group_players gp
+      where gp.id = p_actor_group_player_id
+        and gp.group_id = v_table.group_id
+        and gp.archived_at is null;
+      if not found then
+        raise exception 'actor_not_in_group';
+      end if;
+
+      update online_tables
+      set created_by_group_player_id = p_actor_group_player_id
+      where id = v_hand.table_id
+        and created_by_group_player_id is null;
+
+      select * into v_table
+      from online_tables
+      where id = v_hand.table_id
+      for update;
+    end if;
+
+    if p_actor_group_player_id is null
+       or p_actor_group_player_id <> v_table.created_by_group_player_id
+    then
+      raise exception 'host_required_to_force_advance';
+    end if;
+
+    if coalesce(nullif(trim(p_host_seat_token), ''), '') = '' then
+      raise exception 'host_seat_token_required';
+    end if;
+
+    select *
+    into v_host_seat
+    from online_table_seats
+    where table_id = v_hand.table_id
+      and group_player_id = v_table.created_by_group_player_id
+      and left_at is null
+    limit 1;
+
+    if not found then
+      raise exception 'host_not_seated';
+    end if;
+
+    if v_host_seat.seat_token is distinct from p_host_seat_token then
+      raise exception 'host_seat_token_invalid';
+    end if;
   end if;
 
   if v_hand.state in ('settled', 'canceled') then
@@ -1819,21 +1712,21 @@ begin
   end;
 
   if v_deal_count > 0 then
-    if coalesce(array_length(v_deck, 1), 0) < v_deal_count then
+    -- Real table dealing: burn one card before every board reveal.
+    if coalesce(array_length(v_deck, 1), 0) < (v_deal_count + 1) then
       raise exception 'deck_exhausted';
     end if;
+    v_burn_card := v_deck[1];
     if v_deal_count = 3 then
-      v_board := v_board || jsonb_build_array(v_deck[1], v_deck[2], v_deck[3]);
-      v_deck := coalesce(v_deck[4:array_length(v_deck, 1)], array[]::text[]);
+      v_board := v_board || jsonb_build_array(v_deck[2], v_deck[3], v_deck[4]);
+      v_deck := coalesce(v_deck[5:array_length(v_deck, 1)], array[]::text[]);
     else
-      v_board := v_board || jsonb_build_array(v_deck[1]);
-      v_deck := coalesce(v_deck[2:array_length(v_deck, 1)], array[]::text[]);
+      v_board := v_board || jsonb_build_array(v_deck[2]);
+      v_deck := coalesce(v_deck[3:array_length(v_deck, 1)], array[]::text[]);
     end if;
   end if;
 
   if v_next_state in ('flop', 'turn', 'river') then
-    select * into v_table from online_tables where id = v_hand.table_id;
-
     update online_hand_players
     set
       street_contribution = 0,
@@ -1886,11 +1779,326 @@ begin
       'from', v_prev_state,
       'to', v_next_state,
       'reason', coalesce(p_reason, 'tick'),
-      'board_cards', v_board
+      'board_cards', v_board,
+      'burned', v_burn_card is not null
     )
   );
 
   perform online_write_hand_snapshot(v_hand.id);
   return v_hand;
+end;
+$$;
+
+-- ---------- Online Poker Revamp: Standalone Play ----------
+
+alter table online_tables
+  add column if not exists starting_stack numeric not null default 200;
+
+alter table online_tables
+  add column if not exists chip_mode text not null default 'play_money';
+
+-- Standalone lobby identity: auto-creates a hidden system group + player by name.
+create or replace function online_ensure_lobby_player(p_name text)
+returns jsonb
+language plpgsql
+as $$
+declare
+  v_normalized text;
+  v_group_id uuid;
+  v_player_id uuid;
+  v_player_name text;
+begin
+  v_normalized := lower(trim(regexp_replace(coalesce(p_name, ''), '\s+', ' ', 'g')));
+  if v_normalized = '' then
+    raise exception 'name_required';
+  end if;
+
+  select id into v_group_id
+  from groups
+  where name = '__online_lobby__'
+  limit 1;
+
+  if v_group_id is null then
+    insert into groups(name)
+    values ('__online_lobby__')
+    returning id into v_group_id;
+  end if;
+
+  select id, name into v_player_id, v_player_name
+  from group_players
+  where group_id = v_group_id
+    and normalized_name = v_normalized
+    and archived_at is null
+  limit 1;
+
+  if v_player_id is null then
+    insert into group_players(group_id, name, normalized_name)
+    values (v_group_id, trim(p_name), v_normalized)
+    returning id, name into v_player_id, v_player_name;
+  end if;
+
+  return jsonb_build_object(
+    'group_id', v_group_id,
+    'group_player_id', v_player_id,
+    'name', v_player_name
+  );
+end;
+$$;
+
+-- Rebuy chips between hands.
+create or replace function online_rebuy_chips(
+  p_table_id uuid,
+  p_group_player_id uuid,
+  p_seat_token text,
+  p_amount numeric default null
+)
+returns online_table_seats
+language plpgsql
+as $$
+declare
+  v_table online_tables%rowtype;
+  v_seat online_table_seats%rowtype;
+  v_active_hand_id uuid;
+begin
+  if coalesce(nullif(trim(p_seat_token), ''), '') = '' then
+    raise exception 'seat_token_required';
+  end if;
+
+  select * into v_table
+  from online_tables
+  where id = p_table_id;
+  if not found then
+    raise exception 'online_table_not_found';
+  end if;
+
+  select * into v_seat
+  from online_table_seats
+  where table_id = p_table_id
+    and group_player_id = p_group_player_id
+    and left_at is null
+    and seat_token = p_seat_token
+  limit 1;
+
+  if not found then
+    raise exception 'active_seat_not_found';
+  end if;
+
+  select id into v_active_hand_id
+  from online_hands
+  where table_id = p_table_id
+    and state not in ('settled', 'canceled')
+  limit 1;
+
+  if v_active_hand_id is not null then
+    raise exception 'cannot_rebuy_during_active_hand';
+  end if;
+
+  update online_table_seats
+  set chip_stack = chip_stack + coalesce(p_amount, v_table.starting_stack)
+  where id = v_seat.id
+  returning * into v_seat;
+
+  return v_seat;
+end;
+$$;
+
+-- Updated online_create_table with starting_stack and chip_mode params.
+drop function if exists online_create_table(uuid, text, uuid, text, text, numeric, numeric, int);
+create or replace function online_create_table(
+  p_group_id uuid,
+  p_name text,
+  p_created_by_group_player_id uuid default null,
+  p_variant text default 'nlhe',
+  p_betting_structure text default 'no_limit',
+  p_small_blind numeric default 1,
+  p_big_blind numeric default 2,
+  p_max_seats int default 6,
+  p_starting_stack numeric default 200,
+  p_chip_mode text default 'play_money'
+)
+returns online_tables
+language plpgsql
+as $$
+declare
+  v_table online_tables%rowtype;
+begin
+  if p_group_id is null then
+    raise exception 'group_id_required';
+  end if;
+  if coalesce(trim(p_name), '') = '' then
+    raise exception 'table_name_required';
+  end if;
+  if p_small_blind <= 0 or p_big_blind <= 0 then
+    raise exception 'invalid_blinds';
+  end if;
+  if p_small_blind > p_big_blind then
+    raise exception 'small_blind_cannot_exceed_big_blind';
+  end if;
+  if p_max_seats < 2 or p_max_seats > 10 then
+    raise exception 'max_seats_out_of_range';
+  end if;
+
+  perform 1 from groups where id = p_group_id;
+  if not found then
+    raise exception 'group_not_found';
+  end if;
+
+  if p_created_by_group_player_id is not null then
+    perform 1
+    from group_players
+    where id = p_created_by_group_player_id
+      and group_id = p_group_id
+      and archived_at is null;
+    if not found then
+      raise exception 'creator_not_in_group';
+    end if;
+  end if;
+
+  insert into online_tables(
+    group_id,
+    name,
+    variant,
+    betting_structure,
+    small_blind,
+    big_blind,
+    max_seats,
+    status,
+    created_by_group_player_id,
+    starting_stack,
+    chip_mode
+  )
+  values (
+    p_group_id,
+    trim(p_name),
+    coalesce(p_variant, 'nlhe'),
+    coalesce(p_betting_structure, 'no_limit'),
+    p_small_blind,
+    p_big_blind,
+    p_max_seats,
+    'waiting',
+    p_created_by_group_player_id,
+    greatest(coalesce(p_starting_stack, 200), 1),
+    coalesce(p_chip_mode, 'play_money')
+  )
+  returning * into v_table;
+
+  insert into online_table_seats(table_id, seat_no, chip_stack)
+  select v_table.id, gs, 0
+  from generate_series(1, v_table.max_seats) as gs
+  on conflict (table_id, seat_no) do nothing;
+
+  return v_table;
+end;
+$$;
+
+-- Updated online_join_table: uses table starting_stack when chip_stack not provided.
+drop function if exists online_join_table(uuid, uuid, int, numeric);
+drop function if exists online_join_table(uuid, uuid, int, numeric, text);
+create or replace function online_join_table(
+  p_table_id uuid,
+  p_group_player_id uuid,
+  p_preferred_seat int default null,
+  p_chip_stack numeric default null,
+  p_seat_token text default null
+)
+returns online_table_seats
+language plpgsql
+as $$
+declare
+  v_table online_tables%rowtype;
+  v_existing online_table_seats%rowtype;
+  v_joined online_table_seats%rowtype;
+  v_stack numeric;
+begin
+  select * into v_table from online_tables where id = p_table_id for update;
+  if not found then
+    raise exception 'online_table_not_found';
+  end if;
+  if v_table.status = 'closed' then
+    raise exception 'online_table_closed';
+  end if;
+
+  perform 1
+  from group_players
+  where id = p_group_player_id
+    and group_id = v_table.group_id
+    and archived_at is null;
+  if not found then
+    raise exception 'player_not_eligible_for_group';
+  end if;
+
+  v_stack := coalesce(p_chip_stack, v_table.starting_stack, 200);
+
+  insert into online_table_seats(table_id, seat_no, chip_stack)
+  select p_table_id, gs, 0
+  from generate_series(1, v_table.max_seats) as gs
+  on conflict (table_id, seat_no) do nothing;
+
+  select * into v_existing
+  from online_table_seats
+  where table_id = p_table_id
+    and group_player_id = p_group_player_id
+    and left_at is null
+  limit 1;
+  if found then
+    if coalesce(nullif(trim(p_seat_token), ''), '') <> '' and p_seat_token = v_existing.seat_token then
+      return v_existing;
+    end if;
+    raise exception 'player_already_seated_claim_required';
+  end if;
+
+  if p_preferred_seat is not null then
+    if p_preferred_seat < 1 or p_preferred_seat > v_table.max_seats then
+      raise exception 'preferred_seat_out_of_range';
+    end if;
+
+    update online_table_seats
+    set
+      group_player_id = p_group_player_id,
+      chip_stack = greatest(v_stack, 0),
+      is_sitting_out = false,
+      seat_token = coalesce(nullif(trim(p_seat_token), ''), encode(gen_random_bytes(16), 'hex')),
+      joined_at = now(),
+      left_at = null
+    where id in (
+      select id
+      from online_table_seats
+      where table_id = p_table_id
+        and seat_no = p_preferred_seat
+        and (group_player_id is null or left_at is not null)
+      for update skip locked
+      limit 1
+    )
+    returning * into v_joined;
+  else
+    update online_table_seats
+    set
+      group_player_id = p_group_player_id,
+      chip_stack = greatest(v_stack, 0),
+      is_sitting_out = false,
+      seat_token = coalesce(nullif(trim(p_seat_token), ''), encode(gen_random_bytes(16), 'hex')),
+      joined_at = now(),
+      left_at = null
+    where id in (
+      select id
+      from online_table_seats
+      where table_id = p_table_id
+        and (group_player_id is null or left_at is not null)
+      order by seat_no
+      for update skip locked
+      limit 1
+    )
+    returning * into v_joined;
+  end if;
+
+  if not found then
+    raise exception 'online_table_full_or_seat_taken';
+  end if;
+
+  if v_table.status = 'waiting' then
+    update online_tables set status = 'active' where id = p_table_id;
+  end if;
+
+  return v_joined;
 end;
 $$;

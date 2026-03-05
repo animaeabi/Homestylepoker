@@ -889,6 +889,7 @@ body.theme-light .settings-button:hover {
   padding: 22px;
   box-shadow: var(--surface-shadow);
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   position: relative;
   overflow: hidden;
@@ -906,6 +907,124 @@ body.theme-light .settings-button:hover {
 .lets-play {
   width: 100%;
   text-align: left;
+}
+
+.lobby-toggle-row {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.lobby-accordion-toggle {
+  flex: 1;
+  min-width: 0;
+  border-radius: 14px;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background:
+    radial-gradient(circle at 20% 12%, rgba(255, 200, 140, 0.15), rgba(255, 200, 140, 0) 45%),
+    linear-gradient(180deg, #f2d3a0 0%, #ddb177 32%, #c58a4d 62%, #a0633a 100%);
+  color: #2b1b09;
+  border: 1px solid transparent;
+  background-clip: padding-box;
+  box-shadow:
+    0 0 0 1px rgba(208, 140, 90, 0.5),
+    0 6px 14px rgba(0, 0, 0, 0.25),
+    inset 0 1px 0 rgba(245, 186, 135, 0.12),
+    inset 0 -8px 14px rgba(100, 50, 30, 0.25);
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  cursor: pointer;
+  font: inherit;
+}
+
+.lobby-accordion-toggle::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(120deg, rgba(255, 255, 255, 0.35), transparent 55%);
+  opacity: 0.15;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.lobby-accordion-toggle:hover {
+  box-shadow:
+    0 0 0 1px rgba(208, 140, 90, 0.6),
+    0 10px 20px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(245, 186, 135, 0.15);
+  filter: brightness(1.02);
+}
+
+.lobby-toggle-row:has([aria-expanded="true"]) .lobby-accordion-toggle[aria-expanded="false"] {
+  background:
+    linear-gradient(180deg, #2a4a3a 0%, #1c3a2c 40%, #14291f 100%);
+  color: #c8b888;
+  box-shadow:
+    0 0 0 1px rgba(210, 166, 78, 0.15),
+    0 4px 10px rgba(0, 0, 0, 0.2);
+  filter: saturate(0.5);
+}
+
+.lobby-toggle-row:has([aria-expanded="true"]) .lobby-accordion-toggle[aria-expanded="false"] .lobby-accordion-label {
+  color: #c8b888;
+}
+
+.lobby-toggle-row:has([aria-expanded="true"]) .lobby-accordion-toggle[aria-expanded="false"] .deal-chevron {
+  border-top-color: rgba(200, 184, 136, 0.6);
+}
+
+.lobby-toggle-row:has([aria-expanded="true"]) .lobby-accordion-toggle[aria-expanded="false"]::before {
+  opacity: 0;
+}
+
+.lobby-accordion-toggle[aria-expanded="true"] {
+  box-shadow:
+    0 0 0 1px rgba(208, 140, 90, 0.7),
+    0 8px 18px rgba(0, 0, 0, 0.28),
+    inset 0 1px 0 rgba(245, 186, 135, 0.15),
+    inset 0 -8px 14px rgba(100, 50, 30, 0.25);
+  filter: brightness(1.02);
+}
+
+.lobby-accordion-toggle .deal-chevron {
+  position: static;
+  flex-shrink: 0;
+}
+
+.lobby-accordion-toggle[aria-expanded="true"] .deal-chevron {
+  transform: rotate(180deg);
+  transform-origin: 50% 45%;
+}
+
+.lobby-accordion-label {
+  font-family: "Cinzel", "Fraunces", serif;
+  font-size: 0.88rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  position: relative;
+  z-index: 1;
+  color: #1a1209;
+}
+
+.field-row-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.field-row-2 input,
+.field-row-2 select {
+  min-width: 0;
 }
 
 .lets-deal-toggle,
@@ -1273,6 +1392,15 @@ body.theme-light .settings-button:hover {
 .lets-deal-body {
   display: grid;
   gap: 12px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.lets-deal-body input,
+.lets-deal-body select,
+.lets-deal-body button {
+  max-width: 100%;
+  min-width: 0;
 }
 
 .groups-panel {
@@ -7755,4 +7883,110 @@ body:not(.theme-light) .footer-toggle input {
   .settle-row {
     gap: 8px;
   }
+}
+
+/* Online Game History Modal */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 70;
+  padding: 16px;
+  background: rgba(6, 5, 3, 0.75);
+  backdrop-filter: blur(4px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.online-game-detail {
+  width: min(92vw, 520px);
+  max-height: 90vh;
+  overflow-y: auto;
+  background: var(--surface-grad);
+  background-color: var(--panel);
+  border: 1px solid var(--surface-border);
+  border-radius: 22px;
+  padding: 22px;
+  box-shadow: var(--surface-shadow);
+  display: grid;
+  gap: 14px;
+}
+
+.online-game-detail .modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.online-game-detail .modal-header h3 {
+  font-family: "Cinzel", "Fraunces", serif;
+  font-size: 1.3rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: rgba(245, 225, 185, 0.95);
+  margin: 0;
+}
+
+.online-game-detail .online-results-table {
+  display: grid;
+  gap: 8px;
+}
+
+.online-results-row {
+  display: grid;
+  grid-template-columns: 1.8fr 1fr 1fr 1fr;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: var(--row-bg);
+  border: 1px solid var(--row-border);
+  font-size: 0.88rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.online-results-row.header-row {
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--muted);
+  background: rgba(210, 166, 78, 0.14);
+}
+
+.online-results-row.total-row {
+  background: rgba(210, 166, 78, 0.08);
+  font-weight: 700;
+  border-color: rgba(210, 166, 78, 0.2);
+}
+
+.online-settings-dropdown {
+  background: var(--surface-grad);
+  background-color: var(--panel);
+  border: 1px solid var(--surface-border);
+  border-radius: 14px;
+  padding: 14px;
+  display: grid;
+  gap: 6px;
+}
+
+.danger-btn {
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  padding: 12px 18px;
+  border-radius: 12px;
+  border: 1px solid var(--accent-red, #d35050);
+  background: rgba(180, 50, 50, 0.15);
+  color: var(--accent-red, #e87070);
+  cursor: pointer;
+  text-align: center;
+  transition: background 0.15s;
+}
+
+.danger-btn:hover {
+  background: rgba(180, 50, 50, 0.25);
 }
