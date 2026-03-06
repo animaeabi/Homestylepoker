@@ -272,9 +272,16 @@ begin
     raise exception 'online_table_not_found';
   end if;
 
-  select coalesce(jsonb_agg((to_jsonb(s) - 'seat_token') order by s.seat_no), '[]'::jsonb)
+  select coalesce(
+    jsonb_agg(
+      ((to_jsonb(s) - 'seat_token') || jsonb_build_object('player_name', gp.name))
+      order by s.seat_no
+    ),
+    '[]'::jsonb
+  )
   into v_seats
   from online_table_seats s
+  left join group_players gp on gp.id = s.group_player_id
   where s.table_id = p_table_id;
 
   select h.id
@@ -1558,9 +1565,16 @@ begin
     raise exception 'online_table_not_found';
   end if;
 
-  select coalesce(jsonb_agg((to_jsonb(s) - 'seat_token') order by s.seat_no), '[]'::jsonb)
+  select coalesce(
+    jsonb_agg(
+      ((to_jsonb(s) - 'seat_token') || jsonb_build_object('player_name', gp.name))
+      order by s.seat_no
+    ),
+    '[]'::jsonb
+  )
   into v_seats
   from online_table_seats s
+  left join group_players gp on gp.id = s.group_player_id
   where s.table_id = p_table_id;
 
   select h.id

@@ -218,6 +218,16 @@ Validation:
 - `node --check /Users/abishek/Documents/poker-buyins/online/table_app.js` (pass)
 - Verified source no longer contains `sitSelectedSeat`, `pop-sit`, or `SIT`/`Sit` empty-seat labels.
 - Created a local online table as host, clicked an empty seat, and confirmed the popover shows only `Add Bot`.
+
+Update (online seat-name mapping fix):
+- Root cause confirmed in `/Users/abishek/Documents/poker-buyins/supabase/online_poker_schema.sql`:
+  - `online_get_table_state_viewer(...)` and `online_get_table_state(...)` were returning raw `online_table_seats` rows with `seat_token` stripped, but without joining `group_players` to include `player_name`.
+  - In `/Users/abishek/Documents/poker-buyins/online/table_app.js`, `seatName()` falls back to `Seat N` when neither `seat.player_name` nor `hand_player.player_name` is present, which made joined players appear as `Seat 1`, `Seat 2`, etc. on existing tables.
+- Patched both table-state functions to join `group_players` and include `player_name` on each seat row while still omitting `seat_token`.
+
+Validation:
+- Verified both table-state functions now append `jsonb_build_object('player_name', gp.name)` to seat payloads.
+- Note: this fix requires re-running `/Users/abishek/Documents/poker-buyins/supabase/online_poker_schema.sql` against the Supabase database before the live app will reflect the change.
 - Left the temporary verification table after the check.
 
 Update (landing Join table split into Home / Online):
