@@ -340,6 +340,107 @@
         pointer-events: none;
       }
 
+      .dealer-deck {
+        position: absolute;
+        left: 50%;
+        top: 32%;
+        width: 46px;
+        height: 66px;
+        transform: translate(-50%, -50%) rotate(-8deg);
+        z-index: 6;
+        pointer-events: none;
+        filter: drop-shadow(0 8px 18px rgba(0,0,0,0.45));
+      }
+
+      .dealer-deck,
+      .dealer-deck::before,
+      .dealer-deck::after {
+        background:
+          radial-gradient(circle at 50% 50%, rgba(247,220,156,0.14) 0%, rgba(247,220,156,0.08) 12%, transparent 13%),
+          linear-gradient(135deg, #6d1b24 0%, #2a0610 54%, #5a1320 100%);
+        border: 1px solid rgba(244,227,190,0.18);
+        border-radius: 8px;
+        box-shadow:
+          inset 0 0 0 1px rgba(212,175,85,0.2),
+          inset 0 0 0 4px rgba(245,236,214,0.04);
+      }
+
+      .dealer-deck::before,
+      .dealer-deck::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+      }
+
+      .dealer-deck::before {
+        transform: translate(6px, -4px) rotate(5deg);
+        opacity: 0.82;
+      }
+
+      .dealer-deck::after {
+        transform: translate(12px, -8px) rotate(10deg);
+        opacity: 0.58;
+      }
+
+      .deal-fx-layer {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        overflow: visible;
+        z-index: 18;
+      }
+
+      .deal-flight-card {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: var(--card-w, 30px);
+        height: var(--card-h, 42px);
+        border-radius: 7px;
+        background:
+          radial-gradient(circle at 50% 50%, rgba(247,220,156,0.14) 0%, rgba(247,220,156,0.08) 12%, transparent 13%),
+          linear-gradient(135deg, #6d1b24 0%, #2a0610 54%, #5a1320 100%);
+        border: 1px solid rgba(244,227,190,0.18);
+        box-shadow:
+          0 8px 18px rgba(0,0,0,0.35),
+          inset 0 0 0 1px rgba(212,175,85,0.2),
+          inset 0 0 0 4px rgba(245,236,214,0.04);
+        opacity: 0;
+        transform: translate(var(--from-x), var(--from-y)) scale(0.34) rotate(-12deg);
+        animation: dealerPitch var(--flight-ms, 360ms) cubic-bezier(0.18, 0.88, 0.2, 1) both;
+        animation-delay: var(--delay-ms, 0ms);
+        will-change: transform, opacity;
+      }
+
+      .deal-flight-card::after {
+        content: "";
+        position: absolute;
+        inset: 12%;
+        border-radius: 5px;
+        border: 1px solid rgba(230,206,155,0.22);
+        background:
+          radial-gradient(circle at center, rgba(232,205,150,0.12), transparent 58%),
+          repeating-linear-gradient(
+            45deg,
+            transparent,
+            transparent 4px,
+            rgba(230,206,155,0.08) 4px,
+            rgba(230,206,155,0.08) 8px
+          );
+      }
+
+      @keyframes dealerPitch {
+        0% {
+          opacity: 0;
+          transform: translate(var(--from-x), var(--from-y)) scale(0.34) rotate(-14deg);
+        }
+        10% { opacity: 1; }
+        100% {
+          opacity: 1;
+          transform: translate(var(--to-x), var(--to-y)) scale(1) rotate(var(--to-rot, 0deg));
+        }
+      }
+
       .table-center {
         position: absolute;
         left: 50%;
@@ -353,10 +454,207 @@
       }
 
       .pot-display {
-        font-size: 20px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+        min-width: 0;
+        padding: 0;
+        background: transparent;
+        border: none;
+        box-shadow: none;
+        transition: transform 0.2s ease, filter 0.2s ease;
+      }
+
+      .pot-stack-art {
+        position: relative;
+        width: 44px;
+        height: 28px;
+        flex-shrink: 0;
+        filter: drop-shadow(0 6px 10px rgba(0,0,0,0.2));
+        transform: scale(var(--stack-scale, 1));
+        transform-origin: center center;
+      }
+
+      .pot-chip {
+        position: absolute;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        box-shadow:
+          0 3px 6px rgba(0,0,0,0.24),
+          inset 0 1px 0 rgba(255,255,255,0.16),
+          inset 0 0 0 2px rgba(248,240,226,0.18),
+          inset 0 0 0 5px var(--chip-inner, rgba(0,0,0,0.14));
+        transform: rotate(var(--chip-rot, 0deg));
+      }
+
+      .pot-chip::before,
+      .pot-chip::after {
+        content: "";
+        position: absolute;
+        inset: 3px;
+        border-radius: 50%;
+      }
+
+      .pot-chip::before {
+        background:
+          conic-gradient(
+            from 0deg,
+            transparent 0deg 20deg,
+            rgba(248,240,226,0.9) 20deg 38deg,
+            transparent 38deg 72deg,
+            rgba(248,240,226,0.9) 72deg 90deg,
+            transparent 90deg 126deg,
+            rgba(248,240,226,0.9) 126deg 144deg,
+            transparent 144deg 180deg,
+            rgba(248,240,226,0.9) 180deg 198deg,
+            transparent 198deg 234deg,
+            rgba(248,240,226,0.9) 234deg 252deg,
+            transparent 252deg 288deg,
+            rgba(248,240,226,0.9) 288deg 306deg,
+            transparent 306deg 342deg,
+            rgba(248,240,226,0.9) 342deg 360deg
+          );
+        opacity: 0.48;
+      }
+
+      .pot-chip::after {
+        inset: 5px;
+        background: radial-gradient(circle at 38% 32%, rgba(255,255,255,0.18), transparent 38%);
+      }
+
+      .pot-chip--charcoal {
+        background: radial-gradient(circle at 35% 30%, #7a7a84 0%, #2f3138 48%, #16171b 100%);
+        --chip-inner: rgba(20,22,26,0.34);
+      }
+
+      .pot-chip--red {
+        background: radial-gradient(circle at 35% 30%, #f78d8d 0%, #b52433 44%, #63111a 100%);
+        --chip-inner: rgba(93,15,23,0.34);
+      }
+
+      .pot-chip--green {
+        background: radial-gradient(circle at 35% 30%, #9de7b0 0%, #2f9e4f 44%, #165328 100%);
+        --chip-inner: rgba(17,84,40,0.34);
+      }
+
+      .pot-chip--gold {
+        background: radial-gradient(circle at 35% 30%, #ffe09b 0%, #cc9432 44%, #7a5313 100%);
+        --chip-inner: rgba(122,83,19,0.34);
+      }
+
+      .pot-chip--ivory {
+        background: radial-gradient(circle at 35% 30%, #f8f2df 0%, #cdbb92 44%, #7f6d44 100%);
+        --chip-inner: rgba(127,109,68,0.26);
+      }
+
+      .pot-chip.stack-added {
+        animation: potChipLand 360ms cubic-bezier(0.2, 0.9, 0.2, 1) both;
+      }
+
+      @keyframes potChipLand {
+        0% { opacity: 0; transform: rotate(var(--chip-rot, 0deg)) translateY(-12px) scale(0.72); }
+        100% { opacity: 1; transform: rotate(var(--chip-rot, 0deg)) translateY(0) scale(1); }
+      }
+
+      .pot-label {
+        font-size: 9px;
         font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.16em;
+        color: rgba(255,240,215,0.76);
+        text-shadow: 0 1px 5px rgba(0,0,0,0.35);
+      }
+
+      .pot-amount {
+        font-size: 22px;
+        font-weight: 900;
         color: var(--gold-bright);
-        text-shadow: 0 2px 8px rgba(0,0,0,0.4);
+        text-shadow: 0 2px 8px rgba(0,0,0,0.32);
+      }
+
+      .pot-display[data-state="live"] .pot-stack-art {
+        animation: chipBreathe 2.2s ease-in-out infinite;
+      }
+
+      .pot-display.pot-bump .pot-stack-art {
+        animation: potStackGrow 460ms cubic-bezier(0.22, 1, 0.36, 1);
+      }
+
+      .pot-display.pot-bump .pot-amount {
+        animation: potAmountPop 460ms cubic-bezier(0.22, 1, 0.36, 1);
+      }
+
+      .pot-display[data-state="hot"] {
+        filter: drop-shadow(0 0 10px rgba(212,175,85,0.12));
+      }
+
+      .pot-display[data-state="monster"] {
+        animation: potHeat 1.2s ease-in-out infinite;
+      }
+
+      .pot-display.pot-paying {
+        filter: drop-shadow(0 0 12px rgba(248,181,69,0.16));
+      }
+
+      .pot-display.pot-paying .pot-stack-art,
+      .pot-display.pot-paying .pot-amount {
+        opacity: 0.62;
+      }
+
+      .pot-display.pot-cleared .pot-stack-art {
+        opacity: 0;
+        transform: scale(0.7);
+      }
+
+      .pot-display.pot-cleared .pot-amount {
+        opacity: 0.9;
+      }
+
+      @keyframes chipBreathe {
+        0%, 100% { transform: scale(var(--stack-scale, 1)); }
+        50% { transform: scale(calc(var(--stack-scale, 1) * 1.05)); }
+      }
+
+      @keyframes potHeat {
+        0%, 100% { transform: translateY(0) scale(1); }
+        50% { transform: translateY(-1px) scale(1.03); }
+      }
+
+      @keyframes potStackGrow {
+        0% { transform: scale(calc(var(--stack-scale, 1) * 0.8)); }
+        65% { transform: scale(calc(var(--stack-scale, 1) * 1.12)); }
+        100% { transform: scale(var(--stack-scale, 1)); }
+      }
+
+      @keyframes potAmountPop {
+        0% { transform: translateY(5px) scale(0.9); opacity: 0.72; }
+        65% { transform: translateY(-1px) scale(1.08); opacity: 1; }
+        100% { transform: translateY(0) scale(1); opacity: 1; }
+      }
+
+      .pot-push-chip {
+        left: 0 !important;
+        top: 0 !important;
+        z-index: 22;
+        opacity: 0;
+        transform: translate(var(--from-x), var(--from-y)) rotate(var(--chip-rot, 0deg)) scale(0.9);
+        animation: potPushToWinner var(--flight-ms, 760ms) cubic-bezier(0.22, 1, 0.36, 1) both;
+        animation-delay: var(--delay-ms, 0ms);
+      }
+
+      @keyframes potPushToWinner {
+        0% {
+          opacity: 0;
+          transform: translate(var(--from-x), var(--from-y)) rotate(var(--chip-rot, 0deg)) scale(0.78);
+        }
+        10% { opacity: 1; }
+        100% {
+          opacity: 0;
+          transform: translate(var(--to-x), var(--to-y)) rotate(calc(var(--chip-rot, 0deg) * 0.6)) scale(0.96);
+        }
       }
 
       .win-reason {
@@ -366,13 +664,34 @@
         text-shadow: 0 2px 8px rgba(0,0,0,0.5);
         text-align: center;
         letter-spacing: 0.04em;
-        min-height: 20px;
+        min-height: 24px;
+        padding: 0 10px;
+        border-radius: 999px;
+        transition: background 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
         animation: winReasonFade 0.4s ease-out;
+      }
+
+      .win-reason.has-result {
+        padding: 8px 16px;
+        background: linear-gradient(180deg, rgba(28,20,8,0.92), rgba(14,10,4,0.96));
+        border: 1px solid rgba(212,175,85,0.2);
+        box-shadow:
+          0 10px 24px rgba(0,0,0,0.28),
+          inset 0 1px 0 rgba(255,255,255,0.04);
+      }
+
+      .table-surface.showdown-mode .win-reason.has-result {
+        animation: showdownBanner 0.4s cubic-bezier(0.22, 1, 0.36, 1);
       }
 
       @keyframes winReasonFade {
         0% { opacity: 0; transform: translateY(4px); }
         100% { opacity: 1; transform: translateY(0); }
+      }
+
+      @keyframes showdownBanner {
+        0% { opacity: 0; transform: translateY(12px) scale(0.92); }
+        100% { opacity: 1; transform: translateY(0) scale(1); }
       }
 
       .street-label {
@@ -412,23 +731,31 @@
       .card-face.red { color: var(--card-red); }
 
       .card-back {
-        background: linear-gradient(135deg, #1a3a5c 0%, #0f2440 50%, #1a3a5c 100%);
-        border: 1px solid rgba(255,255,255,0.1);
+        position: relative;
+        background:
+          radial-gradient(circle at 50% 50%, rgba(247,220,156,0.14) 0%, rgba(247,220,156,0.08) 12%, transparent 13%),
+          linear-gradient(135deg, #6d1b24 0%, #2a0610 54%, #5a1320 100%);
+        border: 1px solid rgba(244,227,190,0.18);
+        box-shadow:
+          inset 0 0 0 1px rgba(212,175,85,0.2),
+          inset 0 0 0 4px rgba(245,236,214,0.04);
       }
 
       .card-back::after {
         content: "";
-        width: 70%;
-        height: 70%;
-        border-radius: 4px;
-        border: 1px solid rgba(212,175,85,0.3);
-        background: repeating-linear-gradient(
-          45deg,
-          transparent,
-          transparent 3px,
-          rgba(212,175,85,0.08) 3px,
-          rgba(212,175,85,0.08) 6px
-        );
+        position: absolute;
+        inset: 12%;
+        border-radius: 5px;
+        border: 1px solid rgba(230,206,155,0.22);
+        background:
+          radial-gradient(circle at center, rgba(232,205,150,0.12), transparent 58%),
+          repeating-linear-gradient(
+            45deg,
+            transparent,
+            transparent 4px,
+            rgba(230,206,155,0.08) 4px,
+            rgba(230,206,155,0.08) 8px
+          );
       }
 
       .card-empty {
@@ -642,7 +969,37 @@
 
       .seat-cards-row {
         display: flex;
-        gap: 3px;
+        gap: 0;
+        align-items: flex-end;
+        transform-origin: center center;
+      }
+
+      .seat-cards-row .card:first-child {
+        --held-transform: rotate(-7deg) translate(4px, 2px);
+        transform: var(--held-transform);
+      }
+
+      .seat-cards-row .card:last-child {
+        --held-transform: rotate(6deg) translate(-3px, -1px);
+        transform: var(--held-transform);
+        margin-left: -7px;
+      }
+
+      .card.deal-target.card-dealing {
+        opacity: 0;
+        animation: heldCardReveal 180ms cubic-bezier(0.2, 0.9, 0.2, 1) both;
+        animation-delay: var(--deal-reveal-delay, 0ms);
+      }
+
+      @keyframes heldCardReveal {
+        0% {
+          opacity: 0;
+          transform: translateY(16px) scale(0.88);
+        }
+        100% {
+          opacity: 1;
+          transform: var(--held-transform, none);
+        }
       }
 
       .seat-bet {
@@ -738,10 +1095,33 @@
 
       .seat-rebuy-btn:hover { filter: brightness(1.1); }
 
+      .seat-rebuy-btn.seat-status-chip {
+        background: linear-gradient(135deg, rgba(108, 30, 18, 0.96), rgba(61, 12, 10, 0.98));
+        border-color: rgba(255, 168, 120, 0.45);
+        color: #ffd8bc;
+        cursor: default;
+        pointer-events: none;
+        opacity: 1;
+        box-shadow: 0 2px 10px rgba(56, 10, 8, 0.32);
+      }
+
       .seat-node.winner-seat {
         border-color: var(--gold) !important;
         box-shadow: 0 0 0 3px rgba(212,175,85,0.5), 0 0 24px rgba(212,175,85,0.25) !important;
         animation: none !important;
+      }
+
+      .table-surface.all-in-mode .pot-display {
+        filter: drop-shadow(0 0 14px rgba(248,181,69,0.16));
+      }
+
+      .table-surface.all-in-mode .seat-node:not(.folded):not(.empty) {
+        box-shadow: 0 0 0 2px rgba(212,175,85,0.14), 0 0 26px rgba(248,181,69,0.1);
+      }
+
+      .table-surface.all-in-mode .seat-node.folded,
+      .table-surface.all-in-mode .seat-node.empty {
+        opacity: 0.28;
       }
 
       /* Deal button on table surface */
@@ -878,10 +1258,45 @@
       .preset-row {
         display: flex;
         justify-content: center;
+        align-items: center;
         gap: 6px;
         padding: 4px 12px 6px;
         background: rgba(11,15,13,0.92);
         border-top: 1px solid rgba(255,255,255,0.03);
+      }
+
+      .preset-amount-wrap {
+        display: none;
+        align-items: center;
+        gap: 6px;
+        padding-right: 4px;
+      }
+
+      .preset-amount-label {
+        font-size: 10px;
+        font-weight: 700;
+        color: rgba(255,240,215,0.76);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        white-space: nowrap;
+      }
+
+      .preset-amount-input {
+        font: inherit;
+        font-size: 12px;
+        font-weight: 700;
+        width: 72px;
+        padding: 5px 8px;
+        background: rgba(255,255,255,0.06);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        color: var(--gold-bright);
+        text-align: center;
+        outline: none;
+      }
+
+      .preset-amount-input:focus {
+        border-color: var(--gold);
       }
 
       .preset-chip {
@@ -1004,19 +1419,56 @@
         align-items: center;
         justify-content: center;
         gap: 12px;
-        padding: 10px 16px;
+        padding: 10px 16px 12px;
         background: transparent;
         position: relative;
         z-index: 5;
       }
 
-      .my-hand-cards { display: flex; gap: 8px; align-items: center; }
+      .my-hand-cards {
+        position: relative;
+        display: flex;
+        gap: 0;
+        align-items: flex-end;
+        justify-content: center;
+        min-width: 152px;
+        min-height: 112px;
+        padding: 18px 14px 8px;
+        transform-origin: center bottom;
+        isolation: isolate;
+      }
+
+      .my-hand-cards::before {
+        content: "";
+        position: absolute;
+        inset: 16px 4px 0;
+        border-radius: 22px 22px 16px 16px;
+        background: linear-gradient(180deg, rgba(10,14,12,0.78), rgba(5,8,7,0.92));
+        border: 1px solid rgba(212,175,85,0.14);
+        box-shadow:
+          inset 0 1px 0 rgba(255,255,255,0.04),
+          0 8px 18px rgba(0,0,0,0.28);
+        z-index: -1;
+      }
 
       .my-hand-cards .card {
-        width: 68px; height: 96px; font-size: 26px; border-radius: 10px;
-        box-shadow: 0 6px 20px rgba(0,0,0,0.5);
+        width: 64px; height: 90px; font-size: 24px; border-radius: 9px;
+        box-shadow: 0 5px 16px rgba(0,0,0,0.42);
         background: linear-gradient(180deg, #fefcf4 0%, #f5eedc 100%);
         border: 2px solid rgba(255,255,255,0.2);
+        position: relative;
+        transform-origin: center bottom;
+      }
+
+      .my-hand-cards .card:first-child {
+        --held-transform: rotate(-8deg) translate(6px, 5px);
+        transform: var(--held-transform);
+      }
+
+      .my-hand-cards .card:last-child {
+        --held-transform: rotate(7deg) translate(-7px, 1px);
+        transform: var(--held-transform);
+        margin-left: -14px;
       }
 
       .my-hand-nameplate {
@@ -1036,7 +1488,33 @@
 
       .my-hand-name { font-size: 12px; font-weight: 700; color: #e8dcc0; }
       .my-hand-stack { font-size: 14px; font-weight: 800; color: var(--gold-bright); }
-      .my-hand-badges { display: flex; gap: 4px; align-items: center; }
+      .my-hand-badges {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-wrap: wrap;
+        gap: 4px;
+        min-height: 18px;
+      }
+
+      .my-hand-badges .seat-dealer-dot,
+      .my-hand-badges .seat-pos-label {
+        position: static;
+        top: auto;
+        right: auto;
+      }
+
+      .my-hand-badges .seat-pos-label {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 2px 5px;
+        border-radius: 999px;
+        background: rgba(20,16,8,0.9);
+        border: 1px solid rgba(180,140,60,0.3);
+        color: var(--gold);
+        line-height: 1;
+      }
       .my-hand-info { display: none; }
 
       /* Hamburger & Config Panel */
@@ -1268,7 +1746,11 @@
         .seat-cards-row .card-mine { width: 36px; height: 50px; font-size: 14px; }
 
         .card { width: 44px; height: 62px; font-size: 16px; border-radius: 7px; }
-        .pot-display { font-size: 18px; }
+        .pot-display { gap: 4px; }
+        .pot-stack-art { width: 40px; height: 26px; }
+        .pot-chip { width: 16px; height: 16px; }
+        .pot-amount { font-size: 18px; }
+        .pot-label { font-size: 9px; }
         .street-label { font-size: 10px; }
 
         .astrip-btn { font-size: 12px; padding: 8px 12px; min-height: 40px; }
@@ -1296,7 +1778,10 @@
         .seat-cards-row .card-sm { width: 22px; height: 32px; font-size: 10px; }
         .seat-cards-row .card-mine { width: 32px; height: 44px; font-size: 12px; }
         .card { width: 38px; height: 54px; font-size: 14px; }
-        .pot-display { font-size: 16px; }
+        .pot-display { gap: 4px; }
+        .pot-stack-art { width: 36px; height: 24px; }
+        .pot-chip { width: 14px; height: 14px; }
+        .pot-amount { font-size: 17px; }
 
         .astrip-btn { font-size: 11px; padding: 7px 10px; }
         .astrip-raise-group { gap: 4px; }
@@ -1315,8 +1800,13 @@
         }
         .table-surface::after { content: "" !important; position: absolute; inset: 2px; border-radius: 34%; border: 1.5px solid rgba(200,160,60,0.3); pointer-events: none; z-index: 1; }
         .table-surface::before { border-radius: 34% !important; opacity: 0.15 !important; }
+        .dealer-deck { top: 28% !important; width: 34px; height: 50px; }
         .table-center { gap: 6px !important; top: 55% !important; }
-        .pot-display { font-size: 24px !important; }
+        .pot-display { gap: 4px !important; }
+        .pot-stack-art { width: 44px !important; height: 28px !important; }
+        .pot-chip { width: 17px !important; height: 17px !important; }
+        .pot-label { font-size: 9px !important; }
+        .pot-amount { font-size: 21px !important; }
         .street-label { display: none !important; }
         .card { width: 50px !important; height: 70px !important; font-size: 19px !important; border-radius: 7px !important; box-shadow: 0 3px 10px rgba(0,0,0,0.5) !important; }
         .card-empty { background: rgba(255,255,255,0.04) !important; border: 1.5px solid rgba(255,255,255,0.08) !important; }
@@ -1355,12 +1845,72 @@
         .seat-node.empty::before { display: none !important; }
         .seat-empty-label { font-size: 8px !important; color: rgba(180,140,60,0.3) !important; }
 
-        .floating-cards { position: absolute; display: flex; gap: 2px; z-index: 12; pointer-events: none; }
-        .floating-cards .card { width: 22px !important; height: 30px !important; font-size: 8px !important; border-radius: 4px !important; box-shadow: 0 2px 6px rgba(0,0,0,0.4) !important; }
-        .floating-cards .card:first-child { transform: rotate(-3deg); }
-        .floating-cards .card:last-child { transform: rotate(3deg); }
+        .floating-cards {
+          position: absolute;
+          display: flex;
+          align-items: flex-end;
+          gap: 0;
+          z-index: 12;
+          pointer-events: none;
+          transform-origin: center center;
+          transform: translate(-50%, -50%);
+        }
+        .floating-cards .card {
+          width: 28px !important;
+          height: 40px !important;
+          font-size: 10px !important;
+          border-radius: 5px !important;
+          box-shadow: 0 3px 10px rgba(0,0,0,0.45) !important;
+        }
+        .floating-cards .card + .card { margin-left: -8px; }
+        .floating-cards.showdown .card {
+          width: 31px !important;
+          height: 44px !important;
+          font-size: 11px !important;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.5) !important;
+        }
+        .floating-cards--top { transform: translate(-50%, 56%) !important; }
+        .floating-cards--top .card:first-child { --held-transform: rotate(-8deg) translateY(1px); transform: var(--held-transform); }
+        .floating-cards--top .card:last-child { --held-transform: rotate(6deg) translateY(0); transform: var(--held-transform); }
+        .floating-cards--left { transform: translate(70%, -48%) !important; }
+        .floating-cards--left .card:first-child { --held-transform: rotate(-6deg) translate(1px, 1px); transform: var(--held-transform); }
+        .floating-cards--left .card:last-child { --held-transform: rotate(4deg) translate(-1px, -1px); transform: var(--held-transform); }
+        .floating-cards--right { transform: translate(-170%, -48%) !important; }
+        .floating-cards--right .card:first-child { --held-transform: rotate(-4deg) translate(1px, -1px); transform: var(--held-transform); }
+        .floating-cards--right .card:last-child { --held-transform: rotate(6deg) translate(-1px, 1px); transform: var(--held-transform); }
+        .floating-cards--bottom-left { transform: translate(22%, -126%) !important; }
+        .floating-cards--bottom-left .card:first-child { --held-transform: rotate(-7deg) translateY(0); transform: var(--held-transform); }
+        .floating-cards--bottom-left .card:last-child { --held-transform: rotate(5deg) translateY(-1px); transform: var(--held-transform); }
+        .floating-cards--bottom-right { transform: translate(-122%, -126%) !important; }
+        .floating-cards--bottom-right .card:first-child { --held-transform: rotate(-5deg) translateY(0); transform: var(--held-transform); }
+        .floating-cards--bottom-right .card:last-child { --held-transform: rotate(7deg) translateY(-1px); transform: var(--held-transform); }
 
-        .my-hand-area { display: flex !important; padding: 0 16px 8px; gap: 12px; margin-top: -60px; position: relative; z-index: 6; justify-content: center; }
+        .my-hand-area { display: flex !important; padding: 0 16px 10px; gap: 10px; margin-top: -58px; position: relative; z-index: 6; justify-content: center; align-items: flex-end; }
+        .my-hand-cards { min-width: 156px; min-height: 114px; padding: 20px 14px 8px; }
+        .my-hand-cards::before { inset: 16px 4px 0; }
+        .my-hand-cards .card { width: 66px !important; height: 94px !important; font-size: 26px !important; }
+        .my-hand-nameplate { margin-top: 22px; }
+        .my-hand-badges { gap: 4px !important; min-height: 18px !important; }
+        .my-hand-badges .seat-dealer-dot {
+          width: 18px !important;
+          height: 18px !important;
+          font-size: 9px !important;
+          position: static !important;
+          top: auto !important;
+          right: auto !important;
+        }
+        .my-hand-badges .seat-pos-label {
+          font-size: 7px !important;
+          position: static !important;
+          top: auto !important;
+          right: auto !important;
+          padding: 2px 5px !important;
+          border-radius: 999px !important;
+          background: rgba(20,16,8,0.9) !important;
+          border: 1px solid rgba(180,140,60,0.3) !important;
+          color: var(--gold) !important;
+          line-height: 1 !important;
+        }
 
         .action-strip { padding: 8px 12px !important; gap: 8px !important; background: linear-gradient(to top, rgba(4,6,4,0.99), rgba(10,14,10,0.95)) !important; border-top: none !important; justify-content: center !important; }
         .astrip-fold { background: linear-gradient(180deg, #8b2020, #6b1515) !important; color: #fff !important; border-radius: 999px !important; padding: 14px 22px !important; font-size: 14px !important; border: 1px solid rgba(255,100,100,0.15); box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
@@ -1368,7 +1918,10 @@
         .astrip-raise { background: linear-gradient(180deg, #8b6b20, #6b4a10) !important; color: #fff !important; border-radius: 999px !important; padding: 14px 22px !important; font-size: 14px !important; border: 1px solid rgba(255,200,100,0.15); box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
         .astrip-allin { background: linear-gradient(180deg, #6b3520, #4a2010) !important; color: #ffb080 !important; border-radius: 999px !important; padding: 10px 14px !important; font-size: 11px !important; border: 1px solid rgba(255,150,100,0.15); display: block !important; }
         .astrip-raise-group { display: none !important; }
-        .preset-row { background: rgba(4,6,4,0.98) !important; padding: 2px 16px 6px !important; }
+        .preset-row { background: rgba(4,6,4,0.98) !important; padding: 4px 14px 8px !important; gap: 5px !important; }
+        .preset-amount-wrap { display: flex !important; }
+        .preset-amount-label { font-size: 9px !important; }
+        .preset-amount-input { width: 68px !important; font-size: 12px !important; padding: 5px 6px !important; }
 
         .seat-bet { font-size: 10px !important; padding: 2px 6px !important; }
         .seat-win-amount { font-size: 14px !important; }
@@ -1637,9 +2190,15 @@
 
       <div class="table-area">
         <div class="table-surface" id="tableSurface">
+          <div class="dealer-deck" id="dealerDeck" aria-hidden="true"></div>
+          <div class="deal-fx-layer" id="dealFxLayer" aria-hidden="true"></div>
           <div class="table-center">
             <div class="street-label" id="streetLabel">WAITING</div>
-            <div class="pot-display" id="potDisplay">Pot $0</div>
+            <div class="pot-display" id="potDisplay" data-state="idle">
+              <span class="pot-label">Pot</span>
+              <div class="pot-stack-art" id="potStackArt" aria-hidden="true"></div>
+              <span class="pot-amount" id="potAmount">$0</span>
+            </div>
             <div class="board-cards" id="boardCards"></div>
             <div class="win-reason" id="winReason"></div>
           </div>
@@ -1670,6 +2229,10 @@
       </div>
 
       <div class="preset-row hidden" id="presetRow">
+        <div class="preset-amount-wrap">
+          <span class="preset-amount-label" id="presetAmountLabel">Bet $</span>
+          <input class="preset-amount-input" id="betAmountQuick" type="number" min="0" step="0.1" value="0" inputmode="decimal" />
+        </div>
         <button class="preset-chip" type="button" data-fraction="0.33">⅓</button>
         <button class="preset-chip" type="button" data-fraction="0.5">½</button>
         <button class="preset-chip" type="button" data-fraction="0.75">¾</button>
@@ -1684,6 +2247,6 @@
 
     <div class="toast-container" id="toastContainer"></div>
 
-    <script type="module" src="./online/table_app.js?v=14"></script>
+    <script type="module" src="./online/table_app.js?v=27"></script>
   </body>
 </html>

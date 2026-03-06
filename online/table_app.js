@@ -9,6 +9,13 @@ const online = createOnlinePokerClient(supabase);
 
 const POLL_MS = 1800;
 const RUNTIME_TICK_MIN_MS = 1200;
+const DEAL_STAGGER_MS = 110;
+const DEAL_ANIMATION_MS = 320;
+const DEAL_REVEAL_MS = 180;
+const DEAL_REVEAL_OFFSET_MS = 72;
+const POT_BUMP_MS = 520;
+const CHIP_PUSH_MS = 760;
+const CHIP_PUSH_STAGGER_MS = 48;
 function getTurnClockSecs() { return state.config.turnTime || 25; }
 const REALTIME_DEBOUNCE_MS = 180;
 const RECONNECT_DEBOUNCE_MS = 900;
@@ -56,10 +63,15 @@ const el = {
   removeBotsBtn: document.getElementById("removeBotsBtn"),
   leaveBtn: document.getElementById("leaveBtn"),
   tableSurface: document.getElementById("tableSurface"),
+  dealerDeck: document.getElementById("dealerDeck"),
+  dealFxLayer: document.getElementById("dealFxLayer"),
   seatsLayer: document.getElementById("seatsLayer"),
   potDisplay: document.getElementById("potDisplay"),
+  potStackArt: document.getElementById("potStackArt"),
+  potAmount: document.getElementById("potAmount"),
   streetLabel: document.getElementById("streetLabel"),
   boardCards: document.getElementById("boardCards"),
+  winReason: document.getElementById("winReason"),
   startHandBtn: document.getElementById("startHandBtn"),
   actionStrip: document.getElementById("actionStrip"),
   presetRow: document.getElementById("presetRow"),
@@ -69,8 +81,11 @@ const el = {
   allInBtn: document.getElementById("allInBtn"),
   betSlider: document.getElementById("betSlider"),
   betAmount: document.getElementById("betAmount"),
+  betAmountQuick: document.getElementById("betAmountQuick"),
+  presetAmountLabel: document.getElementById("presetAmountLabel"),
   myHandArea: document.getElementById("myHandArea"),
   myHandCards: document.getElementById("myHandCards"),
+  myHandNameplate: document.getElementById("myHandNameplate"),
   hamburgerBtn: document.getElementById("hamburgerBtn"),
   configOverlay: document.getElementById("configOverlay"),
   configBackdrop: document.getElementById("configBackdrop"),
@@ -122,6 +137,14 @@ const state = {
   lastTrackedEventSeq: 0,
   equityCacheKey: "",
   equityCache: new Map(),
+  dealAnimation: null,
+  potVisual: {
+    handId: null,
+    chipCount: 0,
+    pulseUntil: 0,
+  },
+  potPushAnimation: null,
+  clearedPotHandId: null,
   audioCtx: null,
 };
 
@@ -219,6 +242,92 @@ function fmtShort(v) {
   return n % 1 === 0 ? `$${n}` : `$${n.toFixed(2)}`;
 }
 
+function decimalPlaces(v) {
+  const raw = String(v ?? "").trim();
+  if (!raw || !raw.includes(".")) return 0;
+  return raw.split(".")[1].replace(/0+$/, "").length;
+}
+
+function getBetStep() {
+  const table = getTable();
+  const places = Math.max(
+    decimalPlaces(table?.small_blind),
+    decimalPlaces(table?.big_blind),
+    decimalPlaces(getLatestHand()?.min_raise),
+  );
+  return places > 0 ? Number((1 / (10 ** Math.min(places, 2))).toFixed(Math.min(places, 2))) : 1;
+}
+
+function roundToStep(value, step = 1) {
+  const safeStep = Math.max(0.01, Number(step || 1));
+  const decimals = decimalPlaces(safeStep);
+  return Number((Math.round(Number(value || 0) / safeStep) * safeStep).toFixed(decimals));
+}
+
+function getBetBounds(hand = getLatestHand(), hp = getMyHandPlayer()) {
+  const toCall = Math.max(0, Number(hand?.current_bet || 0) - Number(hp?.street_contribution || 0));
+  const isRaise = Number(hand?.current_bet || 0) > 0;
+  const minRaw = isRaise
+    ? Number(hand?.current_bet || 0) + Math.max(Number(hand?.min_raise || 0), Number(getTable()?.big_blind || 2))
+    : Number(getTable()?.big_blind || 2);
+  const maxRaw = Number(hp?.stack_end || 0) + Number(hp?.street_contribution || 0);
+  const step = getBetStep();
+  const maxBet = roundToStep(maxRaw, step);
+  const minBet = roundToStep(Math.min(minRaw, maxBet), step);
+  return { toCall, isRaise, minBet, maxBet, step };
+}
+
+function normalizeBetAmount(value, minBet, maxBet, step = 1) {
+  const safeStep = Math.max(0.01, Number(step || 1));
+  const decimals = decimalPlaces(safeStep);
+  const fallback = Number.isFinite(minBet) ? minBet : 0;
+  let next = Number(value);
+  if (!Number.isFinite(next)) next = fallback;
+  next = Math.min(Number.isFinite(maxBet) ? maxBet : next, Math.max(fallback, next));
+  next = Math.min(Number.isFinite(maxBet) ? maxBet : next, Math.max(fallback, roundToStep(next, safeStep)));
+  return Number(next.toFixed(decimals));
+}
+
+function getBetControlValue() {
+  const quickValue = Number(el.betAmountQuick?.value);
+  if (Number.isFinite(quickValue)) return quickValue;
+  const amountValue = Number(el.betAmount?.value);
+  if (Number.isFinite(amountValue)) return amountValue;
+  const sliderValue = Number(el.betSlider?.value);
+  return Number.isFinite(sliderValue) ? sliderValue : 0;
+}
+
+function setBetControlValue(value) {
+  const stringValue = String(value);
+  if (el.betSlider) el.betSlider.value = stringValue;
+  if (el.betAmount) el.betAmount.value = stringValue;
+  if (el.betAmountQuick) el.betAmountQuick.value = stringValue;
+}
+
+function refreshBetControls(hand = getLatestHand(), hp = getMyHandPlayer()) {
+  if (!hand || !hp || !el.betSlider || !el.betAmount) return;
+  const { isRaise, minBet, maxBet, step } = getBetBounds(hand, hp);
+  const normalized = normalizeBetAmount(getBetControlValue(), minBet, maxBet, step);
+  const stringMin = String(minBet);
+  const stringMax = String(maxBet);
+  const stringStep = String(step);
+  el.betSlider.min = stringMin;
+  el.betSlider.max = stringMax;
+  el.betSlider.step = stringStep;
+  el.betAmount.min = stringMin;
+  el.betAmount.max = stringMax;
+  el.betAmount.step = stringStep;
+  if (el.betAmountQuick) {
+    el.betAmountQuick.min = stringMin;
+    el.betAmountQuick.max = stringMax;
+    el.betAmountQuick.step = stringStep;
+  }
+  setBetControlValue(normalized);
+  if (el.presetAmountLabel) {
+    el.presetAmountLabel.textContent = isRaise ? "Raise to $" : "Bet $";
+  }
+}
+
 function getLatestHand() { return state.tableState?.latest_hand?.hand || null; }
 function getHandPlayers() { return state.tableState?.latest_hand?.players || []; }
 function getHandEvents() { return state.tableState?.latest_hand?.events || []; }
@@ -237,18 +346,95 @@ function getMyHandPlayer() {
   return getHandPlayers().find(hp => hp.group_player_id === me) || null;
 }
 
-function isHostPlayer() {
+function seatLooksBot(seat) {
+  if (!seat) return false;
+  if (state.botSeats.has(seat.seat_no)) return true;
+  if (seat.is_bot) return true;
+  return /^bot\b/i.test(String(seat.player_name || "").trim());
+}
+
+function getEffectiveHostGroupPlayerId() {
   const table = getTable();
-  if (!table) return false;
-  return table.created_by_group_player_id === state.identity?.groupPlayerId;
+  if (!table) return null;
+  const activeSeats = getSeats()
+    .filter(seat => seat.group_player_id && !seat.left_at)
+    .sort((a, b) => a.seat_no - b.seat_no);
+  const declaredHostSeat = activeSeats.find(
+    (seat) => seat.group_player_id === table.created_by_group_player_id
+  );
+  if (declaredHostSeat && !seatLooksBot(declaredHostSeat)) {
+    return declaredHostSeat.group_player_id;
+  }
+  return activeSeats.find((seat) => !seatLooksBot(seat))?.group_player_id || null;
+}
+
+function isHostPlayer() {
+  return getEffectiveHostGroupPlayerId() === state.identity?.groupPlayerId;
 }
 
 function canManageHand() {
-  return isHostPlayer() && Boolean(getSeatToken());
+  return isHostPlayer() && Boolean(getSeatToken()) && Boolean(getMySeat());
 }
 
 function isActionStreet(s) {
   return ["preflop","flop","turn","river"].includes(s);
+}
+
+function compareRankTuples(a = [], b = []) {
+  const len = Math.max(a.length, b.length);
+  for (let i = 0; i < len; i += 1) {
+    const av = Number(a[i] || 0);
+    const bv = Number(b[i] || 0);
+    if (av > bv) return 1;
+    if (av < bv) return -1;
+  }
+  return 0;
+}
+
+function getShowdownLeaders(hand = getLatestHand(), players = getHandPlayers()) {
+  const board = Array.isArray(hand?.board_cards) ? hand.board_cards : [];
+  if (!hand || !["showdown", "settled"].includes(hand.state) || board.length !== 5) return [];
+  if (players.filter((player) => !player?.folded).length <= 1) return [];
+
+  const contenders = [];
+  for (const player of players) {
+    if (player?.folded) continue;
+    if (!Array.isArray(player?.hole_cards) || player.hole_cards.length < 2) continue;
+    try {
+      const desc = describeSevenCardHand([...player.hole_cards, ...board]);
+      if (Array.isArray(desc?.tuple) && desc.tuple.length) {
+        contenders.push({ player, desc });
+      }
+    } catch {
+      // Ignore malformed card state in the client render path.
+    }
+  }
+  if (!contenders.length) return [];
+
+  let bestTuple = contenders[0].desc.tuple;
+  for (const contender of contenders.slice(1)) {
+    if (compareRankTuples(contender.desc.tuple, bestTuple) > 0) {
+      bestTuple = contender.desc.tuple;
+    }
+  }
+
+  return contenders.filter((contender) => compareRankTuples(contender.desc.tuple, bestTuple) === 0);
+}
+
+function getUncontestedWinner(hand = getLatestHand(), players = getHandPlayers()) {
+  if (!hand || !["showdown", "settled"].includes(hand.state)) return null;
+  const remaining = players.filter((player) => !player?.folded);
+  return remaining.length === 1 ? remaining[0] : null;
+}
+
+function isContestedShowdown(hand = getLatestHand(), players = getHandPlayers()) {
+  const board = Array.isArray(hand?.board_cards) ? hand.board_cards : [];
+  return Boolean(
+    hand &&
+    ["showdown", "settled"].includes(hand.state) &&
+    board.length === 5 &&
+    players.filter((player) => !player?.folded).length > 1
+  );
 }
 
 function seatName(groupPlayerId) {
@@ -261,6 +447,26 @@ function seatName(groupPlayerId) {
   if (hp?.player_name) return hp.player_name;
   if (state.identity?.groupPlayerId === groupPlayerId) return state.identity.name;
   return `Seat ${seat?.seat_no || "?"}`;
+}
+
+function getStackCtaState({ hand = getLatestHand(), handPlayer = null, stack = 0, startingStack = 200 } = {}) {
+  const currentStack = Number(stack || 0);
+  const startStackValue = Math.max(0, Number(startingStack || 0));
+  const handActive = Boolean(hand && !["settled", "canceled"].includes(hand.state));
+  const activeAllIn = Boolean(handActive && handPlayer && !handPlayer.folded && handPlayer.all_in);
+  const busted = currentStack <= 0;
+  const low = currentStack <= startStackValue * 0.2;
+
+  if (activeAllIn) {
+    return { kind: "status", text: "All-in" };
+  }
+  if (busted && !handActive) {
+    return { kind: "action", text: "Buy In" };
+  }
+  if (!handActive && low) {
+    return { kind: "action", text: busted ? "Buy In" : "Top Up" };
+  }
+  return { kind: "none", text: "" };
 }
 
 function normCard(token) {
@@ -296,11 +502,252 @@ function isLandscape() {
   return window.innerHeight <= 500 && window.innerWidth > window.innerHeight;
 }
 
+function nextOccupiedSeat(activeSeatNos, seatNo) {
+  for (const activeSeat of activeSeatNos) {
+    if (activeSeat > seatNo) return activeSeat;
+  }
+  return activeSeatNos[0] || null;
+}
+
+function buildDealSeatOrder(hand) {
+  const activeSeatNos = getSeats()
+    .filter((seat) => seat.group_player_id && !seat.left_at)
+    .map((seat) => seat.seat_no)
+    .sort((a, b) => a - b);
+  if (!activeSeatNos.length) return [];
+  const firstSeat = activeSeatNos.length === 2
+    ? hand?.button_seat
+    : nextOccupiedSeat(activeSeatNos, hand?.button_seat ?? activeSeatNos[0]);
+  const startIndex = Math.max(0, activeSeatNos.indexOf(firstSeat));
+  return activeSeatNos.slice(startIndex).concat(activeSeatNos.slice(0, startIndex));
+}
+
+function clearDealFx() {
+  const anim = state.dealAnimation;
+  if (anim?.cleanupTimer) clearTimeout(anim.cleanupTimer);
+  if (Array.isArray(anim?.soundTimers)) {
+    anim.soundTimers.forEach((timerId) => clearTimeout(timerId));
+  }
+  if (state.potPushAnimation?.cleanupTimer) {
+    clearTimeout(state.potPushAnimation.cleanupTimer);
+  }
+  if (el.dealFxLayer) el.dealFxLayer.innerHTML = "";
+  if (el.potDisplay) el.potDisplay.classList.remove("pot-paying");
+  state.potPushAnimation = null;
+}
+
+function maybeStartDealAnimation(oldHand, hand, hadPriorTableState = false) {
+  if (!hand || hand.state !== "preflop") return;
+  const isNewHand = Boolean(oldHand && hand.id !== oldHand.id);
+  const isFirstVisibleHand = Boolean(!oldHand && hadPriorTableState);
+  if (!isNewHand && !isFirstVisibleHand) return;
+  const seatOrder = buildDealSeatOrder(hand);
+  if (!seatOrder.length) return;
+  clearDealFx();
+  state.dealAnimation = {
+    handId: hand.id,
+    startedAt: Date.now(),
+    seatOrder,
+    launched: false,
+    cleanupTimer: null,
+    soundTimers: [],
+  };
+}
+
+function getDealCardDelayMs(anim, seatNo, cardIndex) {
+  if (!anim) return null;
+  const orderIndex = anim.seatOrder.indexOf(seatNo);
+  if (orderIndex < 0) return null;
+  const seatCount = anim.seatOrder.length;
+  const roundIndex = Math.max(0, Number(cardIndex || 1) - 1);
+  return (roundIndex * seatCount + orderIndex) * DEAL_STAGGER_MS;
+}
+
+function getDealCardAnimationMeta(seatNo, cardIndex, hand = getLatestHand()) {
+  const anim = state.dealAnimation;
+  if (!anim || !hand || anim.handId !== hand.id) return null;
+  const delayMs = getDealCardDelayMs(anim, seatNo, cardIndex);
+  if (delayMs == null) return null;
+  const elapsed = Date.now() - anim.startedAt;
+  if (elapsed >= delayMs + DEAL_ANIMATION_MS + DEAL_REVEAL_MS) return null;
+  return {
+    flightDelayMs: Math.max(0, delayMs - elapsed),
+    revealDelayMs: Math.max(0, delayMs + DEAL_ANIMATION_MS - DEAL_REVEAL_OFFSET_MS - elapsed),
+  };
+}
+
+function markDealCardTarget(cardEl, seatNo, cardIndex, hand = getLatestHand(), tiltDeg = 0) {
+  if (!cardEl) return cardEl;
+  cardEl.classList.add("deal-target");
+  cardEl.dataset.dealSeat = String(seatNo);
+  cardEl.dataset.dealCard = String(cardIndex);
+  cardEl.dataset.dealTilt = String(tiltDeg);
+  const dealMeta = getDealCardAnimationMeta(seatNo, cardIndex, hand);
+  if (dealMeta) {
+    cardEl.classList.add("card-dealing");
+    cardEl.style.setProperty("--deal-reveal-delay", `${dealMeta.revealDelayMs}ms`);
+  } else {
+    cardEl.classList.remove("card-dealing");
+    cardEl.style.removeProperty("--deal-reveal-delay");
+  }
+  return cardEl;
+}
+
+function maybeLaunchDealFx(hand = getLatestHand()) {
+  const anim = state.dealAnimation;
+  if (!anim || anim.launched || !hand || anim.handId !== hand.id) return;
+  if (!el.dealFxLayer || !el.dealerDeck || !el.tableSurface) return;
+
+  const deckRect = el.dealerDeck.getBoundingClientRect();
+  const tableRect = el.tableSurface.getBoundingClientRect();
+  if (!deckRect.width || !tableRect.width) return;
+
+  const fromX = deckRect.left + deckRect.width / 2 - tableRect.left;
+  const fromY = deckRect.top + deckRect.height / 2 - tableRect.top;
+  const totalCards = anim.seatOrder.length * 2;
+  const soundTimers = [];
+  let created = 0;
+
+  for (const seatNo of anim.seatOrder) {
+    for (let cardIndex = 1; cardIndex <= 2; cardIndex++) {
+      const target = document.querySelector(`.deal-target[data-deal-seat="${seatNo}"][data-deal-card="${cardIndex}"]`);
+      if (!target) continue;
+      const delayMs = getDealCardDelayMs(anim, seatNo, cardIndex);
+      if (delayMs == null) continue;
+
+      const targetRect = target.getBoundingClientRect();
+      if (!targetRect.width || !targetRect.height) continue;
+
+      const flight = document.createElement("div");
+      flight.className = "deal-flight-card";
+      flight.style.setProperty("--from-x", `${fromX - targetRect.width / 2}px`);
+      flight.style.setProperty("--from-y", `${fromY - targetRect.height / 2}px`);
+      flight.style.setProperty("--to-x", `${targetRect.left - tableRect.left}px`);
+      flight.style.setProperty("--to-y", `${targetRect.top - tableRect.top}px`);
+      flight.style.setProperty("--to-rot", `${Number(target.dataset.dealTilt || 0)}deg`);
+      flight.style.setProperty("--card-w", `${targetRect.width}px`);
+      flight.style.setProperty("--card-h", `${targetRect.height}px`);
+      flight.style.setProperty("--delay-ms", `${delayMs}ms`);
+      flight.style.setProperty("--flight-ms", `${DEAL_ANIMATION_MS}ms`);
+      flight.addEventListener("animationend", () => flight.remove(), { once: true });
+      el.dealFxLayer.appendChild(flight);
+      created += 1;
+
+      soundTimers.push(setTimeout(() => sounds.deal(), Math.max(0, delayMs - 12)));
+    }
+  }
+
+  if (!created) return;
+  anim.launched = true;
+  anim.soundTimers = soundTimers;
+  anim.cleanupTimer = setTimeout(() => {
+    if (state.dealAnimation?.handId === anim.handId) clearDealFx();
+  }, totalCards * DEAL_STAGGER_MS + DEAL_ANIMATION_MS + 220);
+}
+
+function getPotChipCount(potTotal, bigBlind) {
+  if (!(potTotal > 0)) return 0;
+  const bbUnits = potTotal / Math.max(0.01, Number(bigBlind || 1));
+  return Math.min(12, Math.max(3, 2 + Math.round(Math.sqrt(bbUnits) * 1.7)));
+}
+
+function renderPotChips(potTotal, bigBlind, handId) {
+  if (!el.potStackArt) return;
+  const chipCount = getPotChipCount(potTotal, bigBlind);
+  const sameHand = state.potVisual.handId === handId;
+  const previousCount = sameHand ? state.potVisual.chipCount : 0;
+  const colors = ["charcoal", "red", "green", "gold", "ivory"];
+
+  el.potStackArt.innerHTML = "";
+  for (let i = 0; i < chipCount; i++) {
+    const chip = document.createElement("span");
+    const row = Math.floor(i / 3);
+    const col = i % 3;
+    const x = col * 11 + (row % 2 === 1 ? 2 : 0);
+    const y = Math.max(0, 10 - row * 4 + (col === 1 ? 0 : 1));
+    chip.className = `pot-chip pot-chip--${colors[i % colors.length]}`;
+    if (sameHand && i >= previousCount) chip.classList.add("stack-added");
+    chip.style.left = `${x}px`;
+    chip.style.top = `${y}px`;
+    chip.style.zIndex = String(10 + i);
+    chip.style.setProperty("--chip-rot", `${[-8, 4, -3, 7, -5][i % 5]}deg`);
+    el.potStackArt.appendChild(chip);
+  }
+
+  const scale = chipCount > 0 ? (0.92 + Math.min(0.42, chipCount * 0.035)) : 1;
+  el.potStackArt.style.setProperty("--stack-scale", scale.toFixed(2));
+  state.potVisual.handId = handId || null;
+  state.potVisual.chipCount = chipCount;
+}
+
+function getSeatTargetElement(seatNo) {
+  const mySeat = getMySeat();
+  if (mySeat && mySeat.seat_no === seatNo) {
+    return el.myHandNameplate || el.myHandArea || null;
+  }
+  return el.seatsLayer?.querySelector(`.seat-node[data-seat-no="${seatNo}"]`) || null;
+}
+
+function maybeLaunchPotPushFx(hand = getLatestHand()) {
+  const anim = state.potPushAnimation;
+  if (!anim || anim.launched || !hand || anim.handId !== hand.id) return;
+  if (!el.dealFxLayer || !el.tableSurface || !el.potStackArt) return;
+
+  const tableRect = el.tableSurface.getBoundingClientRect();
+  const sourceRect = el.potStackArt.getBoundingClientRect();
+  if (!tableRect.width || !sourceRect.width) return;
+
+  const fromX = sourceRect.left + sourceRect.width / 2 - tableRect.left;
+  const fromY = sourceRect.top + sourceRect.height / 2 - tableRect.top;
+  const bigBlind = Math.max(0.01, Number(getTable()?.big_blind || 1));
+  const colorOrder = ["charcoal", "red", "green", "gold", "ivory"];
+  let created = 0;
+
+  anim.winners.forEach((winner, winnerIndex) => {
+    const targetEl = getSeatTargetElement(winner.seatNo);
+    if (!targetEl) return;
+    const targetRect = targetEl.getBoundingClientRect();
+    if (!targetRect.width) return;
+    const chipCount = Math.min(8, Math.max(4, 2 + Math.round(Math.sqrt(Number(winner.amount || 0) / bigBlind) * 1.4)));
+
+    for (let i = 0; i < chipCount; i++) {
+      const chip = document.createElement("span");
+      const scatterX = ((i % 3) - 1) * 12 + (winnerIndex * 8);
+      const scatterY = Math.floor(i / 3) * 7;
+      chip.className = `pot-chip pot-chip--${colorOrder[(i + winnerIndex) % colorOrder.length]} pot-push-chip`;
+      chip.style.setProperty("--chip-rot", `${[-10, 8, -6, 5, -3][(i + winnerIndex) % 5]}deg`);
+      chip.style.setProperty("--from-x", `${fromX - 9 + (i % 2 ? 4 : -4)}px`);
+      chip.style.setProperty("--from-y", `${fromY - 9 + Math.floor(i / 2) * 2}px`);
+      chip.style.setProperty("--to-x", `${targetRect.left + targetRect.width / 2 - tableRect.left - 9 + scatterX}px`);
+      chip.style.setProperty("--to-y", `${targetRect.top + targetRect.height / 2 - tableRect.top - 9 + scatterY}px`);
+      chip.style.setProperty("--delay-ms", `${winnerIndex * 120 + i * CHIP_PUSH_STAGGER_MS}ms`);
+      chip.style.setProperty("--flight-ms", `${CHIP_PUSH_MS}ms`);
+      chip.addEventListener("animationend", () => chip.remove(), { once: true });
+      el.dealFxLayer.appendChild(chip);
+      created += 1;
+    }
+  });
+
+  anim.launched = true;
+  if (!created) {
+    state.potPushAnimation = null;
+    return;
+  }
+
+  state.clearedPotHandId = anim.handId;
+  if (el.potDisplay) el.potDisplay.classList.add("pot-paying", "pot-cleared");
+  if (el.potAmount) el.potAmount.textContent = fmtShort(0);
+  anim.cleanupTimer = setTimeout(() => {
+    if (el.potDisplay) el.potDisplay.classList.remove("pot-paying");
+    if (state.potPushAnimation?.handId === anim.handId) state.potPushAnimation = null;
+  }, CHIP_PUSH_MS + anim.winners.length * 120 + 600);
+}
+
 // Fixed seat positions at the table edge for portrait mode.
 // Each slot is { x%, y% } placing the seat right on the rail.
 const PORTRAIT_SEATS = {
   2: [
-    { x: 20, y: 50 }, { x: 80, y: 50 },
+    { x: 50, y: 4 }, { x: 50, y: 86 },
   ],
   3: [
     { x: 50, y: 4 },
@@ -639,16 +1086,30 @@ async function loadTableState() {
   if (!state.tableId || state.loading) return;
   state.loading = true;
   try {
+    const hadPriorTableState = Boolean(state.tableState);
     const ts = await online.getTableState({
       tableId: state.tableId,
       viewerGroupPlayerId: state.identity?.groupPlayerId || null,
       viewerSeatToken: getSeatToken() || null,
     });
     const oldHand = getLatestHand();
+    const oldPotTotal = Number(oldHand?.pot_total || 0);
     state.tableState = ts;
     state.lastSyncAt = Date.now();
 
     const hand = getLatestHand();
+    const newPotTotal = Number(hand?.pot_total || 0);
+    if (!oldHand || hand?.id !== oldHand.id) {
+      state.potVisual.handId = hand?.id || null;
+      state.potVisual.chipCount = 0;
+      state.potVisual.pulseUntil = 0;
+      if (state.clearedPotHandId && hand?.id !== state.clearedPotHandId) {
+        state.clearedPotHandId = null;
+      }
+    } else if (newPotTotal > oldPotTotal + 0.001) {
+      state.potVisual.pulseUntil = Date.now() + POT_BUMP_MS;
+    }
+    maybeStartDealAnimation(oldHand, hand, hadPriorTableState);
     if (hand && oldHand) {
       if (oldHand.state !== "settled" && hand.state === "settled") {
         handleSettlement(hand);
@@ -683,10 +1144,21 @@ async function loadTableState() {
 function getShowdownTimeMs() { return state.config.showdownTime || 5000; }
 
 function handleSettlement(hand) {
+  const showdownLeaderSeats = new Set(getShowdownLeaders(hand).map(({ player }) => player.seat_no));
   const winners = getHandPlayers().filter(p => Number(p.result_amount || 0) > 0);
   for (const w of winners) {
-    state.winOverlays.set(w.seat_no, { amount: w.result_amount, until: Date.now() + getShowdownTimeMs() });
+    state.winOverlays.set(w.seat_no, {
+      amount: w.result_amount,
+      until: Date.now() + getShowdownTimeMs(),
+      isShowdownLeader: showdownLeaderSeats.size ? showdownLeaderSeats.has(w.seat_no) : true,
+    });
   }
+  state.potPushAnimation = winners.length ? {
+    handId: hand.id,
+    winners: winners.map((w) => ({ seatNo: w.seat_no, amount: Number(w.result_amount || 0) })),
+    launched: false,
+    cleanupTimer: null,
+  } : null;
   if (winners.length > 0) sounds.win();
   if (state.config.autoDeal) scheduleAutoDeal();
 }
@@ -874,6 +1346,7 @@ async function addBot(seatNo) {
       tableId: state.tableId,
       groupPlayerId: identity.group_player_id,
       preferredSeat: seatNo,
+      isBot: true,
     });
 
     if (seat?.seat_token) {
@@ -1011,6 +1484,8 @@ function renderAll() {
   renderMyHand();
   renderActions();
   renderHandLog();
+  maybeLaunchPotPushFx();
+  maybeLaunchDealFx();
   updateTurnUI();
 }
 
@@ -1020,14 +1495,45 @@ function renderTopBar() {
   el.tbBlinds.textContent = table ? `${table.small_blind}/${table.big_blind}` : "";
   const seated = getSeats().filter(s => s.group_player_id && !s.left_at).length;
   el.tbPlayers.textContent = `${seated} seated`;
-  el.removeBotsBtn.style.display = (isHostPlayer() && state.botSeats.size > 0) ? "" : "none";
+  el.removeBotsBtn.style.display = (canManageHand() && state.botSeats.size > 0) ? "" : "none";
 }
 
 function renderBoard() {
   const hand = getLatestHand();
+  const players = getHandPlayers();
   const board = Array.isArray(hand?.board_cards) ? hand.board_cards : [];
+  const showdownLeaders = getShowdownLeaders(hand, players);
+  const uncontestedWinner = getUncontestedWinner(hand, players);
+  const contestedShowdown = isContestedShowdown(hand, players);
+  const payoutActive = Boolean(state.potPushAnimation?.handId === hand?.id && state.potPushAnimation?.launched);
+  const clearedPot = Boolean(hand?.id && state.clearedPotHandId === hand.id);
+  const potTotal = (payoutActive || clearedPot) ? 0 : Number(hand?.pot_total || 0);
+  const bigBlind = Math.max(0.01, Number(getTable()?.big_blind || 1));
+  const potBb = potTotal / bigBlind;
+  const allInMode = Boolean(
+    hand && (
+      hand.state === "allin_progress" ||
+      getHandPlayers().some((hp) => !hp.folded && hp.all_in)
+    )
+  );
 
-  el.potDisplay.textContent = hand ? `Pot ${fmtShort(hand.pot_total)}` : "Pot $0";
+  if (el.potAmount) el.potAmount.textContent = fmtShort(potTotal);
+  renderPotChips(potTotal, bigBlind, hand?.id || null);
+  if (el.potDisplay) {
+    let potState = "idle";
+    if (potTotal > 0) {
+      if (allInMode || potBb >= 24) potState = "monster";
+      else if (potBb >= 10) potState = "hot";
+      else potState = "live";
+    }
+    el.potDisplay.dataset.state = potState;
+    el.potDisplay.classList.toggle("pot-bump", Date.now() < state.potVisual.pulseUntil);
+    el.potDisplay.classList.toggle("pot-cleared", payoutActive || clearedPot);
+  }
+  if (el.tableSurface) {
+    el.tableSurface.classList.toggle("all-in-mode", allInMode);
+    el.tableSurface.classList.toggle("showdown-mode", contestedShowdown);
+  }
   el.streetLabel.textContent = hand ? (hand.state || "waiting").toUpperCase() : "WAITING";
 
   el.boardCards.innerHTML = "";
@@ -1040,53 +1546,43 @@ function renderBoard() {
     }
   }
 
-  const winReasonEl = document.getElementById("winReason");
+  const winReasonEl = el.winReason;
   if (winReasonEl) {
-    if (hand && ["showdown","settled"].includes(hand.state) && board.length === 5) {
-      const players = getHandPlayers();
-      const winners = players.filter(p => Number(p.result_amount || 0) > 0 && !p.folded);
-      if (winners.length > 0) {
-        const winner = winners[0];
-        const holeCards = winner.hole_cards || [];
-        if (holeCards.length >= 2) {
-          try {
-            const allCards = [...holeCards, ...board];
-            const desc = describeSevenCardHand(allCards);
-            const winnerName = seatName(winner.group_player_id);
-            winReasonEl.textContent = `${winnerName} wins with ${desc.label}`;
-          } catch {
-            winReasonEl.textContent = "";
-          }
+    if (uncontestedWinner) {
+      winReasonEl.textContent = `${seatName(uncontestedWinner.group_player_id)} wins the pot`;
+    } else if (contestedShowdown) {
+      if (showdownLeaders.length > 0) {
+        const label = showdownLeaders[0].desc?.label || "";
+        if (showdownLeaders.length === 1) {
+          const winnerName = seatName(showdownLeaders[0].player.group_player_id);
+          winReasonEl.textContent = label ? `${winnerName} wins with ${label}` : `${winnerName} wins`;
         } else {
-          const winnerName = seatName(winner.group_player_id);
-          winReasonEl.textContent = `${winnerName} wins`;
+          const winnerNames = showdownLeaders.map(({ player }) => seatName(player.group_player_id)).join(" & ");
+          winReasonEl.textContent = label ? `${winnerNames} split with ${label}` : `${winnerNames} split the pot`;
         }
       } else {
-        const lastStanding = players.filter(p => !p.folded);
-        if (lastStanding.length === 1) {
-          winReasonEl.textContent = `${seatName(lastStanding[0].group_player_id)} wins — everyone folded`;
-        } else {
-          winReasonEl.textContent = "";
-        }
+        winReasonEl.textContent = "";
       }
     } else {
       winReasonEl.textContent = "";
     }
+    winReasonEl.classList.toggle("has-result", Boolean(winReasonEl.textContent));
   }
 }
 
 function renderSeats() {
   const seats = getSeats().slice().sort((a, b) => a.seat_no - b.seat_no);
   const hand = getLatestHand();
-  const hpBySeat = new Map(getHandPlayers().map(hp => [hp.seat_no, hp]));
+  const handPlayers = getHandPlayers();
+  const hpBySeat = new Map(handPlayers.map(hp => [hp.seat_no, hp]));
   const mySeat = getMySeat();
-  const showEquity = hand && isActionStreet(hand.state) && getHandPlayers().some(hp => !hp.folded && hp.all_in);
+  const showEquity = hand && isActionStreet(hand.state) && handPlayers.some(hp => !hp.folded && hp.all_in);
 
   let equityMap = new Map();
   if (showEquity) {
     const key = `${hand.id}|${hand.state}|${JSON.stringify(hand.board_cards)}`;
     if (key !== state.equityCacheKey) {
-      state.equityCache = calcEquity(hand, getHandPlayers());
+      state.equityCache = calcEquity(hand, handPlayers);
       state.equityCacheKey = key;
     }
     equityMap = state.equityCache;
@@ -1095,6 +1591,8 @@ function renderSeats() {
   el.seatsLayer.innerHTML = "";
   const total = seats.length;
   const portrait = isPortraitMobile();
+  const contestedShowdown = isContestedShowdown(hand, handPlayers);
+  const showdownLeaderSeats = new Set(getShowdownLeaders(hand, handPlayers).map(({ player }) => player.seat_no));
 
   const tableSeats = portrait && mySeat ? seats.filter(s => s.seat_no !== mySeat.seat_no) : seats;
   const tableTotal = tableSeats.length;
@@ -1120,6 +1618,7 @@ function renderSeats() {
 
     const node = document.createElement("div");
     node.className = "seat-node";
+    node.dataset.seatNo = String(seat.seat_no);
     node.style.setProperty("--x", pos.x);
     node.style.setProperty("--y", pos.y);
 
@@ -1219,11 +1718,20 @@ function renderSeats() {
       const isMe = pid === state.identity?.groupPlayerId;
       if (isMe) node.classList.add("my-seat");
 
-      if (hp && Array.isArray(hp.hole_cards) && hp.hole_cards.length >= 2) {
-        const isShowdown = ["showdown","settled"].includes(hand?.state);
+      const holeCards = Array.isArray(hp?.hole_cards) ? hp.hole_cards : [];
+      const hasHoleCards = holeCards.length >= 2;
+      const shouldRenderHeldCards = Boolean(
+        hp && (
+          hasHoleCards ||
+          (hand && !["settled", "canceled"].includes(hand.state))
+        )
+      );
+
+      if (shouldRenderHeldCards) {
+        const isShowdown = contestedShowdown;
         let reveal = isMe;
         if (isShowdown && !isFolded) {
-          const isWinner = Number(hp.result_amount || 0) > 0;
+          const isWinner = showdownLeaderSeats.has(seat.seat_no);
           const isAggressor = getLastAggressor(hand) === seat.seat_no;
           reveal = isMe || isWinner || isAggressor;
         }
@@ -1233,25 +1741,38 @@ function renderSeats() {
           floatCards.className = "floating-cards";
           const px = parseFloat(pos.x);
           const py = parseFloat(pos.y);
-          const cx = 50, cy = 50;
-          const dx = (cx - px);
-          const dy = (cy - py);
-          const dist = Math.sqrt(dx*dx + dy*dy) || 1;
-          const nudge = 8;
-          floatCards.style.left = `${px + (dx/dist) * nudge}%`;
-          floatCards.style.top = `${py + (dy/dist) * nudge - 5}%`;
-          floatCards.appendChild(makeCardEl(hp.hole_cards[0], !reveal, false));
-          floatCards.appendChild(makeCardEl(hp.hole_cards[1], !reveal, false));
+          let anchor = "top";
+          if (py <= 18) anchor = "top";
+          else if (px <= 22) anchor = "left";
+          else if (px >= 78) anchor = "right";
+          else if (py >= 64) anchor = px < 50 ? "bottom-left" : "bottom-right";
+          else anchor = px < 50 ? "left" : "right";
+          floatCards.classList.add(`floating-cards--${anchor}`);
+          if (reveal) floatCards.classList.add("showdown");
+          floatCards.style.left = `${px}%`;
+          floatCards.style.top = `${py}%`;
+          const floatTilts = anchor === "top"
+            ? [-8, 6]
+            : anchor === "left"
+              ? [-6, 4]
+              : anchor === "right"
+                ? [-4, 6]
+                : anchor === "bottom-left"
+                  ? [-7, 5]
+                  : [-5, 7];
+          const firstCard = markDealCardTarget(makeCardEl(holeCards[0] || null, !hasHoleCards || !reveal, false), seat.seat_no, 1, hand, floatTilts[0]);
+          const secondCard = markDealCardTarget(makeCardEl(holeCards[1] || null, !hasHoleCards || !reveal, false), seat.seat_no, 2, hand, floatTilts[1]);
+          floatCards.append(firstCard, secondCard);
           el.seatsLayer.appendChild(floatCards);
         } else {
           const cards = document.createElement("div");
           cards.className = "seat-cards-row";
           if (isMe && reveal) {
-            cards.appendChild(makeCardEl(hp.hole_cards[0], false, false, true));
-            cards.appendChild(makeCardEl(hp.hole_cards[1], false, false, true));
+            cards.appendChild(markDealCardTarget(makeCardEl(holeCards[0] || null, false, false, true), seat.seat_no, 1, hand, -9));
+            cards.appendChild(markDealCardTarget(makeCardEl(holeCards[1] || null, false, false, true), seat.seat_no, 2, hand, 8));
           } else {
-            cards.appendChild(makeCardEl(hp.hole_cards[0], !reveal, true));
-            cards.appendChild(makeCardEl(hp.hole_cards[1], !reveal, true));
+            cards.appendChild(markDealCardTarget(makeCardEl(holeCards[0] || null, !hasHoleCards || !reveal, true), seat.seat_no, 1, hand, -7));
+            cards.appendChild(markDealCardTarget(makeCardEl(holeCards[1] || null, !hasHoleCards || !reveal, true), seat.seat_no, 2, hand, 6));
           }
           node.appendChild(cards);
         }
@@ -1291,7 +1812,7 @@ function renderSeats() {
 
       const winData = state.winOverlays.get(seat.seat_no);
       if (winData && Date.now() < winData.until) {
-        node.classList.add("winner-seat");
+        if (winData.isShowdownLeader !== false) node.classList.add("winner-seat");
         const winAmt = document.createElement("div");
         winAmt.className = "seat-win-amount";
         winAmt.textContent = `+${fmtShort(winData.amount)}`;
@@ -1318,18 +1839,19 @@ function renderSeats() {
       // Rebuy button below player's own seat
       if (isMe) {
         const tbl = getTable();
-        const stk = Number(seat.chip_stack || 0);
+        const stk = Number((hp && hp.stack_end != null) ? hp.stack_end : seat.chip_stack || 0);
         const startStk = Number(tbl?.starting_stack || 200);
-        const handActive = hand && !["settled","canceled"].includes(hand.state);
-        const playerInHand = hp && !hp.folded;
-        const busted = stk <= 0;
-        const low = stk <= startStk * 0.2;
-        const showRebuy = busted && !playerInHand || (!handActive && low);
-        if (showRebuy) {
+        const cta = getStackCtaState({ hand, handPlayer: hp, stack: stk, startingStack: startStk });
+        if (cta.kind !== "none") {
           const rbBtn = document.createElement("button");
-          rbBtn.className = "seat-rebuy-btn";
-          rbBtn.textContent = busted ? "Buy In" : "Top Up";
-          rbBtn.addEventListener("click", (e) => { e.stopPropagation(); doRebuy(); });
+          rbBtn.type = "button";
+          rbBtn.className = `seat-rebuy-btn${cta.kind === "status" ? " seat-status-chip" : ""}`;
+          rbBtn.textContent = cta.text;
+          if (cta.kind === "action") {
+            rbBtn.addEventListener("click", (e) => { e.stopPropagation(); doRebuy(); });
+          } else {
+            rbBtn.disabled = true;
+          }
           node.appendChild(rbBtn);
         }
       }
@@ -1382,8 +1904,11 @@ function renderMyHand() {
   }
 
   if (hp && Array.isArray(hp.hole_cards) && hp.hole_cards.length >= 2) {
-    el.myHandCards.appendChild(makeCardEl(hp.hole_cards[0], false, false, false));
-    el.myHandCards.appendChild(makeCardEl(hp.hole_cards[1], false, false, false));
+    const useMyHandTargets = isPortraitMobile();
+    const firstCard = makeCardEl(hp.hole_cards[0], false, false, false);
+    const secondCard = makeCardEl(hp.hole_cards[1], false, false, false);
+    el.myHandCards.appendChild(useMyHandTargets ? markDealCardTarget(firstCard, mySeat.seat_no, 1, hand, -9) : firstCard);
+    el.myHandCards.appendChild(useMyHandTargets ? markDealCardTarget(secondCard, mySeat.seat_no, 2, hand, 8) : secondCard);
   }
 
   // Rebuy button in my-hand area -- create once, show/hide
@@ -1399,13 +1924,12 @@ function renderMyHand() {
   const tbl = getTable();
   const stk = Number(displayStack || 0);
   const startStk = Number(tbl?.starting_stack || 200);
-  const noHand = !hand || ["settled","canceled"].includes(hand.state);
-  const busted = stk <= 0;
-  const low = stk <= startStk * 0.2;
-  const showRebuy = busted || (noHand && low);
+  const cta = getStackCtaState({ hand, handPlayer: hp, stack: stk, startingStack: startStk });
 
-  rbBtn.textContent = busted ? "Buy In" : "Top Up";
-  rbBtn.style.display = showRebuy ? "" : "none";
+  rbBtn.textContent = cta.text;
+  rbBtn.classList.toggle("seat-status-chip", cta.kind === "status");
+  rbBtn.disabled = cta.kind !== "action";
+  rbBtn.style.display = cta.kind === "none" ? "none" : "";
 }
 
 function updateTimerRings() {
@@ -1453,21 +1977,11 @@ function renderActions() {
     el.actionStrip.classList.remove("hidden");
     el.presetRow.classList.remove("hidden");
 
-    const toCall = Math.max(0, Number(hand.current_bet || 0) - Number(hp.street_contribution || 0));
+    const { toCall } = getBetBounds(hand, hp);
     el.callBtn.textContent = toCall > 0 ? `Call ${fmtShort(toCall)}` : "Check";
     el.betRaiseBtn.textContent = Number(hand.current_bet || 0) > 0 ? "Raise" : "Bet";
     el.allInBtn.textContent = `All-in`;
-
-    const minBet = Number(hand.current_bet || 0) > 0
-      ? Number(hand.current_bet || 0) + Math.max(Number(hand.min_raise || 0), Number(getTable()?.big_blind || 2))
-      : Number(getTable()?.big_blind || 2);
-    const maxBet = Number(hp.stack_end || 0) + Number(hp.street_contribution || 0);
-    el.betSlider.min = Math.min(minBet, maxBet);
-    el.betSlider.max = maxBet;
-    if (Number(el.betAmount.value) < minBet) {
-      el.betSlider.value = minBet;
-      el.betAmount.value = minBet;
-    }
+    refreshBetControls(hand, hp);
   } else {
     el.actionStrip.classList.add("hidden");
     el.presetRow.classList.add("hidden");
@@ -1576,7 +2090,9 @@ function buildActionPayload(actionType) {
   if (!hand?.id || !hp) throw new Error("Not in an active hand.");
   if (!token) throw new Error("Seat controlled on another device.");
 
-  const amount = Number(el.betAmount.value || 0);
+  const { minBet, maxBet, step } = getBetBounds(hand, hp);
+  const amount = normalizeBetAmount(getBetControlValue(), minBet, maxBet, step);
+  setBetControlValue(amount);
   if ((actionType === "bet" || actionType === "raise") && amount <= 0) throw new Error("Enter an amount.");
 
   return {
@@ -1738,20 +2254,28 @@ function bindEvents() {
   });
 
   el.betSlider.addEventListener("input", () => {
-    el.betAmount.value = el.betSlider.value;
+    setBetControlValue(el.betSlider.value);
+    refreshBetControls();
   });
 
   el.betAmount.addEventListener("input", () => {
-    el.betSlider.value = el.betAmount.value;
+    setBetControlValue(el.betAmount.value);
+    refreshBetControls();
+  });
+
+  el.betAmountQuick?.addEventListener("input", () => {
+    setBetControlValue(el.betAmountQuick.value);
+    refreshBetControls();
   });
 
   document.querySelectorAll(".preset-chip").forEach(btn => {
     btn.addEventListener("click", () => {
       const frac = Number(btn.dataset.fraction || 0);
       const pot = Number(getLatestHand()?.pot_total || 0);
-      const val = Math.max(Number(el.betSlider.min), Math.round(pot * frac));
-      el.betSlider.value = val;
-      el.betAmount.value = val;
+      const { minBet, maxBet, step } = getBetBounds();
+      const val = normalizeBetAmount(roundToStep(pot * frac, step), minBet, maxBet, step);
+      setBetControlValue(val);
+      refreshBetControls();
     });
   });
 
