@@ -4473,6 +4473,22 @@ body.theme-light .join-player-panel::after {
   margin-bottom: 14px;
 }
 
+.join-player-mode-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.join-player-mode-button {
+  width: 100%;
+  border-radius: 16px;
+  cursor: pointer;
+}
+
+.join-player-mode-button:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
 .join-player-step .muted {
   text-align: center;
 }
@@ -4535,6 +4551,7 @@ body.theme-light .join-player-panel::after {
   margin-top: 6px;
 }
 
+.join-player-panel .roster-actions .ghost,
 .join-player-panel .roster-actions .primary {
   padding: 8px 16px;
   font-size: 0.82rem;
@@ -4567,6 +4584,12 @@ body.theme-light .join-player-panel .close-x {
   font-size: 0.75rem;
   color: var(--muted);
   font-weight: 500;
+}
+
+@media (max-width: 560px) {
+  .join-player-mode-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .guide-content {

@@ -323,12 +323,12 @@ const PORTRAIT_SEATS = {
   7: [
     { x: 50, y: 3 },
     { x: 12, y: 16 }, { x: 88, y: 16 },
-    { x: -2, y: 45 }, { x: 102, y: 45 },
+    { x: 11, y: 45 }, { x: 89, y: 45 },
     { x: 10, y: 85 }, { x: 90, y: 85 },
   ],
   8: [
     { x: 30, y: 2 }, { x: 70, y: 2 },
-    { x: 4, y: 25 }, { x: 96, y: 25 },
+    { x: 11, y: 25 }, { x: 89, y: 25 },
     { x: 12, y: 62 }, { x: 88, y: 62 },
     { x: 18, y: 90 }, { x: 82, y: 90 },
   ],
@@ -854,26 +854,6 @@ async function doRebuy() {
   }
 }
 
-// ============ SIT FROM TABLE VIEW ============
-async function sitSelectedSeat() {
-  if (!state.identity || !state.tableId || !state.selectedSeatNo) return;
-  const mySeat = getMySeat();
-  if (mySeat) { toast("Already seated.", "error"); state.selectedSeatNo = null; renderSeats(); return; }
-  try {
-    const seat = await online.joinTable({
-      tableId: state.tableId,
-      groupPlayerId: state.identity.groupPlayerId,
-      preferredSeat: state.selectedSeatNo,
-    });
-    if (seat?.seat_token) setSeatToken(state.tableId, state.identity.groupPlayerId, seat.seat_token);
-    toast(`Seated at seat ${seat.seat_no}`, "success");
-    state.selectedSeatNo = null;
-    await loadTableState();
-  } catch (err) {
-    toast(err.message || "Failed to sit", "error");
-  }
-}
-
 // ============ BOT MANAGEMENT ============
 function isBotSeat(seatNo) {
   return state.botSeats.has(seatNo);
@@ -1145,37 +1125,35 @@ function renderSeats() {
 
     if (empty) {
       node.classList.add("empty");
-      if (state.selectedSeatNo === seat.seat_no) node.classList.add("selected");
+      const canAddBotToSeat = canManageHand();
+      if (canAddBotToSeat && state.selectedSeatNo === seat.seat_no) node.classList.add("selected");
       const label = document.createElement("span");
       label.className = "seat-empty-label";
-      label.textContent = "SIT";
+      label.textContent = "OPEN";
       node.appendChild(label);
-      node.addEventListener("click", (e) => {
-        e.stopPropagation();
-        if (state.selectedSeatNo === seat.seat_no) {
-          state.selectedSeatNo = null;
+      if (!canAddBotToSeat) {
+        node.style.cursor = "default";
+      } else {
+        node.addEventListener("click", (e) => {
+          e.stopPropagation();
+          if (state.selectedSeatNo === seat.seat_no) {
+            state.selectedSeatNo = null;
+            renderSeats();
+            return;
+          }
+          state.selectedSeatNo = seat.seat_no;
           renderSeats();
-      return;
-    }
-        state.selectedSeatNo = seat.seat_no;
-        renderSeats();
-      });
+        });
+      }
 
-      if (state.selectedSeatNo === seat.seat_no) {
+      if (canAddBotToSeat && state.selectedSeatNo === seat.seat_no) {
         const popover = document.createElement("div");
         popover.className = "seat-popover";
-        const sitBtn = document.createElement("button");
-        sitBtn.className = "pop-sit";
-        sitBtn.textContent = "Sit";
-        sitBtn.addEventListener("click", (e) => { e.stopPropagation(); sitSelectedSeat(); });
-        popover.appendChild(sitBtn);
-        if (isHostPlayer()) {
-          const botBtn = document.createElement("button");
-          botBtn.className = "pop-bot";
-          botBtn.textContent = "Add Bot";
-          botBtn.addEventListener("click", (e) => { e.stopPropagation(); addBot(seat.seat_no); state.selectedSeatNo = null; });
-          popover.appendChild(botBtn);
-        }
+        const botBtn = document.createElement("button");
+        botBtn.className = "pop-bot";
+        botBtn.textContent = "Add Bot";
+        botBtn.addEventListener("click", (e) => { e.stopPropagation(); addBot(seat.seat_no); state.selectedSeatNo = null; });
+        popover.appendChild(botBtn);
         node.appendChild(popover);
       }
     } else {

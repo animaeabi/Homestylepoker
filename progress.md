@@ -184,3 +184,63 @@ Validation:
 - `node /Users/abishek/Documents/poker-buyins/online/showdown.test.js` (pass)
 - `node /Users/abishek/Documents/poker-buyins/online/runtime_worker.test.js` (pass)
 - Playwright skill run attempted but blocked by missing local `playwright` dependency (`ERR_MODULE_NOT_FOUND`).
+
+Update (8-seat portrait side-seat clipping fix):
+- Adjusted the 8-seat portrait `PORTRAIT_SEATS` side-middle coordinates in `/Users/abishek/Documents/poker-buyins/online/table_app.js`:
+  - left/right pair moved from `x: 4 / 96` to `x: 11 / 89`
+  - keeps the two side nameplates inside the viewport while preserving rail alignment
+- Bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster from `?v=11` to `?v=12`
+
+Validation:
+- Reproduced the clipping issue in a mobile Playwright viewport using the real `online-table.html` styles and injected 8-seat sample nodes.
+- Verified the adjusted coordinates visually keep the side-middle seats fully visible on portrait mobile.
+- `node --check /Users/abishek/Documents/poker-buyins/online/table_app.js` (pass)
+- `node "$WEB_GAME_CLIENT" --url http://127.0.0.1:8000/online-table.html --actions-json '{"steps":[{"buttons":[],"frames":1}]}' --iterations 1 --pause-ms 200` (pass)
+
+Correction (actual seated 8-player portrait path):
+- Confirmed the live issue for a seated player on an 8-player portrait table comes from the `7`-seat `PORTRAIT_SEATS` map, because `renderSeats()` hides `mySeat` on-table and reflows the remaining visible seats using `tableTotal`.
+- Adjusted the 7-seat side-middle coordinates in `/Users/abishek/Documents/poker-buyins/online/table_app.js`:
+  - left/right pair moved from `x: -2 / 102` to `x: 11 / 89`
+- Bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster from `?v=12` to `?v=13`
+
+Validation:
+- Reproduced the exact clipping issue in a 390x844 portrait viewport using the 7-seat portrait map.
+- Verified visually that the updated 7-seat side-middle positions are fully inside the viewport and still aligned to the rail.
+
+Update (remove in-table Sit action):
+- Removed the empty-seat `Sit` action from `/Users/abishek/Documents/poker-buyins/online/table_app.js`.
+- Empty seats now display `OPEN` instead of `SIT`.
+- Only a managing host can tap an empty seat to open a popover, and that popover now contains only `Add Bot`.
+- Removed the unused `.pop-sit` styling from `/Users/abishek/Documents/poker-buyins/online-table.html`.
+- Bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster from `?v=13` to `?v=14`.
+
+Validation:
+- `node --check /Users/abishek/Documents/poker-buyins/online/table_app.js` (pass)
+- Verified source no longer contains `sitSelectedSeat`, `pop-sit`, or `SIT`/`Sit` empty-seat labels.
+- Created a local online table as host, clicked an empty seat, and confirmed the popover shows only `Add Bot`.
+- Left the temporary verification table after the check.
+
+Update (landing Join table split into Home / Online):
+- Reworked the landing-page join modal in `/Users/abishek/Documents/poker-buyins/index.html`, `/Users/abishek/Documents/poker-buyins/styles.css`, and `/Users/abishek/Documents/poker-buyins/app.js`.
+- New first step presents `Home` and `Online` buttons.
+- `Home` keeps the existing in-person join behavior:
+  - name prompt
+  - active home-game lookup
+  - fallback to join-by-code
+- `Online` now:
+  - shows a list of open joinable online tables (`waiting`/`active`, excluding full tables)
+  - prompts for the player's name after a table is selected
+  - joins via `online_ensure_lobby_player` + `online_join_table`
+  - redirects to `online-table.html?table=...`
+- Bumped landing-page asset cache busters in `/Users/abishek/Documents/poker-buyins/index.html`:
+  - `styles.css?v=20260306a`
+  - `app.js?v=20260306a`
+
+Validation:
+- `node --check /Users/abishek/Documents/poker-buyins/app.js` (pass)
+- Browser smoke test on `http://localhost:8000/index.html?cb=join-flow`:
+  - `Join table` opens `Home` / `Online` chooser
+  - `Home` routes to the existing name step and code fallback flow
+  - `Online` shows open online tables with seat counts and blind info
+  - selecting an online table prompts for name, joins successfully, and redirects to the online table view
+- Left the joined online table after the end-to-end check.
