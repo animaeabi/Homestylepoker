@@ -8936,6 +8936,9 @@ async function openOnlineGameDetail(tableId) {
     (players || []).forEach(p => playerNames.set(p.id, p.name));
   }
 
+  // Calculate In (buy-ins) and Out (final stack) per player.
+  // In = first hand stack_start + any rebuys (detected when stack_start > previous stack_end).
+  // Out = last hand stack_end.
   let playerResults = new Map();
   if (settledHands.length > 0) {
     const handIds = settledHands.map(h => h.id);
@@ -8944,14 +8947,31 @@ async function openOnlineGameDetail(tableId) {
       .select("hand_id,seat_no,group_player_id,stack_start,stack_end,committed,result_amount")
       .in("hand_id", handIds);
 
-    (allHp || []).forEach(hp => {
+    // Sort hands by hand_no ascending for chronological processing
+    const handOrder = new Map();
+    settledHands.forEach(h => handOrder.set(h.id, h.hand_no));
+    const sortedHp = (allHp || []).slice().sort((a, b) => (handOrder.get(a.hand_id) || 0) - (handOrder.get(b.hand_id) || 0));
+
+    sortedHp.forEach(hp => {
       if (!hp.group_player_id) return;
       if (!playerResults.has(hp.group_player_id)) {
-        playerResults.set(hp.group_player_id, { totalIn: 0, totalWon: 0, hands: 0 });
+        playerResults.set(hp.group_player_id, {
+          buyIn: Number(hp.stack_start || 0),
+          lastStackEnd: Number(hp.stack_end || 0),
+          prevStackEnd: null,
+          hands: 0
+        });
       }
       const r = playerResults.get(hp.group_player_id);
-      r.totalIn += Number(hp.committed || 0);
-      r.totalWon += Number(hp.result_amount || 0);
+      const startVal = Number(hp.stack_start || 0);
+      const endVal = Number(hp.stack_end || 0);
+
+      // Detect rebuys: if stack_start > previous stack_end, they added chips
+      if (r.prevStackEnd !== null && startVal > r.prevStackEnd) {
+        r.buyIn += (startVal - r.prevStackEnd);
+      }
+      r.lastStackEnd = endVal;
+      r.prevStackEnd = endVal;
       r.hands += 1;
     });
   }
@@ -8968,25 +8988,32 @@ async function openOnlineGameDetail(tableId) {
 
   const headerRow = document.createElement("div");
   headerRow.className = "online-results-row header-row";
-  headerRow.innerHTML = "<span>Player</span><span>Put In</span><span>Won</span><span>Net</span>";
+  headerRow.innerHTML = "<span>Player</span><span>In</span><span>Out</span><span>Final</span>";
   resultTable.appendChild(headerRow);
 
-  let totalIn = 0, totalWon = 0;
+  let totalIn = 0, totalOut = 0;
   const sortedPlayers = [...playerResults.entries()]
-    .map(([gpId, r]) => ({ name: playerNames.get(gpId) || "Player", ...r, net: r.totalWon - r.totalIn }))
+    .map(([gpId, r]) => ({
+      name: playerNames.get(gpId) || "Player",
+      buyIn: r.buyIn,
+      cashOut: r.lastStackEnd,
+      net: r.lastStackEnd - r.buyIn,
+      hands: r.hands
+    }))
     .sort((a, b) => b.net - a.net);
 
   sortedPlayers.forEach(p => {
-    totalIn += p.totalIn;
-    totalWon += p.totalWon;
-    const netClass = p.net > 0 ? "money-pos" : p.net < 0 ? "money-neg" : "";
+    totalIn += p.buyIn;
+    totalOut += p.cashOut;
+    const netClass = p.net > 0.005 ? "money-pos" : p.net < -0.005 ? "money-neg" : "";
+    const netSign = p.net >= 0 ? "+" : "";
     const row = document.createElement("div");
     row.className = "online-results-row";
     row.innerHTML = `
       <span>${p.name}</span>
-      <strong>$${Number(p.totalIn).toFixed(2)}</strong>
-      <strong>$${Number(p.totalWon).toFixed(2)}</strong>
-      <strong class="${netClass}">${p.net >= 0 ? "+" : ""}$${Number(p.net).toFixed(2)}</strong>
+      <strong>$${Number(p.buyIn).toFixed(2)}</strong>
+      <strong>$${Number(p.cashOut).toFixed(2)}</strong>
+      <strong class="${netClass}">${netSign}$${Number(p.net).toFixed(2)}</strong>
     `;
     resultTable.appendChild(row);
   });
@@ -8998,13 +9025,13 @@ async function openOnlineGameDetail(tableId) {
     resultTable.appendChild(emptyRow);
   }
 
+  const totalNet = totalOut - totalIn;
   const totalRow = document.createElement("div");
   totalRow.className = "online-results-row total-row";
-  const totalNet = totalWon - totalIn;
   totalRow.innerHTML = `
     <span>Total</span>
     <strong>$${Number(totalIn).toFixed(2)}</strong>
-    <strong>$${Number(totalWon).toFixed(2)}</strong>
+    <strong>$${Number(totalOut).toFixed(2)}</strong>
     <strong>$${Number(totalNet).toFixed(2)}</strong>
   `;
   resultTable.appendChild(totalRow);

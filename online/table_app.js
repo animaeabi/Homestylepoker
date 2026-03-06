@@ -9,7 +9,7 @@ const online = createOnlinePokerClient(supabase);
 
 const POLL_MS = 1800;
 const RUNTIME_TICK_MIN_MS = 1200;
-const TURN_CLOCK_SECS = 25;
+function getTurnClockSecs() { return state.config.turnTime || 25; }
 const REALTIME_DEBOUNCE_MS = 180;
 const RECONNECT_DEBOUNCE_MS = 900;
 const FALLBACK_STALE_MS = 5000;
@@ -52,7 +52,6 @@ const el = {
   tbBlinds: document.getElementById("tbBlinds"),
   tbPlayers: document.getElementById("tbPlayers"),
   connDot: document.getElementById("connDot"),
-  muteBtn: document.getElementById("muteBtn"),
   copyLinkBtn: document.getElementById("copyLinkBtn"),
   removeBotsBtn: document.getElementById("removeBotsBtn"),
   leaveBtn: document.getElementById("leaveBtn"),
@@ -70,6 +69,17 @@ const el = {
   allInBtn: document.getElementById("allInBtn"),
   betSlider: document.getElementById("betSlider"),
   betAmount: document.getElementById("betAmount"),
+  myHandArea: document.getElementById("myHandArea"),
+  myHandCards: document.getElementById("myHandCards"),
+  hamburgerBtn: document.getElementById("hamburgerBtn"),
+  configOverlay: document.getElementById("configOverlay"),
+  configBackdrop: document.getElementById("configBackdrop"),
+  configClose: document.getElementById("configClose"),
+  configPanel: document.getElementById("configPanel"),
+  cfgSB: document.getElementById("cfgSB"),
+  cfgBB: document.getElementById("cfgBB"),
+  cfgTurnTime: document.getElementById("cfgTurnTime"),
+  cfgSaveGame: document.getElementById("cfgSaveGame"),
   logToggle: document.getElementById("logToggle"),
   handLog: document.getElementById("handLog"),
   handLogInner: document.getElementById("handLogInner"),
@@ -82,7 +92,6 @@ const state = {
   tableId: null,
   tableState: null,
   selectedSeatNo: null,
-  muted: false,
   logOpen: false,
   loading: false,
   pollTimer: null,
@@ -98,6 +107,16 @@ const state = {
   winOverlays: new Map(),
   autoDealTimer: null,
   botSeats: new Map(),
+  handLogEntries: [],
+  lastLoggedHandId: null,
+  lastLoggedSeq: 0,
+  config: {
+    autoDeal: true,
+    showdownTime: 5000,
+    turnTime: 25,
+    soundOn: true,
+    showLog: true,
+  },
   botActionTimer: null,
   opponentTracker: new OpponentTracker(),
   lastTrackedEventSeq: 0,
@@ -163,7 +182,7 @@ function getAudioCtx() {
 }
 
 function playTone(freq, duration = 0.08, gain = 0.1, type = "sine") {
-  if (state.muted) return;
+  if (!state.config.soundOn) return;
   const ctx = getAudioCtx();
   if (!ctx) return;
   const osc = ctx.createOscillator();
@@ -277,15 +296,81 @@ function isLandscape() {
   return window.innerHeight <= 500 && window.innerWidth > window.innerHeight;
 }
 
+// Fixed seat positions at the table edge for portrait mode.
+// Each slot is { x%, y% } placing the seat right on the rail.
+const PORTRAIT_SEATS = {
+  2: [
+    { x: 20, y: 50 }, { x: 80, y: 50 },
+  ],
+  3: [
+    { x: 50, y: 4 },
+    { x: 8, y: 60 }, { x: 92, y: 60 },
+  ],
+  4: [
+    { x: 30, y: 4 }, { x: 70, y: 4 },
+    { x: 8, y: 60 }, { x: 92, y: 60 },
+  ],
+  5: [
+    { x: 50, y: 4 },
+    { x: 6, y: 30 }, { x: 94, y: 30 },
+    { x: 15, y: 75 }, { x: 85, y: 75 },
+  ],
+  6: [
+    { x: 30, y: 4 }, { x: 70, y: 4 },
+    { x: 4, y: 40 }, { x: 96, y: 40 },
+    { x: 20, y: 80 }, { x: 80, y: 80 },
+  ],
+  7: [
+    { x: 50, y: 3 },
+    { x: 12, y: 16 }, { x: 88, y: 16 },
+    { x: -2, y: 45 }, { x: 102, y: 45 },
+    { x: 10, y: 85 }, { x: 90, y: 85 },
+  ],
+  8: [
+    { x: 30, y: 2 }, { x: 70, y: 2 },
+    { x: 4, y: 25 }, { x: 96, y: 25 },
+    { x: 4, y: 62 }, { x: 96, y: 62 },
+    { x: 18, y: 90 }, { x: 82, y: 90 },
+  ],
+  9: [
+    { x: 50, y: 2 },
+    { x: 12, y: 13 }, { x: 88, y: 13 },
+    { x: 2, y: 38 }, { x: 98, y: 38 },
+    { x: 2, y: 62 }, { x: 98, y: 62 },
+    { x: 14, y: 88 }, { x: 86, y: 88 },
+  ],
+  10: [
+    { x: 30, y: 3 }, { x: 70, y: 3 },
+    { x: 6, y: 18 }, { x: 94, y: 18 },
+    { x: 4, y: 40 }, { x: 96, y: 40 },
+    { x: 4, y: 62 }, { x: 96, y: 62 },
+    { x: 22, y: 82 }, { x: 78, y: 82 },
+  ],
+};
+
+function portraitSeatPosition(index, total) {
+  const clamped = Math.max(2, Math.min(10, total));
+  const positions = PORTRAIT_SEATS[clamped] || PORTRAIT_SEATS[6];
+  const idx = Math.max(0, Math.min(index - 1, positions.length - 1));
+  const p = positions[idx];
+  return { x: `${p.x}%`, y: `${p.y}%` };
+}
+
+function isPortraitMobile() {
+  return window.innerWidth <= 768 && window.innerHeight > window.innerWidth;
+}
+
 function seatPosition(index, total) {
-  const isMobile = window.innerWidth <= 768;
   const landscape = isLandscape();
+  const portrait = isPortraitMobile();
   const angle = Math.PI / 2 + ((index - 1) / total) * Math.PI * 2;
   let xR, yR;
   if (landscape) {
     xR = total >= 8 ? 43 : 42;
     yR = total >= 8 ? 38 : 36;
-  } else if (isMobile) {
+  } else if (portrait) {
+    return portraitSeatPosition(index, total);
+  } else if (window.innerWidth <= 768) {
     xR = total >= 8 ? 39 : 37;
     yR = total >= 8 ? 40 : 38;
   } else {
@@ -298,8 +383,8 @@ function seatPosition(index, total) {
 function getTurnClock(hand) {
   if (!hand || !isActionStreet(hand.state) || !hand.action_seat) return null;
   const lastMs = hand.last_action_at ? Date.parse(hand.last_action_at) : NaN;
-  if (!Number.isFinite(lastMs)) return TURN_CLOCK_SECS;
-  return Math.max(0, TURN_CLOCK_SECS - Math.floor((Date.now() - lastMs) / 1000));
+  if (!Number.isFinite(lastMs)) return getTurnClockSecs();
+  return Math.max(0, getTurnClockSecs() - Math.floor((Date.now() - lastMs) / 1000));
 }
 
 // ============ EQUITY CALC ============
@@ -581,7 +666,7 @@ async function loadTableState() {
 
     trackOpponentActions();
 
-    if (hand && ["settled","canceled"].includes(hand.state) && !state.autoDealTimer && canManageHand()) {
+    if (state.config.autoDeal && hand && ["settled","canceled"].includes(hand.state) && !state.autoDealTimer && canManageHand()) {
       const seated = getSeats().filter(s => s.group_player_id && !s.left_at).length;
       if (seated >= 2) scheduleAutoDeal();
     }
@@ -595,15 +680,15 @@ async function loadTableState() {
   }
 }
 
-const AUTO_DEAL_DELAY_MS = 5000;
+function getShowdownTimeMs() { return state.config.showdownTime || 5000; }
 
 function handleSettlement(hand) {
   const winners = getHandPlayers().filter(p => Number(p.result_amount || 0) > 0);
   for (const w of winners) {
-    state.winOverlays.set(w.seat_no, { amount: w.result_amount, until: Date.now() + AUTO_DEAL_DELAY_MS });
+    state.winOverlays.set(w.seat_no, { amount: w.result_amount, until: Date.now() + getShowdownTimeMs() });
   }
   if (winners.length > 0) sounds.win();
-  scheduleAutoDeal();
+  if (state.config.autoDeal) scheduleAutoDeal();
 }
 
 function scheduleAutoDeal() {
@@ -611,7 +696,7 @@ function scheduleAutoDeal() {
   state.autoDealTimer = setTimeout(() => {
     state.autoDealTimer = null;
     tryAutoDeal();
-  }, AUTO_DEAL_DELAY_MS);
+  }, getShowdownTimeMs());
 }
 
 async function tryAutoDeal() {
@@ -709,6 +794,30 @@ function getPrimaryOpponentProfile() {
   });
   if (humans.length === 0) return null;
   return state.opponentTracker.getProfile(humans[0].group_player_id);
+}
+
+// ============ CONFIG PANEL ============
+function openConfigPanel() {
+  const table = getTable();
+  if (el.cfgSB) el.cfgSB.value = table?.small_blind || 1;
+  if (el.cfgBB) el.cfgBB.value = table?.big_blind || 2;
+  if (el.cfgTurnTime) el.cfgTurnTime.value = state.config.turnTime;
+
+  const isHost = canManageHand();
+  if (el.cfgSB) el.cfgSB.disabled = !isHost;
+  if (el.cfgBB) el.cfgBB.disabled = !isHost;
+  if (el.cfgSaveGame) el.cfgSaveGame.style.display = isHost ? "" : "none";
+
+  el.configOverlay.classList.remove("hidden");
+}
+
+function closeConfigPanel() {
+  el.configOverlay.classList.add("hidden");
+}
+
+function setToggle(activeId, inactiveId) {
+  document.getElementById(activeId)?.classList.add("active");
+  document.getElementById(inactiveId)?.classList.remove("active");
 }
 
 // ============ SHOWDOWN HELPERS ============
@@ -919,6 +1028,7 @@ function renderAll() {
   renderTopBar();
   renderBoard();
   renderSeats();
+  renderMyHand();
   renderActions();
   renderHandLog();
   updateTurnUI();
@@ -970,18 +1080,22 @@ function renderSeats() {
 
   el.seatsLayer.innerHTML = "";
   const total = seats.length;
+  const portrait = isPortraitMobile();
 
-  // Rotate seats so main player is always at the bottom (position index that maps to 3pi/2)
+  const tableSeats = portrait && mySeat ? seats.filter(s => s.seat_no !== mySeat.seat_no) : seats;
+  const tableTotal = tableSeats.length;
+
   const bottomIdx = Math.floor(total / 2);
   let rotateOffset = 0;
-  if (mySeat) {
+  if (!portrait && mySeat) {
     const myIdx = seats.findIndex(s => s.seat_no === mySeat.seat_no);
     if (myIdx >= 0) rotateOffset = bottomIdx - myIdx;
   }
 
-  seats.forEach((seat, idx) => {
-    const rotatedIdx = ((idx + rotateOffset) % total + total) % total;
-    const pos = seatPosition(rotatedIdx + 1, total);
+  tableSeats.forEach((seat, idx) => {
+    const posIdx = portrait ? idx : ((seats.indexOf(seat) + rotateOffset) % total + total) % total;
+    const posTotal = portrait ? tableTotal : total;
+    const pos = seatPosition(posIdx + 1, posTotal);
     const hp = hpBySeat.get(seat.seat_no);
     const occupied = seat.group_player_id && !seat.left_at;
     const pid = occupied ? seat.group_player_id : null;
@@ -1101,16 +1215,34 @@ function renderSeats() {
           const isAggressor = getLastAggressor(hand) === seat.seat_no;
           reveal = isMe || isWinner || isAggressor;
         }
-        const cards = document.createElement("div");
-        cards.className = "seat-cards-row";
-        if (isMe && reveal) {
-          cards.appendChild(makeCardEl(hp.hole_cards[0], false, false, true));
-          cards.appendChild(makeCardEl(hp.hole_cards[1], false, false, true));
+
+        if (portrait && !isMe) {
+          const floatCards = document.createElement("div");
+          floatCards.className = "floating-cards";
+          const px = parseFloat(pos.x);
+          const py = parseFloat(pos.y);
+          const cx = 50, cy = 50;
+          const dx = (cx - px);
+          const dy = (cy - py);
+          const dist = Math.sqrt(dx*dx + dy*dy) || 1;
+          const nudge = 8;
+          floatCards.style.left = `${px + (dx/dist) * nudge}%`;
+          floatCards.style.top = `${py + (dy/dist) * nudge - 5}%`;
+          floatCards.appendChild(makeCardEl(hp.hole_cards[0], !reveal, false));
+          floatCards.appendChild(makeCardEl(hp.hole_cards[1], !reveal, false));
+          el.seatsLayer.appendChild(floatCards);
         } else {
-          cards.appendChild(makeCardEl(hp.hole_cards[0], !reveal, true));
-          cards.appendChild(makeCardEl(hp.hole_cards[1], !reveal, true));
+          const cards = document.createElement("div");
+          cards.className = "seat-cards-row";
+          if (isMe && reveal) {
+            cards.appendChild(makeCardEl(hp.hole_cards[0], false, false, true));
+            cards.appendChild(makeCardEl(hp.hole_cards[1], false, false, true));
+          } else {
+            cards.appendChild(makeCardEl(hp.hole_cards[0], !reveal, true));
+            cards.appendChild(makeCardEl(hp.hole_cards[1], !reveal, true));
+          }
+          node.appendChild(cards);
         }
-        node.appendChild(cards);
       }
 
       if (showEquity && !isFolded) {
@@ -1137,7 +1269,7 @@ function renderSeats() {
         const circ = 2 * Math.PI * 10;
         fg.style.strokeDasharray = `${circ}`;
         const remaining = getTurnClock(hand);
-        const frac = remaining != null ? remaining / TURN_CLOCK_SECS : 1;
+        const frac = remaining != null ? remaining / getTurnClockSecs() : 1;
         fg.style.strokeDashoffset = `${circ * (1 - frac)}`;
         if (remaining != null && remaining <= 5) fg.classList.add("danger");
         else if (remaining != null && remaining <= 10) fg.classList.add("warn");
@@ -1200,11 +1332,54 @@ function renderSeats() {
 
 }
 
+function renderMyHand() {
+  const nameEl = document.getElementById("myHandName");
+  const stackEl = document.getElementById("myHandStack");
+  const badgesEl = document.getElementById("myHandBadges");
+  if (!el.myHandCards || !nameEl) return;
+  el.myHandCards.innerHTML = "";
+  if (badgesEl) badgesEl.innerHTML = "";
+
+  const hand = getLatestHand();
+  const hp = getMyHandPlayer();
+  const mySeat = getMySeat();
+  if (!mySeat) return;
+
+  nameEl.textContent = state.identity?.name || "You";
+  const displayStack = (hp && hp.stack_end != null) ? hp.stack_end : mySeat.chip_stack;
+  stackEl.textContent = fmtShort(displayStack);
+
+  if (hand && badgesEl) {
+    if (hand.button_seat === mySeat.seat_no) {
+      const d = document.createElement("span");
+      d.className = "seat-dealer-dot";
+      d.textContent = "D";
+      badgesEl.appendChild(d);
+    }
+    if (hand.small_blind_seat === mySeat.seat_no) {
+      const lbl = document.createElement("span");
+      lbl.className = "seat-pos-label";
+      lbl.textContent = "SB";
+      badgesEl.appendChild(lbl);
+    } else if (hand.big_blind_seat === mySeat.seat_no) {
+      const lbl = document.createElement("span");
+      lbl.className = "seat-pos-label";
+      lbl.textContent = "BB";
+      badgesEl.appendChild(lbl);
+    }
+  }
+
+  if (hp && Array.isArray(hp.hole_cards) && hp.hole_cards.length >= 2) {
+    el.myHandCards.appendChild(makeCardEl(hp.hole_cards[0], false, false, false));
+    el.myHandCards.appendChild(makeCardEl(hp.hole_cards[1], false, false, false));
+  }
+}
+
 function updateTimerRings() {
   const hand = getLatestHand();
   if (!hand || !hand.action_seat) return;
   const remaining = getTurnClock(hand);
-  const frac = remaining != null ? remaining / TURN_CLOCK_SECS : 1;
+  const frac = remaining != null ? remaining / getTurnClockSecs() : 1;
   const circ = 2 * Math.PI * 10;
   const fgs = el.seatsLayer.querySelectorAll(".seat-timer-fg");
   fgs.forEach(fg => {
@@ -1278,19 +1453,50 @@ function updateTurnUI() {
   }
 }
 
-function renderHandLog() {
+function accumulateHandLog() {
+  const hand = getLatestHand();
   const events = getHandEvents();
+  if (!hand || !events.length) return;
+
+  // New hand started - add a separator
+  if (hand.id !== state.lastLoggedHandId) {
+    state.lastLoggedHandId = hand.id;
+    state.lastLoggedSeq = 0;
+    state.handLogEntries.push({ type: "separator", handNo: hand.hand_no });
+  }
+
+  // Add new events we haven't seen yet
+  for (const ev of events) {
+    if (ev.seq > state.lastLoggedSeq) {
+      state.lastLoggedSeq = ev.seq;
+      state.handLogEntries.push({ type: "event", ev });
+    }
+  }
+}
+
+function renderHandLog() {
+  accumulateHandLog();
   el.handLogInner.innerHTML = "";
-  if (!events.length) {
+
+  if (!state.handLogEntries.length) {
     el.handLogInner.innerHTML = '<div class="log-entry">No events yet.</div>';
     return;
   }
-  events.slice(-40).forEach(ev => {
-    const div = document.createElement("div");
-    div.className = "log-entry";
-    div.innerHTML = `<strong>#${ev.seq}</strong> ${describeEvent(ev)}`;
-    el.handLogInner.appendChild(div);
+
+  state.handLogEntries.forEach(entry => {
+    if (entry.type === "separator") {
+      const sep = document.createElement("div");
+      sep.className = "log-separator";
+      sep.textContent = `— Hand #${entry.handNo} —`;
+      el.handLogInner.appendChild(sep);
+    } else {
+      const div = document.createElement("div");
+      div.className = "log-entry";
+      div.innerHTML = describeEvent(entry.ev);
+      el.handLogInner.appendChild(div);
+    }
   });
+
   el.handLogInner.scrollTop = el.handLogInner.scrollHeight;
 }
 
@@ -1427,9 +1633,69 @@ function bindEvents() {
     }
   });
 
-  el.muteBtn.addEventListener("click", () => {
-    state.muted = !state.muted;
-    el.muteBtn.textContent = state.muted ? "🔇" : "🔊";
+  // Config panel
+  el.hamburgerBtn.addEventListener("click", () => openConfigPanel());
+  el.configBackdrop.addEventListener("click", () => closeConfigPanel());
+  el.configClose.addEventListener("click", () => closeConfigPanel());
+
+  el.configPanel.querySelectorAll(".config-tab").forEach(tab => {
+    tab.addEventListener("click", () => {
+      el.configPanel.querySelectorAll(".config-tab").forEach(t => t.classList.remove("active"));
+      tab.classList.add("active");
+      const tabId = tab.dataset.tab;
+      document.getElementById("configTabGame").classList.toggle("hidden", tabId !== "game");
+      document.getElementById("configTabPrefs").classList.toggle("hidden", tabId !== "prefs");
+    });
+  });
+
+  // Auto-deal toggle
+  document.getElementById("cfgAutoDealYes").addEventListener("click", () => { setToggle("cfgAutoDealYes", "cfgAutoDealNo"); state.config.autoDeal = true; });
+  document.getElementById("cfgAutoDealNo").addEventListener("click", () => { setToggle("cfgAutoDealNo", "cfgAutoDealYes"); state.config.autoDeal = false; });
+
+  // Showdown time
+  el.configPanel.querySelectorAll("[data-showdown]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      el.configPanel.querySelectorAll("[data-showdown]").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      state.config.showdownTime = Number(btn.dataset.showdown) * 1000;
+    });
+  });
+
+  // Sound toggle
+  document.getElementById("cfgSoundOn").addEventListener("click", () => { setToggle("cfgSoundOn", "cfgSoundOff"); state.config.soundOn = true; });
+  document.getElementById("cfgSoundOff").addEventListener("click", () => { setToggle("cfgSoundOff", "cfgSoundOn"); state.config.soundOn = false; });
+
+  // Log toggle
+  document.getElementById("cfgLogOn").addEventListener("click", () => {
+    setToggle("cfgLogOn", "cfgLogOff");
+    state.config.showLog = true;
+    el.logToggle.classList.remove("hidden");
+  });
+  document.getElementById("cfgLogOff").addEventListener("click", () => {
+    setToggle("cfgLogOff", "cfgLogOn");
+    state.config.showLog = false;
+    el.logToggle.classList.add("hidden");
+    el.handLog.classList.remove("open");
+    state.logOpen = false;
+  });
+
+  // Save game config (blinds, turn time)
+  el.cfgSaveGame.addEventListener("click", async () => {
+    if (!canManageHand()) { toast("Only the host can change game settings.", "error"); closeConfigPanel(); return; }
+    const sb = Number(el.cfgSB.value);
+    const bb = Number(el.cfgBB.value);
+    const turnTime = Number(el.cfgTurnTime.value);
+    if (sb > 0 && bb > 0 && bb >= sb) {
+      try {
+        await supabase.from("online_tables").update({ small_blind: sb, big_blind: bb }).eq("id", state.tableId);
+        toast("Blinds updated", "success");
+      } catch { toast("Failed to update blinds", "error"); }
+    }
+    if (turnTime >= 10 && turnTime <= 120) {
+      state.config.turnTime = turnTime;
+    }
+    closeConfigPanel();
+    await loadTableState();
   });
 
   el.logToggle.addEventListener("click", () => {

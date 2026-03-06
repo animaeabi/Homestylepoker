@@ -918,6 +918,24 @@
 
       .log-entry strong { color: var(--text); }
 
+      .log-separator {
+        font-size: 11px;
+        font-weight: 700;
+        color: var(--gold);
+        text-align: center;
+        padding: 8px 0 4px;
+        margin-top: 6px;
+        border-top: 1px solid rgba(212,175,85,0.15);
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .log-separator:first-child {
+        margin-top: 0;
+        border-top: none;
+        padding-top: 0;
+      }
+
       .log-toggle {
         font: inherit;
         font-size: 11px;
@@ -969,6 +987,238 @@
         0% { opacity: 0; transform: translateY(-10px); }
         100% { opacity: 1; transform: translateY(0); }
       }
+
+      /* My Hand Area */
+      .my-hand-area {
+        display: none;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        padding: 10px 16px;
+        background: transparent;
+        position: relative;
+        z-index: 5;
+      }
+
+      .my-hand-cards { display: flex; gap: 8px; align-items: center; }
+
+      .my-hand-cards .card {
+        width: 68px; height: 96px; font-size: 26px; border-radius: 10px;
+        box-shadow: 0 6px 20px rgba(0,0,0,0.5);
+        background: linear-gradient(180deg, #fefcf4 0%, #f5eedc 100%);
+        border: 2px solid rgba(255,255,255,0.2);
+      }
+
+      .my-hand-nameplate {
+        display: flex; flex-direction: column; align-items: center; gap: 2px;
+        padding: 4px 10px; border: 1.5px solid rgba(180,140,60,0.45); border-radius: 10px;
+        background: linear-gradient(180deg, rgba(22,18,10,0.92), rgba(14,12,8,0.96));
+        box-shadow: 0 3px 12px rgba(0,0,0,0.4); min-width: 70px;
+      }
+
+      .my-hand-avatar {
+        width: 36px; height: 36px; border-radius: 50%;
+        background: url("assets/player_avatar.png") center/cover no-repeat;
+        border: 2px solid rgba(220,180,60,0.6);
+        box-shadow: 0 0 8px rgba(220,180,60,0.2);
+        margin-top: -22px;
+      }
+
+      .my-hand-name { font-size: 12px; font-weight: 700; color: #e8dcc0; }
+      .my-hand-stack { font-size: 14px; font-weight: 800; color: var(--gold-bright); }
+      .my-hand-badges { display: flex; gap: 4px; align-items: center; }
+      .my-hand-info { display: none; }
+
+      /* Hamburger & Config Panel */
+      .hamburger-btn {
+        font-size: 20px;
+        background: none;
+        border: none;
+        color: var(--text-muted);
+        cursor: pointer;
+        padding: 4px 8px;
+        line-height: 1;
+        flex-shrink: 0;
+      }
+
+      .hamburger-btn:hover { color: var(--text); }
+
+      .config-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 50;
+      }
+
+      .config-backdrop {
+        position: absolute;
+        inset: 0;
+        background: rgba(0,0,0,0.5);
+      }
+
+      .config-panel {
+        position: absolute;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        width: min(320px, 85vw);
+        background: var(--surface);
+        border-right: 1px solid var(--border);
+        display: flex;
+        flex-direction: column;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        animation: configSlideIn 0.2s ease-out;
+      }
+
+      @keyframes configSlideIn {
+        0% { transform: translateX(-100%); }
+        100% { transform: translateX(0); }
+      }
+
+      .config-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 16px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .config-header h3 {
+        font-family: "Cinzel", Georgia, serif;
+        font-size: 18px;
+        font-weight: 700;
+        color: var(--gold);
+        margin: 0;
+      }
+
+      .config-close {
+        font-size: 18px;
+        background: none;
+        border: none;
+        color: var(--text-muted);
+        cursor: pointer;
+        padding: 4px 8px;
+      }
+
+      .config-tabs {
+        display: flex;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .config-tab {
+        flex: 1;
+        font: inherit;
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        padding: 12px;
+        background: none;
+        border: none;
+        border-bottom: 2px solid transparent;
+        color: var(--text-muted);
+        cursor: pointer;
+        transition: all 0.15s;
+      }
+
+      .config-tab.active {
+        color: var(--gold);
+        border-bottom-color: var(--gold);
+      }
+
+      .config-tab:hover { color: var(--text); }
+
+      .config-body {
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+
+      .config-field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .config-field span {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+
+      .config-input {
+        font: inherit;
+        font-size: 14px;
+        padding: 10px 12px;
+        background: var(--surface2);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        color: var(--text);
+        outline: none;
+      }
+
+      .config-input:focus { border-color: var(--gold); }
+
+      .config-toggle-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .config-toggle-row > span {
+        font-size: 13px;
+        color: var(--text);
+      }
+
+      .config-toggle-group {
+        display: flex;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        overflow: hidden;
+        flex-shrink: 0;
+      }
+
+      .config-toggle-opt {
+        font: inherit;
+        font-size: 11px;
+        font-weight: 600;
+        padding: 6px 12px;
+        background: none;
+        border: none;
+        border-right: 1px solid var(--border);
+        color: var(--text-muted);
+        cursor: pointer;
+        transition: all 0.12s;
+      }
+
+      .config-toggle-opt:last-child { border-right: none; }
+
+      .config-toggle-opt.active {
+        background: rgba(212,175,85,0.15);
+        color: var(--gold);
+      }
+
+      .config-save-btn {
+        font: inherit;
+        font-size: 13px;
+        font-weight: 700;
+        padding: 12px;
+        border-radius: var(--radius);
+        border: 1px solid var(--border-gold);
+        background: rgba(212,175,85,0.1);
+        color: var(--gold);
+        cursor: pointer;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        transition: all 0.15s;
+        margin-top: 4px;
+      }
+
+      .config-save-btn:hover { background: rgba(212,175,85,0.2); }
 
       /* Responsive */
       @supports (padding: env(safe-area-inset-top)) {
@@ -1041,6 +1291,80 @@
         .astrip-btn { font-size: 11px; padding: 7px 10px; }
         .astrip-raise-group { gap: 4px; }
         .astrip-amount { width: 50px; font-size: 11px; padding: 5px 6px; }
+      }
+
+      /* ========== PORTRAIT MOBILE LAYOUT ========== */
+      @media (max-width: 768px) and (orientation: portrait) {
+        #tableView { background: radial-gradient(ellipse 100% 80% at 50% 30%, rgba(30,20,8,0.08), rgba(15,10,4,0.3) 60%, rgba(8,6,2,0.5) 100%), #0a0c08 !important; }
+        .table-area { padding: 0 4px 0 !important; flex: 1; align-items: flex-start !important; padding-top: 32px !important; }
+        .table-surface {
+          width: 92% !important; margin: 0 auto; aspect-ratio: 1 / 1.8 !important; max-height: none !important;
+          border-radius: 35% !important; border: 10px solid #3a2010 !important;
+          background: url("assets/felt_portrait.png") center/cover, radial-gradient(ellipse 100% 100% at 50% 45%, #1d6b48 0%, #145838 40%, #0e3a28 70%, #0a2a1c 100%) !important;
+          box-shadow: inset 0 0 0 3px rgba(180,140,50,0.35), inset 0 0 40px rgba(0,0,0,0.25), 0 0 0 3px #2a1508, 0 0 0 5px rgba(160,120,50,0.25), 0 0 0 8px #1a0e06, 0 20px 50px rgba(0,0,0,0.6) !important;
+        }
+        .table-surface::after { content: "" !important; position: absolute; inset: 2px; border-radius: 34%; border: 1.5px solid rgba(200,160,60,0.3); pointer-events: none; z-index: 1; }
+        .table-surface::before { border-radius: 34% !important; opacity: 0.15 !important; }
+        .table-center { gap: 6px !important; top: 42% !important; }
+        .pot-display { font-size: 24px !important; }
+        .street-label { display: none !important; }
+        .card { width: 50px !important; height: 70px !important; font-size: 19px !important; border-radius: 7px !important; box-shadow: 0 3px 10px rgba(0,0,0,0.5) !important; }
+        .card-empty { background: rgba(255,255,255,0.04) !important; border: 1.5px solid rgba(255,255,255,0.08) !important; }
+        .board-cards { gap: 5px !important; }
+
+        .seat-node.my-seat { display: none !important; }
+
+        .seat-node {
+          width: auto !important; min-width: 56px; max-width: 80px; padding: 2px 6px !important; gap: 0 !important;
+          border: 1.5px solid rgba(180,140,60,0.45) !important; border-radius: 10px !important;
+          background: linear-gradient(180deg, rgba(22,18,10,0.92), rgba(14,12,8,0.96)) !important;
+          box-shadow: 0 3px 12px rgba(0,0,0,0.5) !important; animation: none !important; text-align: center;
+          display: flex !important; flex-direction: column !important; align-items: center !important;
+        }
+        .seat-node::before { content: ""; width: 32px; height: 32px; border-radius: 50%; margin-top: -20px; background: url("assets/bot_avatars.png") 0 0 / 300% 200% no-repeat; border: 2px solid rgba(180,140,60,0.5); box-shadow: 0 2px 8px rgba(0,0,0,0.4); display: block; flex-shrink: 0; }
+        .seat-node:nth-child(1)::before { background-position: 0% 0%; }
+        .seat-node:nth-child(2)::before { background-position: 50% 0%; }
+        .seat-node:nth-child(3)::before { background-position: 100% 0%; }
+        .seat-node:nth-child(4)::before { background-position: 0% 100%; }
+        .seat-node:nth-child(5)::before { background-position: 50% 100%; }
+        .seat-node:nth-child(6)::before { background-position: 100% 100%; }
+        .seat-node:nth-child(n+7)::before { background-position: 50% 50%; }
+        .seat-node.active-turn { border-color: var(--green) !important; box-shadow: 0 0 14px rgba(74,222,128,0.3) !important; }
+        .seat-node.allin-seat { border-color: var(--red) !important; }
+        .seat-node.winner-seat { border-color: var(--gold) !important; box-shadow: 0 0 20px rgba(212,175,85,0.3) !important; }
+        .seat-node .seat-cards-row { display: none !important; }
+        .seat-color-dot { display: none !important; }
+        .bot-label { display: none !important; }
+        .seat-header { justify-content: center !important; gap: 3px !important; }
+        .seat-name { font-size: 10px !important; font-weight: 700 !important; color: #e8dcc0 !important; max-width: 70px; }
+        .seat-stack { font-size: 12px !important; font-weight: 800 !important; text-align: center; color: var(--gold-bright) !important; }
+        .seat-dealer-dot { width: 18px !important; height: 18px !important; font-size: 9px !important; position: absolute !important; top: -4px; right: -4px; }
+        .seat-pos-label { font-size: 7px !important; color: var(--gold) !important; position: absolute !important; top: -2px; right: -2px; background: rgba(20,16,8,0.9); padding: 1px 4px; border-radius: 4px; border: 1px solid rgba(180,140,60,0.3); }
+        .seat-node.folded { opacity: 0.3 !important; }
+        .seat-node.empty { width: 44px !important; height: 44px !important; min-width: 0 !important; max-width: none !important; border: 2px dashed rgba(180,140,60,0.15) !important; border-radius: 50% !important; background: rgba(0,0,0,0.15) !important; padding: 0 !important; }
+        .seat-node.empty::before { display: none !important; }
+        .seat-empty-label { font-size: 8px !important; color: rgba(180,140,60,0.3) !important; }
+
+        .floating-cards { position: absolute; display: flex; gap: 2px; z-index: 12; pointer-events: none; }
+        .floating-cards .card { width: 22px !important; height: 30px !important; font-size: 8px !important; border-radius: 4px !important; box-shadow: 0 2px 6px rgba(0,0,0,0.4) !important; }
+        .floating-cards .card:first-child { transform: rotate(-3deg); }
+        .floating-cards .card:last-child { transform: rotate(3deg); }
+
+        .my-hand-area { display: flex !important; padding: 0 16px 8px; gap: 12px; margin-top: -60px; position: relative; z-index: 6; justify-content: center; }
+
+        .action-strip { padding: 8px 12px !important; gap: 8px !important; background: linear-gradient(to top, rgba(4,6,4,0.99), rgba(10,14,10,0.95)) !important; border-top: none !important; justify-content: center !important; }
+        .astrip-fold { background: linear-gradient(180deg, #8b2020, #6b1515) !important; color: #fff !important; border-radius: 999px !important; padding: 14px 22px !important; font-size: 14px !important; border: 1px solid rgba(255,100,100,0.15); box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+        .astrip-call { background: linear-gradient(180deg, #1a7b40, #0e5a2a) !important; color: #fff !important; border-radius: 999px !important; padding: 14px 36px !important; font-size: 16px !important; font-weight: 800 !important; border: 1px solid rgba(100,255,150,0.1); box-shadow: 0 4px 12px rgba(0,0,0,0.3); flex: 1; max-width: 200px; text-align: center; }
+        .astrip-raise { background: linear-gradient(180deg, #8b6b20, #6b4a10) !important; color: #fff !important; border-radius: 999px !important; padding: 14px 22px !important; font-size: 14px !important; border: 1px solid rgba(255,200,100,0.15); box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+        .astrip-allin { background: linear-gradient(180deg, #6b3520, #4a2010) !important; color: #ffb080 !important; border-radius: 999px !important; padding: 10px 14px !important; font-size: 11px !important; border: 1px solid rgba(255,150,100,0.15); display: block !important; }
+        .astrip-raise-group { display: none !important; }
+        .preset-row { background: rgba(4,6,4,0.98) !important; padding: 2px 16px 6px !important; }
+
+        .seat-bet { font-size: 10px !important; padding: 2px 6px !important; }
+        .seat-win-amount { font-size: 14px !important; }
+        .seat-rebuy-btn { font-size: 11px !important; padding: 6px 14px !important; }
+        .seat-popover { z-index: 30 !important; }
+        .table-deal-btn { bottom: 30% !important; font-size: 16px !important; padding: 12px 32px !important; }
       }
 
       /* ========== LANDSCAPE MODE ========== */
@@ -1218,6 +1542,7 @@
     <section id="tableView" class="hidden">
       <header class="top-bar">
         <div class="top-bar-left">
+          <button class="hamburger-btn" id="hamburgerBtn" type="button" aria-label="Menu">☰</button>
           <span class="top-bar-title" id="tbTitle">Table</span>
           <div class="top-bar-meta">
             <span class="meta-badge" id="tbBlinds">1/2</span>
@@ -1226,12 +1551,79 @@
         </div>
         <div class="top-bar-actions">
           <div class="connection-dot" id="connDot" title="Connection status"></div>
-          <button class="mute-btn" id="muteBtn" type="button" title="Toggle sound">🔊</button>
           <button class="top-btn" id="copyLinkBtn" type="button">Copy Link</button>
           <button class="top-btn" id="removeBotsBtn" type="button" style="display:none">Remove Bots</button>
           <button class="top-btn" id="leaveBtn" type="button" style="color:var(--red)">Leave</button>
         </div>
       </header>
+
+      <div class="config-overlay hidden" id="configOverlay">
+        <div class="config-backdrop" id="configBackdrop"></div>
+        <div class="config-panel" id="configPanel">
+          <div class="config-header">
+            <h3>Settings</h3>
+            <button class="config-close" id="configClose" type="button">✕</button>
+          </div>
+
+          <div class="config-tabs">
+            <button class="config-tab active" data-tab="game" type="button">Game</button>
+            <button class="config-tab" data-tab="prefs" type="button">Preferences</button>
+          </div>
+
+          <div class="config-body" id="configTabGame">
+            <label class="config-field">
+              <span>Small Blind</span>
+              <input class="config-input" id="cfgSB" type="number" min="0.01" step="0.01" />
+            </label>
+            <label class="config-field">
+              <span>Big Blind</span>
+              <input class="config-input" id="cfgBB" type="number" min="0.01" step="0.01" />
+            </label>
+
+            <div class="config-toggle-row">
+              <span>Auto Deal Next Hand</span>
+              <div class="config-toggle-group">
+                <button class="config-toggle-opt active" id="cfgAutoDealYes" type="button">Yes</button>
+                <button class="config-toggle-opt" id="cfgAutoDealNo" type="button">No</button>
+              </div>
+            </div>
+
+            <div class="config-toggle-row">
+              <span>Showdown Time</span>
+              <div class="config-toggle-group">
+                <button class="config-toggle-opt" data-showdown="3" type="button">Fast (3s)</button>
+                <button class="config-toggle-opt active" data-showdown="5" type="button">Normal (5s)</button>
+                <button class="config-toggle-opt" data-showdown="9" type="button">Slow (9s)</button>
+              </div>
+            </div>
+
+            <label class="config-field">
+              <span>Decision Time Limit (seconds)</span>
+              <input class="config-input" id="cfgTurnTime" type="number" min="10" max="120" step="5" value="25" />
+            </label>
+
+            <button class="config-save-btn" id="cfgSaveGame" type="button">Save Changes</button>
+          </div>
+
+          <div class="config-body hidden" id="configTabPrefs">
+            <div class="config-toggle-row">
+              <span>Sound Effects</span>
+              <div class="config-toggle-group">
+                <button class="config-toggle-opt active" id="cfgSoundOn" type="button">On</button>
+                <button class="config-toggle-opt" id="cfgSoundOff" type="button">Off</button>
+              </div>
+            </div>
+
+            <div class="config-toggle-row">
+              <span>Show Hand Log</span>
+              <div class="config-toggle-group">
+                <button class="config-toggle-opt active" id="cfgLogOn" type="button">Show</button>
+                <button class="config-toggle-opt" id="cfgLogOff" type="button">Hide</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
 
       <div class="table-area">
         <div class="table-surface" id="tableSurface">
@@ -1242,6 +1634,16 @@
           </div>
           <div class="seats-layer" id="seatsLayer"></div>
           <button class="table-deal-btn hidden" id="startHandBtn" type="button">Deal</button>
+        </div>
+      </div>
+
+      <div class="my-hand-area" id="myHandArea">
+        <div class="my-hand-cards" id="myHandCards"></div>
+        <div class="my-hand-nameplate" id="myHandNameplate">
+          <div class="my-hand-avatar"></div>
+          <div class="my-hand-name" id="myHandName"></div>
+          <div class="my-hand-stack" id="myHandStack"></div>
+          <div class="my-hand-badges" id="myHandBadges"></div>
         </div>
       </div>
 
@@ -1271,6 +1673,6 @@
 
     <div class="toast-container" id="toastContainer"></div>
 
-    <script type="module" src="./online/table_app.js"></script>
+    <script type="module" src="./online/table_app.js?v=5"></script>
   </body>
 </html>
