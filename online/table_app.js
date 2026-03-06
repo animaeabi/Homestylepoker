@@ -329,7 +329,7 @@ const PORTRAIT_SEATS = {
   8: [
     { x: 30, y: 2 }, { x: 70, y: 2 },
     { x: 4, y: 25 }, { x: 96, y: 25 },
-    { x: 4, y: 62 }, { x: 96, y: 62 },
+    { x: 12, y: 62 }, { x: 88, y: 62 },
     { x: 18, y: 90 }, { x: 82, y: 90 },
   ],
   9: [
@@ -1059,6 +1059,40 @@ function renderBoard() {
       el.boardCards.appendChild(empty);
     }
   }
+
+  const winReasonEl = document.getElementById("winReason");
+  if (winReasonEl) {
+    if (hand && ["showdown","settled"].includes(hand.state) && board.length === 5) {
+      const players = getHandPlayers();
+      const winners = players.filter(p => Number(p.result_amount || 0) > 0 && !p.folded);
+      if (winners.length > 0) {
+        const winner = winners[0];
+        const holeCards = winner.hole_cards || [];
+        if (holeCards.length >= 2) {
+          try {
+            const allCards = [...holeCards, ...board];
+            const desc = describeSevenCardHand(allCards);
+            const winnerName = seatName(winner.group_player_id);
+            winReasonEl.textContent = `${winnerName} wins with ${desc.label}`;
+          } catch {
+            winReasonEl.textContent = "";
+          }
+        } else {
+          const winnerName = seatName(winner.group_player_id);
+          winReasonEl.textContent = `${winnerName} wins`;
+        }
+      } else {
+        const lastStanding = players.filter(p => !p.folded);
+        if (lastStanding.length === 1) {
+          winReasonEl.textContent = `${seatName(lastStanding[0].group_player_id)} wins — everyone folded`;
+        } else {
+          winReasonEl.textContent = "";
+        }
+      }
+    } else {
+      winReasonEl.textContent = "";
+    }
+  }
 }
 
 function renderSeats() {
@@ -1373,6 +1407,27 @@ function renderMyHand() {
     el.myHandCards.appendChild(makeCardEl(hp.hole_cards[0], false, false, false));
     el.myHandCards.appendChild(makeCardEl(hp.hole_cards[1], false, false, false));
   }
+
+  // Rebuy button in my-hand area -- create once, show/hide
+  let rbBtn = el.myHandArea.querySelector(".my-hand-rebuy");
+  if (!rbBtn) {
+    rbBtn = document.createElement("button");
+    rbBtn.className = "seat-rebuy-btn my-hand-rebuy";
+    rbBtn.style.cssText = "position:static;transform:none;margin-top:4px;";
+    rbBtn.addEventListener("click", (e) => { e.stopPropagation(); doRebuy(); });
+    el.myHandArea.querySelector(".my-hand-nameplate")?.appendChild(rbBtn);
+  }
+
+  const tbl = getTable();
+  const stk = Number(displayStack || 0);
+  const startStk = Number(tbl?.starting_stack || 200);
+  const noHand = !hand || ["settled","canceled"].includes(hand.state);
+  const busted = stk <= 0;
+  const low = stk <= startStk * 0.2;
+  const showRebuy = busted || (noHand && low);
+
+  rbBtn.textContent = busted ? "Buy In" : "Top Up";
+  rbBtn.style.display = showRebuy ? "" : "none";
 }
 
 function updateTimerRings() {

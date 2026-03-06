@@ -359,6 +359,22 @@
         text-shadow: 0 2px 8px rgba(0,0,0,0.4);
       }
 
+      .win-reason {
+        font-size: 15px;
+        font-weight: 700;
+        color: var(--gold-bright);
+        text-shadow: 0 2px 8px rgba(0,0,0,0.5);
+        text-align: center;
+        letter-spacing: 0.04em;
+        min-height: 20px;
+        animation: winReasonFade 0.4s ease-out;
+      }
+
+      @keyframes winReasonFade {
+        0% { opacity: 0; transform: translateY(4px); }
+        100% { opacity: 1; transform: translateY(0); }
+      }
+
       .street-label {
         font-size: 11px;
         font-weight: 700;
@@ -1305,12 +1321,12 @@
         }
         .table-surface::after { content: "" !important; position: absolute; inset: 2px; border-radius: 34%; border: 1.5px solid rgba(200,160,60,0.3); pointer-events: none; z-index: 1; }
         .table-surface::before { border-radius: 34% !important; opacity: 0.15 !important; }
-        .table-center { gap: 6px !important; top: 42% !important; }
+        .table-center { gap: 6px !important; top: 55% !important; }
         .pot-display { font-size: 24px !important; }
         .street-label { display: none !important; }
         .card { width: 50px !important; height: 70px !important; font-size: 19px !important; border-radius: 7px !important; box-shadow: 0 3px 10px rgba(0,0,0,0.5) !important; }
         .card-empty { background: rgba(255,255,255,0.04) !important; border: 1.5px solid rgba(255,255,255,0.08) !important; }
-        .board-cards { gap: 5px !important; }
+        .board-cards { gap: 5px !important; margin-top: 18px !important; }
 
         .seat-node.my-seat { display: none !important; }
 
@@ -1364,7 +1380,7 @@
         .seat-win-amount { font-size: 14px !important; }
         .seat-rebuy-btn { font-size: 11px !important; padding: 6px 14px !important; }
         .seat-popover { z-index: 30 !important; }
-        .table-deal-btn { bottom: 30% !important; font-size: 16px !important; padding: 12px 32px !important; }
+        .table-deal-btn { bottom: 22% !important; font-size: 16px !important; padding: 12px 32px !important; }
       }
 
       /* ========== LANDSCAPE MODE ========== */
@@ -1631,6 +1647,7 @@
             <div class="street-label" id="streetLabel">WAITING</div>
             <div class="pot-display" id="potDisplay">Pot $0</div>
             <div class="board-cards" id="boardCards"></div>
+            <div class="win-reason" id="winReason"></div>
           </div>
           <div class="seats-layer" id="seatsLayer"></div>
           <button class="table-deal-btn hidden" id="startHandBtn" type="button">Deal</button>
@@ -1673,6 +1690,6 @@
 
     <div class="toast-container" id="toastContainer"></div>
 
-    <script type="module" src="./online/table_app.js?v=5"></script>
+    <script type="module" src="./online/table_app.js?v=11"></script>
   </body>
 </html>

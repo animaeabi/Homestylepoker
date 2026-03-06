@@ -808,8 +808,14 @@ begin
   limit 1;
 
   v_button_seat := online_next_active_seat(v_active_seats, v_last_button_seat);
-  v_small_blind_seat := online_next_active_seat(v_active_seats, v_button_seat);
-  v_big_blind_seat := online_next_active_seat(v_active_seats, v_small_blind_seat);
+  if array_length(v_active_seats, 1) = 2 then
+    -- Heads-up: dealer posts SB, other player posts BB
+    v_small_blind_seat := v_button_seat;
+    v_big_blind_seat := online_next_active_seat(v_active_seats, v_button_seat);
+  else
+    v_small_blind_seat := online_next_active_seat(v_active_seats, v_button_seat);
+    v_big_blind_seat := online_next_active_seat(v_active_seats, v_small_blind_seat);
+  end if;
 
   select coalesce(max(hand_no), 0) + 1
   into v_hand_no
