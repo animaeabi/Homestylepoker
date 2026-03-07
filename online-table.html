@@ -1802,7 +1802,7 @@
         .table-surface::before { border-radius: 34% !important; opacity: 0.15 !important; }
         .dealer-deck { top: 28% !important; width: 34px; height: 50px; }
         .table-center { gap: 6px !important; top: 55% !important; }
-        .pot-display { gap: 4px !important; }
+        .pot-display { gap: 4px !important; margin-top: 10px !important; }
         .pot-stack-art { width: 44px !important; height: 28px !important; }
         .pot-chip { width: 17px !important; height: 17px !important; }
         .pot-label { font-size: 9px !important; }
@@ -1934,105 +1934,356 @@
       @media (orientation: landscape) and (max-height: 500px) {
         #tableView {
           min-height: 100dvh;
+          background: radial-gradient(ellipse 100% 80% at 50% 30%, rgba(30,20,8,0.08), rgba(15,10,4,0.3) 60%, rgba(8,6,2,0.5) 100%), #0a0c08 !important;
           display: grid;
-          grid-template-rows: auto 1fr auto;
-          grid-template-columns: 1fr;
+          grid-template-rows: auto minmax(0, 1fr) auto auto;
+          grid-template-columns: minmax(230px, 290px) minmax(0, 1fr);
           overflow: hidden;
         }
 
         .top-bar {
-          padding: 4px 12px;
+          grid-column: 1 / -1;
+          padding: 6px 12px;
           gap: 8px;
           z-index: 30;
+          flex-wrap: nowrap;
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
         }
 
-        .top-bar-title { font-size: 13px; }
-        .top-btn { padding: 4px 8px; font-size: 10px; }
+        .top-bar-left { min-width: 0; flex: 1; }
+        .top-bar-meta { display: none !important; }
+        .top-bar-title { font-size: 14px !important; }
+        .top-bar-actions { flex-shrink: 0; }
+        .top-btn { padding: 7px 10px; font-size: 11px; }
         .meta-badge { font-size: 9px; padding: 2px 6px; }
         .mute-btn { font-size: 14px; }
 
         .table-area {
-          padding: 0;
+          grid-column: 1 / -1;
+          grid-row: 2;
+          padding: 8px 8px 0 !important;
           flex: 1;
           position: relative;
           overflow: hidden;
+          min-height: 0;
+          align-items: stretch !important;
+          justify-content: center !important;
+          background: none !important;
         }
 
         .table-surface {
-          width: 100%;
-          height: 100%;
-          max-height: none;
-          aspect-ratio: auto;
-          border-radius: 45%;
-          border-width: 2px;
-          box-shadow:
-            inset 0 0 0 5px rgba(0,0,0,0.2),
-            inset 0 0 40px rgba(0,0,0,0.3),
-            0 0 0 1px rgba(212,175,85,0.06);
+          width: 100% !important;
+          height: 100% !important;
+          max-width: none !important;
+          max-height: none !important;
+          aspect-ratio: auto !important;
+          border-radius: 46% / 48% !important;
+          border: 8px solid #3a2010 !important;
+          background: url("assets/felt_portrait.png") center/cover, radial-gradient(ellipse 100% 100% at 50% 45%, #1d6b48 0%, #145838 40%, #0e3a28 70%, #0a2a1c 100%) !important;
+          box-shadow: inset 0 0 0 3px rgba(180,140,50,0.35), inset 0 0 36px rgba(0,0,0,0.25), 0 0 0 3px #2a1508, 0 0 0 5px rgba(160,120,50,0.25), 0 0 0 8px #1a0e06, 0 18px 40px rgba(0,0,0,0.6) !important;
         }
 
-        .table-center { gap: 4px; }
-        .pot-display { font-size: 16px; }
-        .street-label { font-size: 9px; letter-spacing: 0.15em; }
-        .board-cards { gap: 4px; }
-        .card { width: 40px; height: 56px; font-size: 14px; border-radius: 5px; }
+        .table-surface::after {
+          content: "";
+          position: absolute;
+          inset: 2px;
+          border-radius: 45% / 47%;
+          border: 1.5px solid rgba(200,160,60,0.3);
+          pointer-events: none;
+          z-index: 1;
+        }
+
+        .table-surface::before { border-radius: 45% / 47% !important; opacity: 0.15 !important; }
+        .dealer-deck { top: 31% !important; width: 30px; height: 44px; opacity: 0 !important; }
+        .dealer-deck::before,
+        .dealer-deck::after { opacity: 0 !important; }
+        .table-center { gap: 5px !important; top: 55% !important; }
+        .pot-display { gap: 4px !important; }
+        .pot-stack-art { width: 42px !important; height: 26px !important; }
+        .pot-chip { width: 16px !important; height: 16px !important; }
+        .pot-label {
+          font-size: 9px !important;
+          color: rgba(245,230,195,0.88) !important;
+          font-weight: 800 !important;
+          text-shadow: 0 1px 2px rgba(0,0,0,0.45) !important;
+        }
+        .pot-amount { font-size: 20px !important; }
+        .street-label { display: none !important; }
+        .board-cards { gap: 5px !important; margin-top: 14px !important; }
+        .card {
+          width: 42px !important;
+          height: 60px !important;
+          font-size: 16px !important;
+          border-radius: 7px !important;
+          box-shadow: 0 3px 10px rgba(0,0,0,0.5) !important;
+        }
+        .card-empty { background: rgba(255,255,255,0.04) !important; border: 1.5px solid rgba(255,255,255,0.08) !important; }
 
         .seat-node {
-          width: 88px;
-          padding: 4px;
-          gap: 2px;
-          border-radius: 8px;
-          border-width: 1.5px;
+          width: auto !important;
+          min-width: 56px;
+          max-width: 76px;
+          padding: 2px 6px !important;
+          gap: 0 !important;
+          border: 1.5px solid rgba(180,140,60,0.45) !important;
+          border-radius: 10px !important;
+          background: linear-gradient(180deg, rgba(22,18,10,0.92), rgba(14,12,8,0.96)) !important;
+          box-shadow: 0 3px 12px rgba(0,0,0,0.5) !important;
+          animation: none !important;
+          text-align: center;
+          display: flex !important;
+          flex-direction: column !important;
+          align-items: center !important;
         }
 
         .seat-node.my-seat {
-          width: 110px;
-          padding: 5px;
-          z-index: 20;
+          display: none !important;
         }
 
         .seat-node.empty {
-          width: 52px;
-          padding: 6px 4px;
-          min-height: 32px;
+          width: 42px !important;
+          height: 42px !important;
+          min-width: 0 !important;
+          max-width: none !important;
+          min-height: 0 !important;
+          border: 2px dashed rgba(180,140,60,0.15) !important;
+          border-radius: 50% !important;
+          background: rgba(0,0,0,0.15) !important;
+          padding: 0 !important;
         }
 
-        .seat-empty-label { font-size: 9px; }
-        .seat-name { font-size: 9px; }
-        .seat-stack { font-size: 10px; }
-        .seat-dealer-dot { width: 14px; height: 14px; font-size: 7px; }
-        .seat-cards-row .card-sm { width: 20px; height: 28px; font-size: 9px; border-radius: 3px; }
-        .seat-cards-row .card-mine { width: 34px; height: 48px; font-size: 13px; border-radius: 5px; }
-        .seat-color-dot { width: 5px; height: 5px; }
+        .seat-node::before {
+          content: "";
+          width: 28px;
+          height: 28px;
+          border-radius: 50%;
+          margin-top: -18px;
+          background: url("assets/bot_avatars.png") 0 0 / 300% 200% no-repeat;
+          border: 2px solid rgba(180,140,60,0.5);
+          box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+          display: block;
+          flex-shrink: 0;
+        }
+
+        .seat-node:nth-child(1)::before { background-position: 0% 0%; }
+        .seat-node:nth-child(2)::before { background-position: 50% 0%; }
+        .seat-node:nth-child(3)::before { background-position: 100% 0%; }
+        .seat-node:nth-child(4)::before { background-position: 0% 100%; }
+        .seat-node:nth-child(5)::before { background-position: 50% 100%; }
+        .seat-node:nth-child(6)::before { background-position: 100% 100%; }
+        .seat-node:nth-child(n+7)::before { background-position: 50% 50%; }
+        .seat-node.active-turn { border-color: var(--green) !important; box-shadow: 0 0 14px rgba(74,222,128,0.3) !important; }
+        .seat-node.allin-seat { border-color: var(--red) !important; }
+        .seat-node.winner-seat { border-color: var(--gold) !important; box-shadow: 0 0 18px rgba(212,175,85,0.28) !important; }
+        .seat-node .seat-cards-row,
+        .seat-color-dot,
+        .bot-label { display: none !important; }
+        .seat-header { justify-content: center !important; gap: 3px !important; }
+        .seat-name,
+        .seat-node.bot-seat .seat-name {
+          font-size: 10px !important;
+          font-weight: 700 !important;
+          color: #e8dcc0 !important;
+          max-width: 70px;
+        }
+        .seat-stack {
+          font-size: 11px !important;
+          font-weight: 800 !important;
+          text-align: center;
+          color: var(--gold-bright) !important;
+        }
+        .seat-dealer-dot {
+          width: 16px !important;
+          height: 16px !important;
+          font-size: 8px !important;
+          position: absolute !important;
+          top: -4px;
+          right: -4px;
+        }
+        .seat-pos-label {
+          font-size: 7px !important;
+          color: var(--gold) !important;
+          position: absolute !important;
+          top: -2px;
+          right: -2px;
+          background: rgba(20,16,8,0.9);
+          padding: 1px 4px;
+          border-radius: 4px;
+          border: 1px solid rgba(180,140,60,0.3);
+        }
+        .seat-node.folded { opacity: 0.3 !important; }
+        .seat-node.empty::before { display: none !important; }
+        .seat-empty-label { font-size: 8px !important; color: rgba(180,140,60,0.3) !important; }
 
         .seat-timer-ring { width: 18px; height: 18px; top: -3px; right: -3px; }
 
-        .action-strip {
-          position: fixed;
-          bottom: 0;
-          left: 0;
-          right: 0;
-          z-index: 30;
-          padding: 5px 8px;
+        .floating-cards {
+          position: absolute;
+          display: flex;
+          align-items: flex-end;
+          gap: 0;
+          z-index: 12;
+          pointer-events: none;
+          transform-origin: center center;
+          transform: translate(-50%, -50%);
         }
 
-        .astrip-btn { font-size: 10px; padding: 6px 8px; }
-        .astrip-amount { width: 50px; font-size: 11px; }
+        .floating-cards .card {
+          width: 24px !important;
+          height: 34px !important;
+          font-size: 9px !important;
+          border-radius: 5px !important;
+          box-shadow: 0 3px 10px rgba(0,0,0,0.45) !important;
+        }
 
-        .table-deal-btn { font-size: 12px; padding: 7px 18px; }
+        .floating-cards .card + .card { margin-left: -7px; }
+
+        .floating-cards.showdown .card {
+          width: 27px !important;
+          height: 38px !important;
+          font-size: 10px !important;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.5) !important;
+        }
+
+        .floating-cards--top { transform: translate(-50%, 50%) !important; }
+        .floating-cards--top .card:first-child { --held-transform: rotate(-8deg) translateY(1px); transform: var(--held-transform); }
+        .floating-cards--top .card:last-child { --held-transform: rotate(6deg) translateY(0); transform: var(--held-transform); }
+        .floating-cards--left { transform: translate(92%, -50%) !important; }
+        .floating-cards--left .card:first-child { --held-transform: rotate(-6deg) translate(1px, 1px); transform: var(--held-transform); }
+        .floating-cards--left .card:last-child { --held-transform: rotate(4deg) translate(-1px, -1px); transform: var(--held-transform); }
+        .floating-cards--right { transform: translate(-192%, -50%) !important; }
+        .floating-cards--right .card:first-child { --held-transform: rotate(-4deg) translate(1px, -1px); transform: var(--held-transform); }
+        .floating-cards--right .card:last-child { --held-transform: rotate(6deg) translate(-1px, 1px); transform: var(--held-transform); }
+        .floating-cards--bottom-left { transform: translate(34%, -126%) !important; }
+        .floating-cards--bottom-left .card:first-child { --held-transform: rotate(-7deg) translateY(0); transform: var(--held-transform); }
+        .floating-cards--bottom-left .card:last-child { --held-transform: rotate(5deg) translateY(-1px); transform: var(--held-transform); }
+        .floating-cards--bottom-right { transform: translate(-134%, -126%) !important; }
+        .floating-cards--bottom-right .card:first-child { --held-transform: rotate(-5deg) translateY(0); transform: var(--held-transform); }
+        .floating-cards--bottom-right .card:last-child { --held-transform: rotate(7deg) translateY(-1px); transform: var(--held-transform); }
+
+        .my-hand-area {
+          grid-column: 1;
+          grid-row: 3 / 5;
+          display: flex !important;
+          width: 100%;
+          padding: 0 8px 10px;
+          gap: 8px;
+          margin-top: 0;
+          position: relative;
+          z-index: 18;
+          justify-content: center;
+          align-items: flex-end;
+          align-self: end;
+        }
+
+        .my-hand-cards {
+          min-width: 112px;
+          min-height: 82px;
+          padding: 12px 10px 6px;
+        }
+
+        .my-hand-cards::before {
+          inset: 10px 3px 0;
+          border-radius: 16px 16px 12px 12px;
+        }
+
+        .my-hand-cards .card {
+          width: 48px !important;
+          height: 68px !important;
+          font-size: 20px !important;
+          border-radius: 7px !important;
+        }
+
+        .my-hand-nameplate {
+          margin-top: 12px;
+        }
+
+        .my-hand-avatar {
+          width: 30px;
+          height: 30px;
+          margin-top: -16px;
+        }
+
+        .my-hand-name { font-size: 11px; }
+        .my-hand-stack { font-size: 13px; }
+        .my-hand-badges { gap: 4px; min-height: 15px; }
+        .my-hand-badges .seat-dealer-dot {
+          width: 16px !important;
+          height: 16px !important;
+          font-size: 8px !important;
+          position: static !important;
+          top: auto !important;
+          right: auto !important;
+        }
+        .my-hand-badges .seat-pos-label {
+          font-size: 7px !important;
+          position: static !important;
+          top: auto !important;
+          right: auto !important;
+          padding: 2px 5px !important;
+          border-radius: 999px !important;
+          background: rgba(20,16,8,0.9) !important;
+          border: 1px solid rgba(180,140,60,0.3) !important;
+          color: var(--gold) !important;
+          line-height: 1 !important;
+        }
+
+        .action-strip {
+          grid-column: 2;
+          grid-row: 3;
+          position: relative;
+          bottom: auto;
+          left: auto;
+          right: auto;
+          z-index: 20;
+          width: min(100%, 580px);
+          justify-self: end;
+          align-self: end;
+          padding: 0 12px 4px 8px !important;
+          gap: 8px !important;
+          background: transparent !important;
+          border-top: none !important;
+          justify-content: flex-end !important;
+        }
+
+        .astrip-btn { font-size: 11px; padding: 10px 14px; min-height: 38px; }
+        .astrip-fold { background: linear-gradient(180deg, #8b2020, #6b1515) !important; color: #fff !important; border-radius: 999px !important; border: 1px solid rgba(255,100,100,0.15); box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+        .astrip-call { background: linear-gradient(180deg, #1a7b40, #0e5a2a) !important; color: #fff !important; border-radius: 999px !important; padding: 10px 22px !important; font-size: 13px !important; font-weight: 800 !important; border: 1px solid rgba(100,255,150,0.1); box-shadow: 0 4px 12px rgba(0,0,0,0.3); flex: 1; max-width: 240px; text-align: center; }
+        .astrip-raise { background: linear-gradient(180deg, #8b6b20, #6b4a10) !important; color: #fff !important; border-radius: 999px !important; border: 1px solid rgba(255,200,100,0.15); box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+        .astrip-allin { background: linear-gradient(180deg, #6b3520, #4a2010) !important; color: #ffb080 !important; border-radius: 999px !important; padding: 9px 12px !important; font-size: 10px !important; border: 1px solid rgba(255,150,100,0.15); display: block !important; }
+        .astrip-raise-group { display: none !important; }
+        .astrip-amount { width: 46px; font-size: 10px; }
+
+        .preset-row {
+          grid-column: 2;
+          grid-row: 4;
+          width: min(100%, 580px);
+          justify-self: end;
+          align-self: start;
+          background: transparent !important;
+          padding: 0 12px 10px 8px !important;
+          gap: 4px !important;
+          justify-content: flex-end !important;
+          border-top: none !important;
+        }
+        .preset-amount-wrap { display: flex !important; }
+        .preset-amount-label { font-size: 9px !important; }
+        .preset-amount-input { width: 58px !important; font-size: 10px !important; padding: 4px 5px !important; }
+        .preset-chip { font-size: 10px; padding: 4px 8px; }
+
+        .seat-bet { font-size: 10px !important; padding: 2px 6px !important; }
+        .seat-win-amount { font-size: 13px !important; }
+        .seat-rebuy-btn { font-size: 11px !important; padding: 6px 14px !important; }
+        .seat-popover { z-index: 30 !important; }
+        .table-deal-btn { bottom: 8% !important; font-size: 12px !important; padding: 7px 18px !important; }
 
         .log-toggle { display: none; }
         .hand-log { display: none; }
       }
 
       @media (orientation: landscape) and (max-height: 500px) and (min-width: 668px) {
-        .action-strip {
-          left: auto;
-          width: 340px;
-          right: 0;
-          border-radius: var(--radius) 0 0 0;
-          border-left: 1px solid var(--border);
-        }
+        #tableView { grid-template-columns: minmax(240px, 320px) minmax(0, 1fr); }
       }
     </style>
   </head>
@@ -2247,6 +2498,6 @@
 
     <div class="toast-container" id="toastContainer"></div>
 
-    <script type="module" src="./online/table_app.js?v=27"></script>
+    <script type="module" src="./online/table_app.js?v=30"></script>
   </body>
 </html>

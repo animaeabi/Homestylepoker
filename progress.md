@@ -498,3 +498,90 @@ Update (my-hand D / SB / BB badge containment fix):
 Validation:
 - Browser-validated on the live table with `D` and `SB` active in the my-hand tray.
 - Measured badge geometry and confirmed both chips stayed fully inside `/Users/abishek/Documents/poker-buyins/online-table.html#myHandNameplate`.
+
+Update (landscape mobile parity pass):
+- Ported the portrait online-table control treatment into the landscape-phone breakpoint in `/Users/abishek/Documents/poker-buyins/online-table.html`.
+- Landscape mobile now mirrors the portrait flow more closely:
+  - hides the on-table `my-seat`
+  - shows the `my-hand` tray with the inline `D / SB / BB` badges
+  - uses the portrait-style action buttons instead of the old thin docked bar
+  - shows the compact `Bet $ / Raise to $` quick input in the preset row
+  - keeps the pot styling and compact board spacing aligned with the portrait treatment
+- Removed the old wide-screen bottom-right action docking behavior for the landscape phone breakpoint so the controls stay full-width and consistent with portrait.
+
+Validation:
+- Browser-validated at `932x430` on a live table:
+  - `my-seat` was hidden on the table and the `my-hand` tray was visible
+  - `D` and `SB` badges stayed fully inside the `my-hand` nameplate
+  - landscape `Raise to $` quick input synced correctly with the hidden amount input and slider
+  - main action buttons and preset row were visible together in the portrait-style bottom stack
+
+Update (landscape portrait-parity correction):
+- Tightened the landscape-phone implementation so it actually follows the portrait table language in `/Users/abishek/Documents/poker-buyins/online-table.html` and `/Users/abishek/Documents/poker-buyins/online/table_app.js`.
+- Landscape phone mode now:
+  - hides the top metadata pills like portrait
+  - uses the mahogany portrait-style table shell and felt texture instead of the old wide oval
+  - filters the player's own seat out of the on-table layout so the remaining seats reflow like portrait
+  - renders opponent held cards as portrait-style floating cards instead of inline seat cards
+  - applies the portrait seat-card treatment in landscape, including hidden bot subtitles and gold stack styling
+- Bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster from `?v=27` to `?v=28`.
+
+Validation:
+- `node --check /Users/abishek/Documents/poker-buyins/online/table_app.js` (pass)
+- Browser-validated in landscape on live 2-seat and 4-seat tables:
+  - top metadata pills were hidden
+  - my seat was removed from the table and shown only in the my-hand tray
+  - opponents used floating held cards with no inline seat-card rows
+  - the landscape table used the portrait mahogany shell rather than the old wide ellipse
+
+Update (landscape wide-layout correction):
+- Reworked the landscape-phone composition in `/Users/abishek/Documents/poker-buyins/online-table.html` so the portrait styling adapts to a wide screen instead of shrinking the table into the middle.
+- Landscape now:
+  - uses a full-width wide mahogany table shell again
+  - keeps the portrait-style seat cards and floating held cards
+  - moves the lower UI into a horizontal split: my-hand tray on the left, action controls on the right
+  - removes the stacked bottom layout that was stealing too much table height
+- Kept the `my-seat` hidden from the table itself and preserved the portrait-style action buttons and quick amount controls.
+
+Validation:
+- Browser-validated again at `932x430` on live 2-seat and 4-seat tables:
+  - table filled the landscape width
+  - lower UI no longer stacked vertically under the table
+  - my-hand tray remained readable without crowding the felt
+  - action controls stayed clear and aligned on the right
+
+Update (landscape balance pass):
+- Tuned the landscape-phone proportions again in `/Users/abishek/Documents/poker-buyins/online-table.html` after feedback that the center was still crowded.
+- Adjustments:
+  - moved top floating hole cards back toward the seat so they no longer cover the pot
+  - nudged the center content slightly lower for more separation
+  - centered the my-hand tray in its lane
+  - reduced the landscape my-hand card size and overall action button scale
+  - moved the `Deal` button lower so it sits beneath the board row
+- Bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster from `?v=28` to `?v=29`.
+
+Validation:
+- Browser-validated at `932x430` on live 4-seat and 2-seat tables:
+  - pot was no longer covered by the top seat cards
+  - action strip and presets took less visual weight
+  - my-hand tray was centered better within the left lane
+  - `Deal` sat below the board cards on a fresh waiting table
+
+Update (landscape deck hide):
+- Hid the visual deck in the landscape-phone breakpoint in `/Users/abishek/Documents/poker-buyins/online-table.html`.
+- Kept the deck element in layout with zero opacity so the deal animation origin still works correctly.
+
+Validation:
+- Browser-validated on a live landscape waiting table:
+  - the deck graphic was no longer visible
+  - the waiting-state `Deal` button remained in place
+
+Update (landscape top-seat / pot spacing):
+- Adjusted the landscape seat ellipse in `/Users/abishek/Documents/poker-buyins/online/table_app.js` so top seats sit farther toward the rail.
+- This specifically creates separation between the top seat and the center `Pot` label in landscape.
+- Bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster from `?v=29` to `?v=30`.
+
+Validation:
+- `node --check /Users/abishek/Documents/poker-buyins/online/table_app.js` (pass)
+- Browser-measured on a live landscape table:
+  - top-seat to `Pot` label gap improved from about `-2px` overlap to about `8px`

@@ -807,6 +807,10 @@ function isPortraitMobile() {
   return window.innerWidth <= 768 && window.innerHeight > window.innerWidth;
 }
 
+function isCompactMobileLayout() {
+  return isPortraitMobile() || isLandscape();
+}
+
 function seatPosition(index, total) {
   const landscape = isLandscape();
   const portrait = isPortraitMobile();
@@ -814,7 +818,7 @@ function seatPosition(index, total) {
   let xR, yR;
   if (landscape) {
     xR = total >= 8 ? 43 : 42;
-    yR = total >= 8 ? 38 : 36;
+    yR = total >= 8 ? 41 : 40;
   } else if (portrait) {
     return portraitSeatPosition(index, total);
   } else if (window.innerWidth <= 768) {
@@ -1591,22 +1595,23 @@ function renderSeats() {
   el.seatsLayer.innerHTML = "";
   const total = seats.length;
   const portrait = isPortraitMobile();
+  const compactMobile = isCompactMobileLayout();
   const contestedShowdown = isContestedShowdown(hand, handPlayers);
   const showdownLeaderSeats = new Set(getShowdownLeaders(hand, handPlayers).map(({ player }) => player.seat_no));
 
-  const tableSeats = portrait && mySeat ? seats.filter(s => s.seat_no !== mySeat.seat_no) : seats;
+  const tableSeats = compactMobile && mySeat ? seats.filter(s => s.seat_no !== mySeat.seat_no) : seats;
   const tableTotal = tableSeats.length;
 
   const bottomIdx = Math.floor(total / 2);
   let rotateOffset = 0;
-  if (!portrait && mySeat) {
+  if (!compactMobile && mySeat) {
     const myIdx = seats.findIndex(s => s.seat_no === mySeat.seat_no);
     if (myIdx >= 0) rotateOffset = bottomIdx - myIdx;
   }
 
   tableSeats.forEach((seat, idx) => {
-    const posIdx = portrait ? idx : ((seats.indexOf(seat) + rotateOffset) % total + total) % total;
-    const posTotal = portrait ? tableTotal : total;
+    const posIdx = compactMobile ? idx : ((seats.indexOf(seat) + rotateOffset) % total + total) % total;
+    const posTotal = compactMobile ? tableTotal : total;
     const pos = seatPosition(posIdx + 1, posTotal);
     const hp = hpBySeat.get(seat.seat_no);
     const occupied = seat.group_player_id && !seat.left_at;
@@ -1736,18 +1741,19 @@ function renderSeats() {
           reveal = isMe || isWinner || isAggressor;
         }
 
-        if (portrait && !isMe) {
+        if (compactMobile && !isMe) {
           const floatCards = document.createElement("div");
           floatCards.className = "floating-cards";
           const px = parseFloat(pos.x);
           const py = parseFloat(pos.y);
           let anchor = "top";
-          if (py <= 18) anchor = "top";
-          else if (px <= 22) anchor = "left";
-          else if (px >= 78) anchor = "right";
-          else if (py >= 64) anchor = px < 50 ? "bottom-left" : "bottom-right";
+          if (py <= (compactMobile && !portrait ? 20 : 18)) anchor = "top";
+          else if (px <= (compactMobile && !portrait ? 24 : 22)) anchor = "left";
+          else if (px >= (compactMobile && !portrait ? 76 : 78)) anchor = "right";
+          else if (py >= (compactMobile && !portrait ? 60 : 64)) anchor = px < 50 ? "bottom-left" : "bottom-right";
           else anchor = px < 50 ? "left" : "right";
           floatCards.classList.add(`floating-cards--${anchor}`);
+          if (!portrait) floatCards.classList.add("floating-cards--landscape");
           if (reveal) floatCards.classList.add("showdown");
           floatCards.style.left = `${px}%`;
           floatCards.style.top = `${py}%`;
