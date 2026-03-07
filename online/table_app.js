@@ -20,6 +20,8 @@ function getTurnClockSecs() { return state.config.turnTime || 25; }
 const REALTIME_DEBOUNCE_MS = 180;
 const RECONNECT_DEBOUNCE_MS = 900;
 const FALLBACK_STALE_MS = 5000;
+const LANDSCAPE_COLLAPSE_MEDIA = "(orientation: landscape) and (max-height: 500px)";
+const PORTRAIT_COLLAPSE_MEDIA = "(max-width: 768px) and (orientation: portrait)";
 const SEAT_COLORS = [
   "#60a5fa","#f87171","#4ade80","#fb923c","#a78bfa",
   "#f472b6","#38bdf8","#fbbf24","#34d399","#e879f9"
@@ -27,6 +29,17 @@ const SEAT_COLORS = [
 const RANKS = ["2","3","4","5","6","7","8","9","T","J","Q","K","A"];
 const SUITS = ["S","H","D","C"];
 const FULL_DECK = SUITS.flatMap(s => RANKS.map(r => `${r}${s}`));
+const AVATAR_PALETTES = [
+  { a: "#5c7cff", b: "#25346f", ring: "#f0c56e" },
+  { a: "#00a3a3", b: "#14545d", ring: "#f0c56e" },
+  { a: "#d4682d", b: "#6a2811", ring: "#f0c56e" },
+  { a: "#a25be7", b: "#442178", ring: "#f0c56e" },
+  { a: "#3da85f", b: "#1f5b36", ring: "#f0c56e" },
+  { a: "#db5a7f", b: "#5d1f36", ring: "#f0c56e" },
+  { a: "#4a89d7", b: "#1c3f73", ring: "#f0c56e" },
+  { a: "#f09b3f", b: "#734919", ring: "#f0c56e" },
+];
+const BOT_AVATAR_RING = "#b194ff";
 
 const TABLE_ADJECTIVES = ["Velvet","Midnight","Golden","Shadow","Royal","Crimson","Silver","Emerald","Diamond","Sapphire"];
 const TABLE_NOUNS = ["River","Bluff","Stakes","Aces","Flush","Kings","Edge","Pot","Draw","Jackpot"];
@@ -55,6 +68,8 @@ const el = {
   createFields: document.getElementById("createFields"),
 
   tableView: document.getElementById("tableView"),
+  topBar: document.getElementById("topBar"),
+  landscapeBarToggle: document.getElementById("landscapeBarToggle"),
   tbTitle: document.getElementById("tbTitle"),
   tbBlinds: document.getElementById("tbBlinds"),
   tbPlayers: document.getElementById("tbPlayers"),
@@ -81,11 +96,13 @@ const el = {
   allInBtn: document.getElementById("allInBtn"),
   betSlider: document.getElementById("betSlider"),
   betAmount: document.getElementById("betAmount"),
+  betSliderQuick: document.getElementById("betSliderQuick"),
   betAmountQuick: document.getElementById("betAmountQuick"),
   presetAmountLabel: document.getElementById("presetAmountLabel"),
   myHandArea: document.getElementById("myHandArea"),
   myHandCards: document.getElementById("myHandCards"),
   myHandNameplate: document.getElementById("myHandNameplate"),
+  myHandAvatar: document.querySelector(".my-hand-avatar"),
   hamburgerBtn: document.getElementById("hamburgerBtn"),
   configOverlay: document.getElementById("configOverlay"),
   configBackdrop: document.getElementById("configBackdrop"),
@@ -146,6 +163,10 @@ const state = {
   potPushAnimation: null,
   clearedPotHandId: null,
   audioCtx: null,
+  landscapeTopBarExpanded: true,
+  landscapeCompactMode: false,
+  compactTopBarMode: null,
+  landscapeRaisePanelOpen: false,
 };
 
 function getUrlTableId() {
@@ -291,6 +312,8 @@ function normalizeBetAmount(value, minBet, maxBet, step = 1) {
 function getBetControlValue() {
   const quickValue = Number(el.betAmountQuick?.value);
   if (Number.isFinite(quickValue)) return quickValue;
+  const quickSliderValue = Number(el.betSliderQuick?.value);
+  if (Number.isFinite(quickSliderValue)) return quickSliderValue;
   const amountValue = Number(el.betAmount?.value);
   if (Number.isFinite(amountValue)) return amountValue;
   const sliderValue = Number(el.betSlider?.value);
@@ -300,6 +323,7 @@ function getBetControlValue() {
 function setBetControlValue(value) {
   const stringValue = String(value);
   if (el.betSlider) el.betSlider.value = stringValue;
+  if (el.betSliderQuick) el.betSliderQuick.value = stringValue;
   if (el.betAmount) el.betAmount.value = stringValue;
   if (el.betAmountQuick) el.betAmountQuick.value = stringValue;
 }
@@ -314,6 +338,11 @@ function refreshBetControls(hand = getLatestHand(), hp = getMyHandPlayer()) {
   el.betSlider.min = stringMin;
   el.betSlider.max = stringMax;
   el.betSlider.step = stringStep;
+  if (el.betSliderQuick) {
+    el.betSliderQuick.min = stringMin;
+    el.betSliderQuick.max = stringMax;
+    el.betSliderQuick.step = stringStep;
+  }
   el.betAmount.min = stringMin;
   el.betAmount.max = stringMax;
   el.betAmount.step = stringStep;
@@ -324,7 +353,7 @@ function refreshBetControls(hand = getLatestHand(), hp = getMyHandPlayer()) {
   }
   setBetControlValue(normalized);
   if (el.presetAmountLabel) {
-    el.presetAmountLabel.textContent = isRaise ? "Raise to $" : "Bet $";
+    el.presetAmountLabel.textContent = "$";
   }
 }
 
@@ -449,6 +478,45 @@ function seatName(groupPlayerId) {
   return `Seat ${seat?.seat_no || "?"}`;
 }
 
+function hashString(value = "") {
+  let h = 2166136261;
+  const text = String(value);
+  for (let i = 0; i < text.length; i += 1) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function avatarInitials(name = "", isBot = false) {
+  const cleaned = String(name || "").trim().replace(/\s+/g, " ");
+  if (!cleaned) return isBot ? "AI" : "?";
+  const parts = cleaned.split(" ");
+  if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+  return cleaned.slice(0, 2).toUpperCase();
+}
+
+function avatarTheme(seed = "", isBot = false) {
+  const idx = hashString(seed) % AVATAR_PALETTES.length;
+  const palette = AVATAR_PALETTES[idx];
+  return {
+    bgA: palette.a,
+    bgB: palette.b,
+    ring: isBot ? BOT_AVATAR_RING : palette.ring,
+  };
+}
+
+function applyAvatarTheme(node, { seed = "", name = "", isBot = false } = {}) {
+  if (!node) return;
+  const theme = avatarTheme(seed || name, isBot);
+  node.style.setProperty("--avatar-bg1", theme.bgA);
+  node.style.setProperty("--avatar-bg2", theme.bgB);
+  node.style.setProperty("--avatar-ring", theme.ring);
+  node.textContent = avatarInitials(name, isBot);
+  node.dataset.bot = isBot ? "1" : "0";
+  node.setAttribute("aria-label", `${name || "Player"} avatar`);
+}
+
 function getStackCtaState({ hand = getLatestHand(), handPlayer = null, stack = 0, startingStack = 200 } = {}) {
   const currentStack = Number(stack || 0);
   const startStackValue = Math.max(0, Number(startingStack || 0));
@@ -500,6 +568,59 @@ function makeCardEl(token, hidden = false, small = false, mine = false) {
 
 function isLandscape() {
   return window.innerHeight <= 500 && window.innerWidth > window.innerHeight;
+}
+
+function isLandscapeCollapseMode() {
+  return window.matchMedia(LANDSCAPE_COLLAPSE_MEDIA).matches;
+}
+
+function isPortraitCollapseMode() {
+  return window.matchMedia(PORTRAIT_COLLAPSE_MEDIA).matches;
+}
+
+function syncLandscapeTopBar(forceCollapse = false) {
+  const compactMode = isLandscapeCollapseMode()
+    ? "landscape"
+    : (isPortraitCollapseMode() ? "portrait" : null);
+
+  if (!compactMode) {
+    state.landscapeCompactMode = false;
+    state.compactTopBarMode = null;
+    state.landscapeTopBarExpanded = true;
+    el.tableView.classList.remove(
+      "landscape-topbar-expanded",
+      "landscape-topbar-collapsed",
+      "portrait-topbar-expanded",
+      "portrait-topbar-collapsed"
+    );
+    if (el.landscapeBarToggle) {
+      el.landscapeBarToggle.classList.add("hidden");
+      el.landscapeBarToggle.textContent = "▲";
+      el.landscapeBarToggle.setAttribute("aria-expanded", "true");
+      el.landscapeBarToggle.setAttribute("aria-label", "Controls visible");
+    }
+    return;
+  }
+
+  const modeChanged = state.compactTopBarMode && state.compactTopBarMode !== compactMode;
+  if (!state.landscapeCompactMode || forceCollapse || modeChanged) {
+    state.landscapeTopBarExpanded = false;
+  }
+  state.landscapeCompactMode = true;
+  state.compactTopBarMode = compactMode;
+  const inLandscape = compactMode === "landscape";
+  const inPortrait = compactMode === "portrait";
+  el.tableView.classList.toggle("landscape-topbar-expanded", inLandscape && state.landscapeTopBarExpanded);
+  el.tableView.classList.toggle("landscape-topbar-collapsed", inLandscape && !state.landscapeTopBarExpanded);
+  el.tableView.classList.toggle("portrait-topbar-expanded", inPortrait && state.landscapeTopBarExpanded);
+  el.tableView.classList.toggle("portrait-topbar-collapsed", inPortrait && !state.landscapeTopBarExpanded);
+  if (el.landscapeBarToggle) {
+    el.landscapeBarToggle.classList.remove("hidden");
+    const expanded = state.landscapeTopBarExpanded;
+    el.landscapeBarToggle.textContent = expanded ? "▲" : "▼";
+    el.landscapeBarToggle.setAttribute("aria-expanded", expanded ? "true" : "false");
+    el.landscapeBarToggle.setAttribute("aria-label", expanded ? "Hide controls" : "Show controls");
+  }
 }
 
 function nextOccupiedSeat(activeSeatNos, seatNo) {
@@ -795,9 +916,31 @@ const PORTRAIT_SEATS = {
   ],
 };
 
+// Hand-tuned landscape slots (table seats only; my-seat remains in hand area).
+// Goal: mirrored rows with no direct seat opposite hero.
+const LANDSCAPE_SEATS = {
+  1: [{ x: 36, y: 9 }],
+  2: [{ x: 36, y: 9 }, { x: 64, y: 9 }],
+  3: [{ x: 36, y: 9 }, { x: 64, y: 9 }, { x: 88, y: 27 }],
+  4: [{ x: 36, y: 9 }, { x: 64, y: 9 }, { x: 12, y: 27 }, { x: 88, y: 27 }],
+  5: [{ x: 36, y: 9 }, { x: 64, y: 9 }, { x: 12, y: 27 }, { x: 88, y: 27 }, { x: 94, y: 56 }],
+  6: [{ x: 36, y: 9 }, { x: 64, y: 9 }, { x: 12, y: 27 }, { x: 88, y: 27 }, { x: 6, y: 56 }, { x: 94, y: 56 }],
+  7: [{ x: 36, y: 9 }, { x: 64, y: 9 }, { x: 12, y: 27 }, { x: 88, y: 27 }, { x: 6, y: 56 }, { x: 94, y: 56 }, { x: 80, y: 82 }],
+  8: [{ x: 36, y: 9 }, { x: 64, y: 9 }, { x: 12, y: 27 }, { x: 88, y: 27 }, { x: 6, y: 56 }, { x: 94, y: 56 }, { x: 20, y: 82 }, { x: 80, y: 82 }],
+  9: [{ x: 36, y: 9 }, { x: 64, y: 9 }, { x: 12, y: 27 }, { x: 88, y: 27 }, { x: 6, y: 56 }, { x: 94, y: 56 }, { x: 20, y: 82 }, { x: 80, y: 82 }, { x: 86, y: 86 }],
+};
+
 function portraitSeatPosition(index, total) {
   const clamped = Math.max(2, Math.min(10, total));
   const positions = PORTRAIT_SEATS[clamped] || PORTRAIT_SEATS[6];
+  const idx = Math.max(0, Math.min(index - 1, positions.length - 1));
+  const p = positions[idx];
+  return { x: `${p.x}%`, y: `${p.y}%` };
+}
+
+function landscapeSeatPosition(index, total) {
+  const clamped = Math.max(1, Math.min(9, total));
+  const positions = LANDSCAPE_SEATS[clamped] || LANDSCAPE_SEATS[8];
   const idx = Math.max(0, Math.min(index - 1, positions.length - 1));
   const p = positions[idx];
   return { x: `${p.x}%`, y: `${p.y}%` };
@@ -817,8 +960,7 @@ function seatPosition(index, total) {
   const angle = Math.PI / 2 + ((index - 1) / total) * Math.PI * 2;
   let xR, yR;
   if (landscape) {
-    xR = total >= 8 ? 43 : 42;
-    yR = total >= 8 ? 41 : 40;
+    return landscapeSeatPosition(index, total);
   } else if (portrait) {
     return portraitSeatPosition(index, total);
   } else if (window.innerWidth <= 768) {
@@ -997,6 +1139,7 @@ function enterTable(tableId) {
 
   el.lobby.classList.add("hidden");
   el.tableView.classList.remove("hidden");
+  syncLandscapeTopBar(true);
 
   loadBotSeats();
   loadTableState();
@@ -1666,15 +1809,24 @@ function renderSeats() {
       if (isTurn) node.classList.add("active-turn");
       if (isFolded) node.classList.add("folded");
 
+      const botInfo = getBotInfo(seat.seat_no);
+      const displayName = botInfo ? botInfo.name : seatName(pid);
       const color = SEAT_COLORS[(seat.seat_no - 1) % SEAT_COLORS.length];
+      const avatarEl = document.createElement("div");
+      avatarEl.className = "seat-avatar";
+      applyAvatarTheme(avatarEl, {
+        seed: `${pid || seat.player_name || displayName}:${seat.seat_no}`,
+        name: displayName,
+        isBot,
+      });
+      node.appendChild(avatarEl);
 
       const header = document.createElement("div");
       header.className = "seat-header";
 
       const nameEl = document.createElement("span");
       nameEl.className = "seat-name";
-      const botInfo = getBotInfo(seat.seat_no);
-      nameEl.textContent = botInfo ? botInfo.name : seatName(pid);
+      nameEl.textContent = displayName;
       if (isBot) nameEl.style.color = "#a78bfa";
       else nameEl.style.color = color;
 
@@ -1879,6 +2031,7 @@ function renderMyHand() {
   if (!el.myHandCards || !nameEl) return;
   el.myHandCards.innerHTML = "";
   if (badgesEl) badgesEl.innerHTML = "";
+  el.myHandArea?.classList.add("no-hole-cards");
 
   const hand = getLatestHand();
   const hp = getMyHandPlayer();
@@ -1888,6 +2041,11 @@ function renderMyHand() {
   nameEl.textContent = state.identity?.name || "You";
   const displayStack = (hp && hp.stack_end != null) ? hp.stack_end : mySeat.chip_stack;
   stackEl.textContent = fmtShort(displayStack);
+  applyAvatarTheme(el.myHandAvatar, {
+    seed: `${state.identity?.groupPlayerId || mySeat.group_player_id || mySeat.seat_no}:${state.identity?.name || "You"}`,
+    name: state.identity?.name || "You",
+    isBot: false,
+  });
 
   if (hand && badgesEl) {
     if (hand.button_seat === mySeat.seat_no) {
@@ -1909,10 +2067,15 @@ function renderMyHand() {
     }
   }
 
-  if (hp && Array.isArray(hp.hole_cards) && hp.hole_cards.length >= 2) {
+  const visibleHoleCards = Array.isArray(hp?.hole_cards)
+    ? hp.hole_cards.map(normCard).filter(Boolean)
+    : [];
+  const hasHoleCards = visibleHoleCards.length >= 2;
+  if (hasHoleCards) {
+    el.myHandArea?.classList.remove("no-hole-cards");
     const useMyHandTargets = isPortraitMobile();
-    const firstCard = makeCardEl(hp.hole_cards[0], false, false, false);
-    const secondCard = makeCardEl(hp.hole_cards[1], false, false, false);
+    const firstCard = makeCardEl(visibleHoleCards[0], false, false, false);
+    const secondCard = makeCardEl(visibleHoleCards[1], false, false, false);
     el.myHandCards.appendChild(useMyHandTargets ? markDealCardTarget(firstCard, mySeat.seat_no, 1, hand, -9) : firstCard);
     el.myHandCards.appendChild(useMyHandTargets ? markDealCardTarget(secondCard, mySeat.seat_no, 2, hand, 8) : secondCard);
   }
@@ -1958,9 +2121,12 @@ function renderActions() {
   const hp = getMyHandPlayer();
   const token = getSeatToken();
   const isHost = canManageHand();
+  const compactActions = isLandscapeCollapseMode() || isPortraitCollapseMode();
 
   const myTurn = hand && isActionStreet(hand.state) && token && hp && !hp.folded && !hp.all_in && hand.action_seat === hp.seat_no;
   const noActiveHand = !hand || ["settled","canceled"].includes(hand.state);
+  el.tableView.classList.toggle("landscape-actions-visible", Boolean(myTurn));
+  el.tableView.classList.toggle("landscape-vertical-actions", compactActions);
 
   const autoDealPending = Boolean(state.autoDealTimer);
   const hasWinOverlays = state.winOverlays.size > 0 && [...state.winOverlays.values()].some(d => Date.now() < d.until);
@@ -1981,14 +2147,20 @@ function renderActions() {
   // Show action strip only when it's your turn
   if (myTurn) {
     el.actionStrip.classList.remove("hidden");
-    el.presetRow.classList.remove("hidden");
 
     const { toCall } = getBetBounds(hand, hp);
+    const raiseActionType = Number(hand.current_bet || 0) > 0 ? "raise" : "bet";
     el.callBtn.textContent = toCall > 0 ? `Call ${fmtShort(toCall)}` : "Check";
-    el.betRaiseBtn.textContent = Number(hand.current_bet || 0) > 0 ? "Raise" : "Bet";
+    el.betRaiseBtn.textContent = raiseActionType === "raise" ? "Raise" : "Bet";
     el.allInBtn.textContent = `All-in`;
+    if (compactActions) {
+      el.presetRow.classList.toggle("hidden", !state.landscapeRaisePanelOpen);
+    } else {
+      el.presetRow.classList.remove("hidden");
+    }
     refreshBetControls(hand, hp);
   } else {
+    state.landscapeRaisePanelOpen = false;
     el.actionStrip.classList.add("hidden");
     el.presetRow.classList.add("hidden");
   }
@@ -2122,19 +2294,32 @@ async function doAction(actionType) {
 
 // ============ EVENT HANDLERS ============
 function bindEvents() {
-  el.foldBtn.addEventListener("click", () => withAction("Fold", () => doAction("fold")));
+  el.foldBtn.addEventListener("click", () => {
+    state.landscapeRaisePanelOpen = false;
+    withAction("Fold", () => doAction("fold"));
+  });
   el.callBtn.addEventListener("click", () => {
-  const hand = getLatestHand();
+    state.landscapeRaisePanelOpen = false;
+    const hand = getLatestHand();
     const hp = getMyHandPlayer();
     const toCall = Math.max(0, Number(hand?.current_bet || 0) - Number(hp?.street_contribution || 0));
     withAction(toCall > 0 ? "Call" : "Check", () => doAction(toCall > 0 ? "call" : "check"));
   });
   el.betRaiseBtn.addEventListener("click", () => {
-  const hand = getLatestHand();
+    const hand = getLatestHand();
     const actionType = Number(hand?.current_bet || 0) > 0 ? "raise" : "bet";
+    if ((isLandscapeCollapseMode() || isPortraitCollapseMode()) && !state.landscapeRaisePanelOpen) {
+      state.landscapeRaisePanelOpen = true;
+      renderActions();
+      return;
+    }
+    state.landscapeRaisePanelOpen = false;
     withAction(actionType, () => doAction(actionType));
   });
-  el.allInBtn.addEventListener("click", () => withAction("All-in", () => doAction("all_in")));
+  el.allInBtn.addEventListener("click", () => {
+    state.landscapeRaisePanelOpen = false;
+    withAction("All-in", () => doAction("all_in"));
+  });
 
   el.startHandBtn.addEventListener("click", () => {
     withAction("Start hand", async () => {
@@ -2181,7 +2366,21 @@ function bindEvents() {
     withAction("Remove bots", removeAllBots);
   });
 
+  el.landscapeBarToggle?.addEventListener("click", () => {
+    if (!isLandscapeCollapseMode() && !isPortraitCollapseMode()) return;
+    state.landscapeTopBarExpanded = !state.landscapeTopBarExpanded;
+    syncLandscapeTopBar();
+  });
+
   el.tableSurface.addEventListener("click", (e) => {
+    if ((isLandscapeCollapseMode() || isPortraitCollapseMode()) && state.landscapeTopBarExpanded) {
+      state.landscapeTopBarExpanded = false;
+      syncLandscapeTopBar();
+    }
+    if (state.landscapeRaisePanelOpen) {
+      state.landscapeRaisePanelOpen = false;
+      renderActions();
+    }
     if (!e.target.closest(".seat-node") && state.selectedSeatNo != null) {
       state.selectedSeatNo = null;
       renderSeats();
@@ -2264,6 +2463,11 @@ function bindEvents() {
     refreshBetControls();
   });
 
+  el.betSliderQuick?.addEventListener("input", () => {
+    setBetControlValue(el.betSliderQuick.value);
+    refreshBetControls();
+  });
+
   el.betAmount.addEventListener("input", () => {
     setBetControlValue(el.betAmount.value);
     refreshBetControls();
@@ -2292,7 +2496,10 @@ function bindEvents() {
   let resizeTimer = null;
   window.addEventListener("resize", () => {
     if (resizeTimer) clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(() => { if (state.tableState) renderAll(); }, 200);
+    resizeTimer = setTimeout(() => {
+      syncLandscapeTopBar();
+      if (state.tableState) renderAll();
+    }, 200);
   });
 
   window.addEventListener("beforeunload", () => {
@@ -2315,6 +2522,7 @@ function reconnect() {
 // ============ INIT ============
 function init() {
   bindEvents();
+  syncLandscapeTopBar(true);
 
   const savedIdentity = loadIdentity();
   const urlTable = getUrlTableId();
