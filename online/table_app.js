@@ -9,10 +9,10 @@ const online = createOnlinePokerClient(supabase);
 
 const POLL_MS = 1800;
 const RUNTIME_TICK_MIN_MS = 1200;
-const DEAL_STAGGER_MS = 110;
-const DEAL_ANIMATION_MS = 320;
-const DEAL_REVEAL_MS = 180;
-const DEAL_REVEAL_OFFSET_MS = 72;
+const DEAL_STAGGER_MS = 165;
+const DEAL_ANIMATION_MS = 560;
+const DEAL_REVEAL_MS = 220;
+const DEAL_REVEAL_OFFSET_MS = 110;
 const POT_BUMP_MS = 520;
 const CHIP_PUSH_MS = 760;
 const CHIP_PUSH_STAGGER_MS = 48;
@@ -84,6 +84,9 @@ const el = {
   potDisplay: document.getElementById("potDisplay"),
   potStackArt: document.getElementById("potStackArt"),
   potAmount: document.getElementById("potAmount"),
+  actionAnnouncement: document.getElementById("actionAnnouncement"),
+  actionAnnouncementActor: document.getElementById("actionAnnouncementActor"),
+  actionAnnouncementText: document.getElementById("actionAnnouncementText"),
   streetLabel: document.getElementById("streetLabel"),
   boardCards: document.getElementById("boardCards"),
   winReason: document.getElementById("winReason"),
@@ -163,6 +166,11 @@ const state = {
   potPushAnimation: null,
   clearedPotHandId: null,
   audioCtx: null,
+  actionAnnouncementQueue: [],
+  actionAnnouncementHideTimer: null,
+  actionAnnouncementNextTimer: null,
+  lastAnnouncedActionHandId: null,
+  lastAnnouncedActionSeq: 0,
   landscapeTopBarExpanded: true,
   landscapeCompactMode: false,
   compactTopBarMode: null,
@@ -243,7 +251,9 @@ function playTone(freq, duration = 0.08, gain = 0.1, type = "sine") {
 const sounds = {
   yourTurn: () => { playTone(880, 0.12, 0.15); setTimeout(() => playTone(1100, 0.1, 0.12), 130); },
   check: () => playTone(400, 0.05, 0.08, "triangle"),
+  call: () => { playTone(470, 0.05, 0.08, "triangle"); setTimeout(() => playTone(560, 0.05, 0.07, "triangle"), 55); },
   bet: () => { playTone(600, 0.06, 0.1); setTimeout(() => playTone(800, 0.04, 0.08), 60); },
+  raise: () => { playTone(640, 0.08, 0.1); setTimeout(() => playTone(860, 0.08, 0.09), 65); setTimeout(() => playTone(1040, 0.06, 0.08), 135); },
   fold: () => playTone(250, 0.1, 0.06, "triangle"),
   allIn: () => { playTone(500, 0.15, 0.15); setTimeout(() => playTone(700, 0.15, 0.12), 100); setTimeout(() => playTone(900, 0.2, 0.1), 200); },
   win: () => { playTone(800, 0.15, 0.12); setTimeout(() => playTone(1000, 0.15, 0.1), 120); setTimeout(() => playTone(1200, 0.25, 0.1), 250); },
@@ -261,6 +271,140 @@ function fmtShort(v) {
   const n = Number(v || 0);
   if (!Number.isFinite(n)) return "$0";
   return n % 1 === 0 ? `$${n}` : `$${n.toFixed(2)}`;
+}
+
+function actionAmountText(amount) {
+  return amount != null ? fmtShort(amount) : "";
+}
+
+function presetSymbol(fraction) {
+  if (fraction === 0.33) return "⅓";
+  if (fraction === 0.5) return "½";
+  if (fraction === 0.75) return "¾";
+  return "Pot";
+}
+
+function presetName(fraction) {
+  if (fraction === 0.33) return "one-third-pot";
+  if (fraction === 0.5) return "half-pot";
+  if (fraction === 0.75) return "three-quarter-pot";
+  return "pot";
+}
+
+function getActionCopy(ev) {
+  const actor = ev.actor_group_player_id ? seatName(ev.actor_group_player_id) : "Player";
+  const p = ev.payload || {};
+  const amountText = actionAmountText(p.amount);
+  const targetText = actionAmountText(p.raise_to ?? p.target_amount);
+  switch (p.action_type) {
+    case "check":
+      return { actor, detail: "checks", sound: "check", actionType: "check" };
+    case "call":
+      return { actor, detail: amountText ? `calls ${amountText}` : "calls", sound: "call", actionType: "call" };
+    case "bet":
+      return { actor, detail: amountText ? `bets ${amountText}` : "bets", sound: "bet", actionType: "bet" };
+    case "raise":
+      return { actor, detail: targetText ? `raises to ${targetText}` : amountText ? `raises by ${amountText}` : "raises", sound: "raise", actionType: "raise" };
+    case "fold":
+      return { actor, detail: "folds", sound: "fold", actionType: "fold" };
+    case "all_in":
+      return { actor, detail: amountText ? `goes all-in for ${amountText}` : "goes all-in", sound: "all_in", actionType: "all_in" };
+    default:
+      return { actor, detail: p.action_type || "acts", sound: null, actionType: p.action_type || "" };
+  }
+}
+
+function playActionAnnouncementSound(kind) {
+  switch (kind) {
+    case "check": sounds.check(); break;
+    case "call": sounds.call(); break;
+    case "bet": sounds.bet(); break;
+    case "raise": sounds.raise(); break;
+    case "fold": sounds.fold(); break;
+    case "all_in": sounds.allIn(); break;
+    default: break;
+  }
+}
+
+function hideActionAnnouncement() {
+  el.actionAnnouncement?.classList.remove("visible");
+}
+
+function resetActionAnnouncements() {
+  state.actionAnnouncementQueue = [];
+  clearTimeout(state.actionAnnouncementHideTimer);
+  clearTimeout(state.actionAnnouncementNextTimer);
+  state.actionAnnouncementHideTimer = null;
+  state.actionAnnouncementNextTimer = null;
+  state.lastAnnouncedActionHandId = null;
+  state.lastAnnouncedActionSeq = 0;
+  if (el.actionAnnouncement) delete el.actionAnnouncement.dataset.action;
+  if (el.actionAnnouncementActor) el.actionAnnouncementActor.textContent = "";
+  if (el.actionAnnouncementText) el.actionAnnouncementText.textContent = "";
+  hideActionAnnouncement();
+}
+
+function flushActionAnnouncementQueue() {
+  if (!state.actionAnnouncementQueue.length) return;
+  const next = state.actionAnnouncementQueue.shift();
+  if (!next || !el.actionAnnouncement || !el.actionAnnouncementActor || !el.actionAnnouncementText) return;
+  clearTimeout(state.actionAnnouncementHideTimer);
+  clearTimeout(state.actionAnnouncementNextTimer);
+  el.actionAnnouncement.dataset.action = next.actionType || "";
+  el.actionAnnouncementActor.textContent = next.actor;
+  el.actionAnnouncementText.textContent = next.detail;
+  el.actionAnnouncement.classList.add("visible");
+  playActionAnnouncementSound(next.sound);
+  state.actionAnnouncementHideTimer = setTimeout(hideActionAnnouncement, 950);
+  state.actionAnnouncementNextTimer = setTimeout(() => {
+    state.actionAnnouncementNextTimer = null;
+    flushActionAnnouncementQueue();
+  }, 1100);
+}
+
+function queueActionAnnouncement(ev) {
+  const copy = getActionCopy(ev);
+  if (!copy.detail) return;
+  state.actionAnnouncementQueue.push(copy);
+  if (!state.actionAnnouncementNextTimer) flushActionAnnouncementQueue();
+}
+
+function syncActionAnnouncements({ hadPriorTableState = false, oldHandId = null } = {}) {
+  const hand = getLatestHand();
+  const events = getHandEvents();
+  const handId = hand?.id || null;
+  const latestActionSeq = events.reduce((maxSeq, ev) => (
+    ev.event_type === "action_taken" ? Math.max(maxSeq, Number(ev.seq || 0)) : maxSeq
+  ), 0);
+
+  if (!handId) {
+    state.lastAnnouncedActionHandId = null;
+    state.lastAnnouncedActionSeq = 0;
+    return;
+  }
+
+  if (!hadPriorTableState) {
+    state.lastAnnouncedActionHandId = handId;
+    state.lastAnnouncedActionSeq = latestActionSeq;
+    return;
+  }
+
+  if (state.lastAnnouncedActionHandId !== handId || oldHandId !== handId) {
+    state.lastAnnouncedActionHandId = handId;
+    state.lastAnnouncedActionSeq = 0;
+  }
+
+  const newActions = events.filter((ev) => (
+    ev.event_type === "action_taken" && Number(ev.seq || 0) > Number(state.lastAnnouncedActionSeq || 0)
+  ));
+
+  if (!newActions.length) {
+    state.lastAnnouncedActionSeq = latestActionSeq;
+    return;
+  }
+
+  state.lastAnnouncedActionSeq = Number(newActions[newActions.length - 1].seq || state.lastAnnouncedActionSeq || 0);
+  newActions.forEach(queueActionAnnouncement);
 }
 
 function decimalPlaces(v) {
@@ -309,6 +453,52 @@ function normalizeBetAmount(value, minBet, maxBet, step = 1) {
   return Number(next.toFixed(decimals));
 }
 
+function getPresetBetAmount(fraction, hand = getLatestHand(), hp = getMyHandPlayer()) {
+  const pot = Number(hand?.pot_total || 0);
+  const contribution = Number(hp?.street_contribution || 0);
+  const { toCall, minBet, maxBet, step } = getBetBounds(hand, hp);
+  const bigBlind = Number(getTable()?.big_blind || step || 1);
+
+  let rawTarget = 0;
+  if (toCall > 0) {
+    const potAfterCall = pot + toCall;
+    rawTarget = contribution + toCall + (potAfterCall * fraction);
+  } else {
+    const basePot = pot > 0 ? pot * fraction : bigBlind;
+    rawTarget = Math.max(bigBlind, basePot);
+  }
+
+  return normalizeBetAmount(roundToStep(rawTarget, step), minBet, maxBet, step);
+}
+
+function getPresetMeta(fraction, hand = getLatestHand(), hp = getMyHandPlayer()) {
+  const { toCall, isRaise } = getBetBounds(hand, hp);
+  const amount = getPresetBetAmount(fraction, hand, hp);
+  const symbol = presetSymbol(fraction);
+  const labelName = presetName(fraction).replace(/-/g, " ");
+  const buttonText = isRaise ? `${symbol}+` : symbol;
+  const actionText = isRaise ? `raise to ${fmtShort(amount)}` : `bet ${fmtShort(amount)}`;
+  const extra = isRaise && toCall > 0 ? ` after calling ${fmtShort(toCall)}` : "";
+  return {
+    amount,
+    buttonText,
+    title: `${labelName} ${actionText}${extra}`,
+    toastText: `${labelName[0].toUpperCase()}${labelName.slice(1)} ${actionText}`,
+  };
+}
+
+function refreshPresetButtons(hand = getLatestHand(), hp = getMyHandPlayer()) {
+  const { isRaise } = getBetBounds(hand, hp);
+  document.querySelectorAll(".preset-chip").forEach((btn) => {
+    const fraction = Number(btn.dataset.fraction || 0);
+    const meta = getPresetMeta(fraction, hand, hp);
+    btn.textContent = meta.buttonText;
+    btn.title = meta.title;
+    btn.setAttribute("aria-label", meta.title);
+    btn.dataset.mode = isRaise ? "raise" : "bet";
+  });
+}
+
 function getBetControlValue() {
   const quickValue = Number(el.betAmountQuick?.value);
   if (Number.isFinite(quickValue)) return quickValue;
@@ -353,8 +543,9 @@ function refreshBetControls(hand = getLatestHand(), hp = getMyHandPlayer()) {
   }
   setBetControlValue(normalized);
   if (el.presetAmountLabel) {
-    el.presetAmountLabel.textContent = "$";
+    el.presetAmountLabel.textContent = isRaise ? "Raise to" : "Bet";
   }
+  refreshPresetButtons(hand, hp);
 }
 
 function getLatestHand() { return state.tableState?.latest_hand?.hand || null; }
@@ -578,6 +769,11 @@ function isPortraitCollapseMode() {
   return window.matchMedia(PORTRAIT_COLLAPSE_MEDIA).matches;
 }
 
+function setTableViewportLock(enabled) {
+  document.documentElement.classList.toggle("table-mode", enabled);
+  document.body.classList.toggle("table-mode", enabled);
+}
+
 function syncLandscapeTopBar(forceCollapse = false) {
   const compactMode = isLandscapeCollapseMode()
     ? "landscape"
@@ -714,6 +910,25 @@ function markDealCardTarget(cardEl, seatNo, cardIndex, hand = getLatestHand(), t
   return cardEl;
 }
 
+function getDealFlightPath(fromX, fromY, toX, toY, cardIndex = 1) {
+  const dx = toX - fromX;
+  const dy = toY - fromY;
+  const distance = Math.hypot(dx, dy);
+  const direction = Math.abs(dx) > 8 ? Math.sign(dx) : (Number(cardIndex || 1) % 2 === 0 ? 1 : -1);
+  const arcLift = Math.max(24, Math.min(68, distance * 0.18));
+  const sideDrift = Math.max(8, Math.min(22, Math.abs(dx) * 0.08 + 6)) * direction;
+  const roundDrop = Number(cardIndex || 1) === 2 ? 5 : 0;
+  const fromRot = direction >= 0 ? -20 : 18;
+  const midRot = direction >= 0 ? -7 : 6;
+
+  return {
+    midX: fromX + dx * 0.54 + sideDrift,
+    midY: fromY + dy * 0.46 - arcLift - roundDrop,
+    fromRot,
+    midRot,
+  };
+}
+
 function maybeLaunchDealFx(hand = getLatestHand()) {
   const anim = state.dealAnimation;
   if (!anim || anim.launched || !hand || anim.handId !== hand.id) return;
@@ -740,11 +955,24 @@ function maybeLaunchDealFx(hand = getLatestHand()) {
       if (!targetRect.width || !targetRect.height) continue;
 
       const flight = document.createElement("div");
+      const toX = targetRect.left - tableRect.left;
+      const toY = targetRect.top - tableRect.top;
+      const path = getDealFlightPath(
+        fromX - targetRect.width / 2,
+        fromY - targetRect.height / 2,
+        toX,
+        toY,
+        cardIndex
+      );
       flight.className = "deal-flight-card";
       flight.style.setProperty("--from-x", `${fromX - targetRect.width / 2}px`);
       flight.style.setProperty("--from-y", `${fromY - targetRect.height / 2}px`);
-      flight.style.setProperty("--to-x", `${targetRect.left - tableRect.left}px`);
-      flight.style.setProperty("--to-y", `${targetRect.top - tableRect.top}px`);
+      flight.style.setProperty("--to-x", `${toX}px`);
+      flight.style.setProperty("--to-y", `${toY}px`);
+      flight.style.setProperty("--mid-x", `${path.midX}px`);
+      flight.style.setProperty("--mid-y", `${path.midY}px`);
+      flight.style.setProperty("--from-rot", `${path.fromRot}deg`);
+      flight.style.setProperty("--mid-rot", `${path.midRot}deg`);
       flight.style.setProperty("--to-rot", `${Number(target.dataset.dealTilt || 0)}deg`);
       flight.style.setProperty("--card-w", `${targetRect.width}px`);
       flight.style.setProperty("--card-h", `${targetRect.height}px`);
@@ -1028,6 +1256,8 @@ function calcEquity(hand, handPlayers) {
 
 // ============ LOBBY ============
 function initLobby() {
+  setTableViewportLock(false);
+  resetActionAnnouncements();
   const savedName = localStorage.getItem("online_player_name") || "";
   if (savedName) el.lobbyName.value = savedName;
   el.lobbyTableName.value = randomTableName();
@@ -1129,6 +1359,7 @@ async function joinExistingTable(tableId) {
 // ============ ENTER TABLE ============
 function enterTable(tableId) {
   state.tableId = tableId;
+  resetActionAnnouncements();
   const url = new URL(window.location.href);
   url.searchParams.set("table", tableId);
   url.searchParams.delete("mode");
@@ -1139,6 +1370,7 @@ function enterTable(tableId) {
 
   el.lobby.classList.add("hidden");
   el.tableView.classList.remove("hidden");
+  setTableViewportLock(true);
   syncLandscapeTopBar(true);
 
   loadBotSeats();
@@ -1256,6 +1488,7 @@ async function loadTableState() {
     } else if (newPotTotal > oldPotTotal + 0.001) {
       state.potVisual.pulseUntil = Date.now() + POT_BUMP_MS;
     }
+    syncActionAnnouncements({ hadPriorTableState, oldHandId: oldHand?.id || null });
     maybeStartDealAnimation(oldHand, hand, hadPriorTableState);
     if (hand && oldHand) {
       if (oldHand.state !== "settled" && hand.state === "settled") {
@@ -1271,7 +1504,6 @@ async function loadTableState() {
     }
     prevHandState = hand?.state || null;
     prevActionSeat = hand?.action_seat || null;
-
     trackOpponentActions();
 
     if (state.config.autoDeal && hand && ["settled","canceled"].includes(hand.state) && !state.autoDealTimer && canManageHand()) {
@@ -1925,6 +2157,7 @@ function renderSeats() {
         } else {
           const cards = document.createElement("div");
           cards.className = "seat-cards-row";
+          if (isShowdown && reveal && !isMe) cards.classList.add("showdown");
           if (isMe && reveal) {
             cards.appendChild(markDealCardTarget(makeCardEl(holeCards[0] || null, false, false, true), seat.seat_no, 1, hand, -9));
             cards.appendChild(markDealCardTarget(makeCardEl(holeCards[1] || null, false, false, true), seat.seat_no, 2, hand, 8));
@@ -2233,8 +2466,8 @@ function describeEvent(ev) {
     case "blind_posted": return `Blinds: SB ${fmtShort(p.small_blind_amount)} / BB ${fmtShort(p.big_blind_amount)}`;
     case "hole_dealt": return "Hole cards dealt";
     case "action_taken": {
-      const amt = p.amount != null ? ` ${fmtShort(p.amount)}` : "";
-      return `<strong>${actor}</strong>: ${p.action_type}${amt}`;
+      const copy = getActionCopy(ev);
+      return `<strong>${copy.actor || actor}</strong> ${copy.detail}`;
     }
     case "street_dealt": {
       const cards = Array.isArray(p.board_cards) ? p.board_cards.map(t => { const f = cardFace(t); return f.valid ? f.text : "?"; }).join(" ") : "";
@@ -2286,10 +2519,6 @@ function buildActionPayload(actionType) {
 async function doAction(actionType) {
   const payload = buildActionPayload(actionType);
   await online.submitAction(payload);
-  if (actionType === "fold") sounds.fold();
-  else if (actionType === "check") sounds.check();
-  else if (actionType === "all_in") sounds.allIn();
-  else sounds.bet();
 }
 
 // ============ EVENT HANDLERS ============
@@ -2481,11 +2710,10 @@ function bindEvents() {
   document.querySelectorAll(".preset-chip").forEach(btn => {
     btn.addEventListener("click", () => {
       const frac = Number(btn.dataset.fraction || 0);
-      const pot = Number(getLatestHand()?.pot_total || 0);
-      const { minBet, maxBet, step } = getBetBounds();
-      const val = normalizeBetAmount(roundToStep(pot * frac, step), minBet, maxBet, step);
-      setBetControlValue(val);
+      const meta = getPresetMeta(frac);
+      setBetControlValue(meta.amount);
       refreshBetControls();
+      toast(meta.toastText);
     });
   });
 

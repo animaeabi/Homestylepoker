@@ -45,6 +45,13 @@
         -webkit-font-smoothing: antialiased;
       }
 
+      html.table-mode,
+      body.table-mode {
+        height: 100dvh;
+        overflow: hidden;
+        overscroll-behavior: none;
+      }
+
       .hidden { display: none !important; }
 
       /* ========== LOBBY ========== */
@@ -206,8 +213,22 @@
       /* ========== TABLE VIEW ========== */
       #tableView {
         min-height: 100dvh;
+        height: 100dvh;
+        max-height: 100dvh;
         display: flex;
         flex-direction: column;
+        overflow: hidden;
+        position: relative;
+        isolation: isolate;
+        background:
+          radial-gradient(ellipse 74% 24% at 50% 86%, rgba(42,232,184,0.14) 0%, rgba(18,68,86,0.14) 24%, rgba(6,10,14,0) 72%),
+          radial-gradient(ellipse 38% 12% at 50% 8%, rgba(123,247,255,0.16) 0%, rgba(123,247,255,0.04) 42%, transparent 76%),
+          radial-gradient(circle at 14% 24%, rgba(81,117,255,0.14) 0%, transparent 18%),
+          radial-gradient(circle at 86% 24%, rgba(187,96,255,0.12) 0%, transparent 18%),
+          radial-gradient(ellipse 96% 60% at 50% 44%, rgba(20,78,70,0.18) 0%, rgba(8,15,18,0) 58%),
+          linear-gradient(90deg, rgba(8,22,34,0.78) 0%, rgba(7,11,15,0.16) 12%, rgba(7,11,15,0.16) 88%, rgba(18,10,34,0.72) 100%),
+          repeating-linear-gradient(90deg, rgba(255,255,255,0.012) 0 1px, transparent 1px 140px),
+          linear-gradient(180deg, #0c1016 0%, #06080d 44%, #020305 100%);
       }
 
       /* Top Bar */
@@ -308,6 +329,7 @@
       /* Table Area */
       .table-area {
         flex: 1;
+        min-height: 0;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -315,7 +337,10 @@
         position: relative;
         overflow: hidden;
         background:
-          radial-gradient(ellipse 100% 100% at 50% 50%, rgba(26,92,66,0.08), transparent);
+          radial-gradient(ellipse 44% 14% at 50% 12%, rgba(110,244,255,0.08) 0%, transparent 76%),
+          radial-gradient(ellipse 84% 58% at 50% 44%, rgba(46,221,192,0.12) 0%, rgba(10,22,24,0.04) 48%, rgba(7,8,12,0) 72%),
+          radial-gradient(ellipse 110% 84% at 50% 52%, rgba(17,56,56,0.16) 0%, transparent 62%),
+          repeating-linear-gradient(90deg, rgba(255,255,255,0.012) 0 1px, transparent 1px 120px);
       }
 
       .table-surface {
@@ -353,6 +378,7 @@
         transform: translate(-50%, -50%) rotate(-8deg);
         z-index: 6;
         pointer-events: none;
+        opacity: 0;
         filter: drop-shadow(0 8px 18px rgba(0,0,0,0.45));
       }
 
@@ -410,8 +436,9 @@
           inset 0 0 0 1px rgba(212,175,85,0.2),
           inset 0 0 0 4px rgba(245,236,214,0.04);
         opacity: 0;
-        transform: translate(var(--from-x), var(--from-y)) scale(0.34) rotate(-12deg);
-        animation: dealerPitch var(--flight-ms, 360ms) cubic-bezier(0.18, 0.88, 0.2, 1) both;
+        transform: translate(var(--from-x), var(--from-y)) scale(0.28) rotate(var(--from-rot, -18deg));
+        transform-origin: center center;
+        animation: dealerPitch var(--flight-ms, 560ms) cubic-bezier(0.16, 0.92, 0.2, 1) both;
         animation-delay: var(--delay-ms, 0ms);
         will-change: transform, opacity;
       }
@@ -436,9 +463,16 @@
       @keyframes dealerPitch {
         0% {
           opacity: 0;
-          transform: translate(var(--from-x), var(--from-y)) scale(0.34) rotate(-14deg);
+          transform: translate(var(--from-x), var(--from-y)) scale(0.28) rotate(var(--from-rot, -18deg));
         }
-        10% { opacity: 1; }
+        12% {
+          opacity: 1;
+          transform: translate(var(--from-x), var(--from-y)) scale(0.44) rotate(var(--from-rot, -18deg));
+        }
+        58% {
+          opacity: 1;
+          transform: translate(var(--mid-x), var(--mid-y)) scale(0.9) rotate(var(--mid-rot, -6deg));
+        }
         100% {
           opacity: 1;
           transform: translate(var(--to-x), var(--to-y)) scale(1) rotate(var(--to-rot, 0deg));
@@ -696,6 +730,67 @@
       @keyframes showdownBanner {
         0% { opacity: 0; transform: translateY(12px) scale(0.92); }
         100% { opacity: 1; transform: translateY(0) scale(1); }
+      }
+
+      .action-announce {
+        position: absolute;
+        left: 50%;
+        top: 17%;
+        transform: translate(-50%, -8px);
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        max-width: min(76%, 360px);
+        padding: 8px 14px;
+        border-radius: 999px;
+        background: linear-gradient(180deg, rgba(18,14,9,0.92), rgba(8,6,4,0.96));
+        border: 1px solid rgba(212,175,85,0.22);
+        box-shadow: 0 12px 30px rgba(0,0,0,0.34);
+        opacity: 0;
+        pointer-events: none;
+        z-index: 12;
+        transition: opacity 0.18s ease, transform 0.18s ease;
+      }
+
+      .action-announce.visible {
+        opacity: 1;
+        transform: translate(-50%, 0);
+      }
+
+      .action-announce[data-action="check"] {
+        border-color: rgba(129,212,250,0.28);
+      }
+
+      .action-announce[data-action="call"] {
+        border-color: rgba(120,255,175,0.26);
+      }
+
+      .action-announce[data-action="bet"],
+      .action-announce[data-action="raise"],
+      .action-announce[data-action="all_in"] {
+        border-color: rgba(255,210,125,0.28);
+      }
+
+      .action-announce[data-action="fold"] {
+        border-color: rgba(248,113,113,0.24);
+      }
+
+      .action-announce-actor {
+        font-size: 12px;
+        font-weight: 800;
+        color: var(--gold-bright);
+        letter-spacing: 0.02em;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .action-announce-text {
+        font-size: 12px;
+        font-weight: 700;
+        color: rgba(255,246,228,0.92);
+        letter-spacing: 0.02em;
+        white-space: nowrap;
       }
 
       .street-label {
@@ -1019,16 +1114,28 @@
         margin-left: -7px;
       }
 
+      .seat-cards-row.showdown .card-sm {
+        width: 38px;
+        height: 52px;
+        font-size: 14px;
+        border-radius: 6px;
+        box-shadow: 0 4px 14px rgba(0,0,0,0.46);
+      }
+
       .card.deal-target.card-dealing {
         opacity: 0;
-        animation: heldCardReveal 180ms cubic-bezier(0.2, 0.9, 0.2, 1) both;
+        animation: heldCardReveal 220ms cubic-bezier(0.2, 0.9, 0.2, 1) both;
         animation-delay: var(--deal-reveal-delay, 0ms);
       }
 
       @keyframes heldCardReveal {
         0% {
           opacity: 0;
-          transform: translateY(16px) scale(0.88);
+          transform: translateY(20px) scale(0.82);
+        }
+        72% {
+          opacity: 1;
+          transform: translateY(-2px) scale(1.03);
         }
         100% {
           opacity: 1;
@@ -1189,8 +1296,9 @@
         align-items: center;
         gap: 6px;
         padding: 8px 12px;
-        background: linear-gradient(to top, rgba(11,15,13,0.96), rgba(11,15,13,0.88));
-        border-top: 1px solid var(--border);
+        background: transparent;
+        border-top: none;
+        box-shadow: none;
         animation: stripSlideIn 0.2s ease-out;
       }
 
@@ -1295,8 +1403,9 @@
         align-items: center;
         gap: 6px;
         padding: 4px 12px 6px;
-        background: rgba(11,15,13,0.92);
-        border-top: 1px solid rgba(255,255,255,0.03);
+        background: transparent;
+        border-top: none;
+        box-shadow: none;
       }
 
       .preset-amount-wrap {
@@ -1459,6 +1568,22 @@
         z-index: 5;
       }
 
+      .my-hand-area::before {
+        content: "";
+        position: absolute;
+        left: 50%;
+        bottom: -18px;
+        width: 340px;
+        height: 170px;
+        transform: translateX(-50%);
+        pointer-events: none;
+        border-radius: 999px;
+        background:
+          radial-gradient(ellipse 62% 54% at 50% 34%, rgba(90,240,255,0.12) 0%, rgba(42,232,184,0.12) 22%, rgba(30,94,140,0.16) 42%, rgba(10,14,18,0) 80%);
+        filter: blur(20px);
+        z-index: 0;
+      }
+
       .my-hand-area.no-hole-cards {
         gap: 0;
       }
@@ -1480,18 +1605,7 @@
         isolation: isolate;
       }
 
-      .my-hand-cards::before {
-        content: "";
-        position: absolute;
-        inset: 16px 4px 0;
-        border-radius: 22px 22px 16px 16px;
-        background: linear-gradient(180deg, rgba(10,14,12,0.78), rgba(5,8,7,0.92));
-        border: 1px solid rgba(212,175,85,0.14);
-        box-shadow:
-          inset 0 1px 0 rgba(255,255,255,0.04),
-          0 8px 18px rgba(0,0,0,0.28);
-        z-index: -1;
-      }
+      .my-hand-cards::before { content: none; }
 
       .my-hand-cards .card {
         width: 64px; height: 90px; font-size: 24px; border-radius: 9px;
@@ -1807,6 +1921,13 @@
         .pot-chip { width: 16px; height: 16px; }
         .pot-amount { font-size: 18px; }
         .pot-label { font-size: 9px; }
+        .action-announce {
+          top: 15%;
+          max-width: min(82%, 320px);
+          padding: 7px 12px;
+        }
+        .action-announce-actor,
+        .action-announce-text { font-size: 11px; }
         .street-label { font-size: 10px; }
 
         .astrip-btn { font-size: 12px; padding: 8px 12px; min-height: 40px; }
@@ -1831,6 +1952,11 @@
         .seat-node { width: 92px; padding: 5px; }
         .seat-node.my-seat { width: 110px; }
         .seat-node.empty { width: 60px; }
+        .action-announce {
+          top: 14%;
+          max-width: min(84%, 280px);
+          gap: 6px;
+        }
         .seat-cards-row .card-sm { width: 22px; height: 32px; font-size: 10px; }
         .seat-cards-row .card-mine { width: 32px; height: 44px; font-size: 12px; }
         .card { width: 38px; height: 54px; font-size: 14px; }
@@ -1846,8 +1972,20 @@
 
       /* ========== PORTRAIT MOBILE LAYOUT ========== */
       @media (max-width: 768px) and (orientation: portrait) {
+        :root {
+          --portrait-ui-reserve: 220px;
+        }
+
         #tableView {
-          background: radial-gradient(ellipse 100% 80% at 50% 30%, rgba(30,20,8,0.08), rgba(15,10,4,0.3) 60%, rgba(8,6,2,0.5) 100%), #0a0c08 !important;
+          background:
+            radial-gradient(ellipse 90% 28% at 50% 87%, rgba(42,232,184,0.16) 0%, rgba(18,70,92,0.14) 28%, rgba(6,10,14,0) 74%),
+            radial-gradient(ellipse 42% 12% at 50% 7%, rgba(123,247,255,0.17) 0%, rgba(123,247,255,0.05) 42%, transparent 78%),
+            radial-gradient(circle at 12% 22%, rgba(81,117,255,0.15) 0%, transparent 16%),
+            radial-gradient(circle at 88% 22%, rgba(187,96,255,0.13) 0%, transparent 16%),
+            radial-gradient(ellipse 98% 68% at 50% 42%, rgba(20,78,70,0.16) 0%, rgba(8,15,18,0) 54%),
+            linear-gradient(90deg, rgba(8,22,34,0.76) 0%, rgba(7,11,15,0.1) 12%, rgba(7,11,15,0.1) 88%, rgba(18,10,34,0.7) 100%),
+            repeating-linear-gradient(90deg, rgba(255,255,255,0.012) 0 1px, transparent 1px 140px),
+            linear-gradient(180deg, #0d1118 0%, #06080d 44%, #020305 100%) !important;
           position: relative;
           overflow: hidden;
         }
@@ -1909,10 +2047,13 @@
         .top-btn { padding: 6px 9px; font-size: 10px; }
         .top-bar-actions { flex-shrink: 0; gap: 6px; }
 
-        .table-area { padding: 0 4px 0 !important; flex: 1; align-items: flex-start !important; padding-top: 26px !important; }
-        #tableView.portrait-topbar-expanded .table-area { padding-top: 68px !important; }
+        .table-area { padding: 0 4px 0 !important; flex: 1; min-height: 0 !important; align-items: flex-start !important; padding-top: 60px !important; }
+        #tableView.portrait-topbar-expanded .table-area { padding-top: 102px !important; }
         .table-surface {
-          width: 92% !important; margin: 0 auto; aspect-ratio: 1 / 1.8 !important; max-height: none !important;
+          width: min(92vw, calc((100dvh - var(--portrait-ui-reserve)) / 1.8)) !important;
+          margin: 0 auto;
+          aspect-ratio: 1 / 1.8 !important;
+          max-height: calc(100dvh - var(--portrait-ui-reserve)) !important;
           border-radius: 35% !important; border: 10px solid #3a2010 !important;
           background: url("assets/felt_portrait.png") center/cover, radial-gradient(ellipse 100% 100% at 50% 45%, #1d6b48 0%, #145838 40%, #0e3a28 70%, #0a2a1c 100%) !important;
           box-shadow: inset 0 0 0 3px rgba(180,140,50,0.35), inset 0 0 40px rgba(0,0,0,0.25), 0 0 0 3px #2a1508, 0 0 0 5px rgba(160,120,50,0.25), 0 0 0 8px #1a0e06, 0 20px 50px rgba(0,0,0,0.6) !important;
@@ -1920,6 +2061,13 @@
         .table-surface::after { content: "" !important; position: absolute; inset: 2px; border-radius: 34%; border: 1.5px solid rgba(200,160,60,0.3); pointer-events: none; z-index: 1; }
         .table-surface::before { border-radius: 34% !important; opacity: 0.15 !important; }
         .dealer-deck { top: 28% !important; width: 34px; height: 50px; }
+        .action-announce {
+          top: 20% !important;
+          max-width: min(78%, 280px) !important;
+          padding: 7px 11px !important;
+        }
+        .action-announce-actor,
+        .action-announce-text { font-size: 11px !important; }
         .table-center { gap: 6px !important; top: 55% !important; }
         .pot-display { gap: 4px !important; margin-top: 10px !important; }
         .pot-stack-art { width: 44px !important; height: 28px !important; }
@@ -1981,10 +2129,10 @@
         }
         .floating-cards .card + .card { margin-left: -8px; }
         .floating-cards.showdown .card {
-          width: 31px !important;
-          height: 44px !important;
-          font-size: 11px !important;
-          box-shadow: 0 4px 12px rgba(0,0,0,0.5) !important;
+          width: 35px !important;
+          height: 50px !important;
+          font-size: 12px !important;
+          box-shadow: 0 5px 15px rgba(0,0,0,0.52) !important;
         }
         .floating-cards--top { transform: translate(-50%, 56%) !important; }
         .floating-cards--top .card:first-child { --held-transform: rotate(-8deg) translateY(1px); transform: var(--held-transform); }
@@ -2002,15 +2150,56 @@
         .floating-cards--bottom-right .card:first-child { --held-transform: rotate(-5deg) translateY(0); transform: var(--held-transform); }
         .floating-cards--bottom-right .card:last-child { --held-transform: rotate(7deg) translateY(-1px); transform: var(--held-transform); }
 
-        .my-hand-area { display: flex !important; padding: 0 16px 10px; gap: 10px; margin-top: -58px; position: relative; z-index: 6; justify-content: center; align-items: flex-end; }
-        #tableView.landscape-actions-visible .my-hand-area {
-          justify-content: flex-end !important;
-          padding: 0 10px 10px 132px !important;
+        .my-hand-area {
+          display: flex !important;
+          position: absolute !important;
+          left: 50%;
+          bottom: calc(env(safe-area-inset-bottom) + 80px);
+          transform: translateX(-50%);
+          width: max-content;
+          padding: 0 !important;
+          gap: 0 !important;
+          margin-top: 0 !important;
+          z-index: 6;
+          flex-direction: column;
+          justify-content: flex-end;
+          align-items: center;
         }
-        .my-hand-cards { min-width: 156px; min-height: 114px; padding: 20px 14px 8px; }
+        .my-hand-area.no-hole-cards {
+          gap: 0 !important;
+        }
+        .my-hand-area.no-hole-cards .my-hand-nameplate {
+          margin-top: 0 !important;
+        }
+        #tableView.landscape-actions-visible .my-hand-area {
+          left: 50% !important;
+          bottom: calc(env(safe-area-inset-bottom) + 80px) !important;
+          transform: translateX(-50%) !important;
+          width: max-content !important;
+          padding: 0 !important;
+          justify-content: flex-end !important;
+          align-items: center !important;
+        }
+        .my-hand-cards {
+          min-width: 166px;
+          min-height: 108px;
+          padding: 18px 12px 8px;
+          margin-bottom: -18px;
+          z-index: 1;
+          transform: translateY(-8px);
+        }
         .my-hand-cards::before { inset: 16px 4px 0; }
-        .my-hand-cards .card { width: 66px !important; height: 94px !important; font-size: 26px !important; }
-        .my-hand-nameplate { margin-top: 22px; }
+        .my-hand-cards .card { width: 62px !important; height: 88px !important; font-size: 24px !important; }
+        .my-hand-cards .card:first-child {
+          --held-transform: rotate(-13deg) translate(12px, 7px);
+          transform: var(--held-transform) !important;
+        }
+        .my-hand-cards .card:last-child {
+          --held-transform: rotate(12deg) translate(-12px, 2px);
+          transform: var(--held-transform) !important;
+          margin-left: -4px;
+        }
+        .my-hand-nameplate { margin-top: 0; position: relative; z-index: 3; }
         .my-hand-badges { gap: 4px !important; min-height: 18px !important; }
         .my-hand-badges .seat-dealer-dot {
           width: 18px !important;
@@ -2040,20 +2229,20 @@
           z-index: 24;
           width: 118px;
           padding: 7px !important;
-          gap: 6px !important;
+          gap: 10px !important;
           display: flex;
           flex-direction: column;
           align-items: stretch;
-          background: linear-gradient(180deg, rgba(8,12,12,0.93), rgba(5,8,8,0.97)) !important;
-          border: 1px solid rgba(236,178,86,0.2) !important;
-          border-radius: 13px !important;
-          box-shadow: 0 9px 22px rgba(0,0,0,0.44), inset 0 0 0 1px rgba(255,214,128,0.08);
+          background: transparent !important;
+          border: none !important;
+          border-radius: 0 !important;
+          box-shadow: none !important;
         }
         .astrip-btn {
           width: 100%;
           font-size: 10px !important;
-          padding: 7px 8px !important;
-          min-height: 30px;
+          padding: 8px 8px !important;
+          min-height: 32px;
           border-radius: 999px !important;
           letter-spacing: 0.04em;
         }
@@ -2077,12 +2266,12 @@
             "slider frac3"
             "slider frac4";
           align-items: center;
-          background: linear-gradient(180deg, rgba(8,12,12,0.93), rgba(5,8,8,0.97)) !important;
+          background: transparent !important;
           padding: 6px 6px !important;
           gap: 7px 4px !important;
-          border: 1px solid rgba(236,178,86,0.2) !important;
-          border-radius: 13px;
-          box-shadow: 0 9px 22px rgba(0,0,0,0.42), inset 0 0 0 1px rgba(255,214,128,0.08);
+          border: none !important;
+          border-radius: 0;
+          box-shadow: none !important;
         }
         .preset-slider-wrap {
           grid-area: slider;
@@ -2156,8 +2345,13 @@
         #tableView {
           min-height: 100dvh;
           background:
-            radial-gradient(ellipse 130% 90% at 50% 38%, rgba(58,30,10,0.18) 0%, rgba(12,9,6,0.68) 58%, rgba(6,5,3,0.95) 100%),
-            #070706 !important;
+            radial-gradient(ellipse 28% 14% at 50% 8%, rgba(123,247,255,0.18) 0%, rgba(123,247,255,0.05) 46%, transparent 76%),
+            radial-gradient(circle at 18% 23%, rgba(81,117,255,0.16) 0%, transparent 16%),
+            radial-gradient(circle at 82% 23%, rgba(187,96,255,0.14) 0%, transparent 16%),
+            radial-gradient(ellipse 110% 66% at 50% 42%, rgba(20,78,70,0.2) 0%, rgba(8,12,14,0) 56%),
+            linear-gradient(90deg, rgba(8,24,38,0.82) 0%, rgba(10,12,18,0.16) 12%, rgba(10,12,18,0.16) 88%, rgba(18,10,38,0.78) 100%),
+            repeating-linear-gradient(90deg, rgba(255,255,255,0.012) 0 1px, transparent 1px 140px),
+            linear-gradient(180deg, #0d1118 0%, #06080c 48%, #020305 100%) !important;
           position: relative;
           display: grid;
           grid-template-rows: auto minmax(0, 1fr) auto auto auto;
@@ -2238,7 +2432,10 @@
           align-items: center !important;
           justify-content: center !important;
           background:
-            radial-gradient(ellipse 78% 56% at 50% 42%, rgba(236,170,72,0.14), rgba(20,15,10,0) 70%) !important;
+            radial-gradient(ellipse 40% 14% at 50% 12%, rgba(110,244,255,0.08) 0%, transparent 76%),
+            radial-gradient(ellipse 78% 56% at 50% 42%, rgba(46,221,192,0.14), rgba(10,22,24,0.03) 54%, rgba(10,14,18,0) 74%) !important,
+            radial-gradient(ellipse 110% 84% at 50% 52%, rgba(17,56,56,0.14) 0%, transparent 62%) !important,
+            repeating-linear-gradient(90deg, rgba(255,255,255,0.012) 0 1px, transparent 1px 120px) !important;
         }
 
         #tableView.landscape-topbar-expanded .table-area {
@@ -2279,6 +2476,11 @@
         .dealer-deck { top: 31% !important; width: 30px; height: 44px; opacity: 0 !important; }
         .dealer-deck::before,
         .dealer-deck::after { opacity: 0 !important; }
+        .action-announce {
+          top: 10.5% !important;
+          max-width: min(34vw, 300px) !important;
+          padding: 7px 12px !important;
+        }
         .table-center { gap: 7px !important; top: 54% !important; }
         .pot-display {
           margin-top: 1px !important;
@@ -2446,10 +2648,10 @@
         .floating-cards .card + .card { margin-left: -8px; }
 
         .floating-cards.showdown .card {
-          width: 25px !important;
-          height: 35px !important;
-          font-size: 10px !important;
-          box-shadow: 0 4px 14px rgba(0,0,0,0.5) !important;
+          width: 29px !important;
+          height: 41px !important;
+          font-size: 11px !important;
+          box-shadow: 0 5px 15px rgba(0,0,0,0.52) !important;
           opacity: 1;
         }
 
@@ -2576,10 +2778,10 @@
           display: flex;
           flex-direction: column;
           align-items: stretch;
-          background: linear-gradient(180deg, rgba(8,12,12,0.92), rgba(5,8,8,0.96)) !important;
-          border: 1px solid rgba(236,178,86,0.2) !important;
-          border-radius: 14px !important;
-          box-shadow: 0 10px 24px rgba(0,0,0,0.46), inset 0 0 0 1px rgba(255,214,128,0.08);
+          background: transparent !important;
+          border: none !important;
+          border-radius: 0 !important;
+          box-shadow: none !important;
         }
 
         .astrip-btn {
@@ -2612,12 +2814,12 @@
             "slider frac3"
             "slider frac4";
           align-items: center;
-          background: linear-gradient(180deg, rgba(8,12,12,0.92), rgba(5,8,8,0.96)) !important;
+          background: transparent !important;
           padding: 6px 6px !important;
           gap: 8px 4px !important;
-          border: 1px solid rgba(236,178,86,0.2) !important;
-          border-radius: 14px;
-          box-shadow: 0 10px 24px rgba(0,0,0,0.42), inset 0 0 0 1px rgba(255,214,128,0.08);
+          border: none !important;
+          border-radius: 0;
+          box-shadow: none !important;
         }
         .preset-slider-wrap {
           grid-area: slider;
@@ -2685,7 +2887,7 @@
         .seat-rebuy-btn { font-size: 11px !important; padding: 6px 14px !important; }
         .seat-popover { z-index: 30 !important; }
         .table-deal-btn {
-          bottom: 10% !important;
+          bottom: clamp(78px, 22%, 108px) !important;
           font-size: 14px !important;
           font-weight: 800 !important;
           padding: 9px 24px !important;
@@ -2860,6 +3062,10 @@
         <div class="table-surface" id="tableSurface">
           <div class="dealer-deck" id="dealerDeck" aria-hidden="true"></div>
           <div class="deal-fx-layer" id="dealFxLayer" aria-hidden="true"></div>
+          <div class="action-announce" id="actionAnnouncement" aria-live="polite" aria-atomic="true">
+            <span class="action-announce-actor" id="actionAnnouncementActor"></span>
+            <span class="action-announce-text" id="actionAnnouncementText"></span>
+          </div>
           <div class="table-center">
             <div class="street-label" id="streetLabel">WAITING</div>
             <div class="pot-display" id="potDisplay" data-state="idle">
@@ -2918,6 +3124,6 @@
 
     <div class="toast-container" id="toastContainer"></div>
 
-    <script type="module" src="./online/table_app.js?v=38"></script>
+    <script type="module" src="./online/table_app.js?v=45"></script>
   </body>
 </html>
