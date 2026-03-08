@@ -70,6 +70,8 @@ const el = {
   tableView: document.getElementById("tableView"),
   topBar: document.getElementById("topBar"),
   landscapeBarToggle: document.getElementById("landscapeBarToggle"),
+  tableBootOverlay: document.getElementById("tableBootOverlay"),
+  tableBootLabel: document.getElementById("tableBootLabel"),
   tbTitle: document.getElementById("tbTitle"),
   tbBlinds: document.getElementById("tbBlinds"),
   tbPlayers: document.getElementById("tbPlayers"),
@@ -129,6 +131,8 @@ const state = {
   selectedSeatNo: null,
   logOpen: false,
   loading: false,
+  tableBooting: false,
+  pendingAction: false,
   pollTimer: null,
   turnTimer: null,
   realtimeChannel: null,
@@ -774,6 +778,14 @@ function setTableViewportLock(enabled) {
   document.body.classList.toggle("table-mode", enabled);
 }
 
+function setTableBooting(enabled, label = "Loading Table...") {
+  state.tableBooting = enabled;
+  el.tableView?.classList.toggle("table-booting", enabled);
+  el.tableBootOverlay?.classList.toggle("hidden", !enabled);
+  el.tableBootOverlay?.setAttribute("aria-hidden", enabled ? "false" : "true");
+  if (el.tableBootLabel) el.tableBootLabel.textContent = label;
+}
+
 function syncLandscapeTopBar(forceCollapse = false) {
   const compactMode = isLandscapeCollapseMode()
     ? "landscape"
@@ -1257,6 +1269,8 @@ function calcEquity(hand, handPlayers) {
 // ============ LOBBY ============
 function initLobby() {
   setTableViewportLock(false);
+  setTableBooting(false);
+  state.pendingAction = false;
   resetActionAnnouncements();
   const savedName = localStorage.getItem("online_player_name") || "";
   if (savedName) el.lobbyName.value = savedName;
@@ -1359,6 +1373,12 @@ async function joinExistingTable(tableId) {
 // ============ ENTER TABLE ============
 function enterTable(tableId) {
   state.tableId = tableId;
+  state.tableState = null;
+  state.lastSyncAt = 0;
+  state.landscapeRaisePanelOpen = false;
+  state.pendingAction = false;
+  prevHandState = null;
+  prevActionSeat = null;
   resetActionAnnouncements();
   const url = new URL(window.location.href);
   url.searchParams.set("table", tableId);
@@ -1372,6 +1392,7 @@ function enterTable(tableId) {
   el.tableView.classList.remove("hidden");
   setTableViewportLock(true);
   syncLandscapeTopBar(true);
+  setTableBooting(true, "Loading Table...");
 
   loadBotSeats();
   loadTableState();
@@ -1448,6 +1469,7 @@ function startTurnTicker() {
 async function maybeRuntimeTick() {
   const hand = getLatestHand();
   if (!hand || !["preflop","flop","turn","river","showdown"].includes(hand.state)) return;
+  if (!canManageHand()) return;
   if (state.runtimeTickBusy || Date.now() - state.runtimeTickLastAt < RUNTIME_TICK_MIN_MS) return;
   state.runtimeTickBusy = true;
   state.runtimeTickLastAt = Date.now();
@@ -1475,6 +1497,8 @@ async function loadTableState() {
     const oldPotTotal = Number(oldHand?.pot_total || 0);
     state.tableState = ts;
     state.lastSyncAt = Date.now();
+    state.pendingAction = false;
+    if (state.tableBooting) setTableBooting(false);
 
     const hand = getLatestHand();
     const newPotTotal = Number(hand?.pot_total || 0);
@@ -1515,6 +1539,13 @@ async function loadTableState() {
     checkBotTurn();
   } catch (err) {
     console.error("[loadTableState]", err);
+    if (state.pendingAction) {
+      state.pendingAction = false;
+      renderActions();
+    }
+    if (state.tableBooting) {
+      setTableBooting(true, "Reconnecting...");
+    }
   } finally {
     state.loading = false;
   }
@@ -1870,6 +1901,13 @@ function renderAll() {
 
 function renderTopBar() {
   const table = getTable();
+  if (!table && state.tableBooting) {
+    el.tbTitle.textContent = "";
+    el.tbBlinds.textContent = "";
+    el.tbPlayers.textContent = "";
+    el.removeBotsBtn.style.display = "none";
+    return;
+  }
   el.tbTitle.textContent = table?.name || "Online Table";
   el.tbBlinds.textContent = table ? `${table.small_blind}/${table.big_blind}` : "";
   const seated = getSeats().filter(s => s.group_player_id && !s.left_at).length;
@@ -2355,8 +2393,9 @@ function renderActions() {
   const token = getSeatToken();
   const isHost = canManageHand();
   const compactActions = isLandscapeCollapseMode() || isPortraitCollapseMode();
+  const actionLocked = state.pendingAction;
 
-  const myTurn = hand && isActionStreet(hand.state) && token && hp && !hp.folded && !hp.all_in && hand.action_seat === hp.seat_no;
+  const myTurn = hand && isActionStreet(hand.state) && token && hp && !hp.folded && !hp.all_in && hand.action_seat === hp.seat_no && !actionLocked;
   const noActiveHand = !hand || ["settled","canceled"].includes(hand.state);
   el.tableView.classList.toggle("landscape-actions-visible", Boolean(myTurn));
   el.tableView.classList.toggle("landscape-vertical-actions", compactActions);
@@ -2521,18 +2560,34 @@ async function doAction(actionType) {
   await online.submitAction(payload);
 }
 
+async function submitTurnAction(label, actionType) {
+  if (state.loading || state.pendingAction) return;
+  state.pendingAction = true;
+  state.landscapeRaisePanelOpen = false;
+  renderActions();
+  state.loading = true;
+  try {
+    await doAction(actionType);
+    await loadTableState();
+  } catch (err) {
+    state.pendingAction = false;
+    renderActions();
+    toast(err.message || `${label} failed`, "error");
+  } finally {
+    state.loading = false;
+  }
+}
+
 // ============ EVENT HANDLERS ============
 function bindEvents() {
   el.foldBtn.addEventListener("click", () => {
-    state.landscapeRaisePanelOpen = false;
-    withAction("Fold", () => doAction("fold"));
+    submitTurnAction("Fold", "fold");
   });
   el.callBtn.addEventListener("click", () => {
-    state.landscapeRaisePanelOpen = false;
     const hand = getLatestHand();
     const hp = getMyHandPlayer();
     const toCall = Math.max(0, Number(hand?.current_bet || 0) - Number(hp?.street_contribution || 0));
-    withAction(toCall > 0 ? "Call" : "Check", () => doAction(toCall > 0 ? "call" : "check"));
+    submitTurnAction(toCall > 0 ? "Call" : "Check", toCall > 0 ? "call" : "check");
   });
   el.betRaiseBtn.addEventListener("click", () => {
     const hand = getLatestHand();
@@ -2542,12 +2597,10 @@ function bindEvents() {
       renderActions();
       return;
     }
-    state.landscapeRaisePanelOpen = false;
-    withAction(actionType, () => doAction(actionType));
+    submitTurnAction(actionType, actionType);
   });
   el.allInBtn.addEventListener("click", () => {
-    state.landscapeRaisePanelOpen = false;
-    withAction("All-in", () => doAction("all_in"));
+    submitTurnAction("All-in", "all_in");
   });
 
   el.startHandBtn.addEventListener("click", () => {

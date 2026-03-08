@@ -33,6 +33,70 @@ create table if not exists online_table_seats (
 alter table online_table_seats
   add column if not exists seat_token text not null default encode(gen_random_bytes(16), 'hex');
 
+alter table online_table_seats
+  add column if not exists is_bot boolean not null default false;
+
+drop function if exists online_active_human_host_group_player(uuid);
+create or replace function online_active_human_host_group_player(p_table_id uuid)
+returns uuid
+language sql
+stable
+as $$
+  select t.created_by_group_player_id
+  from online_tables t
+  join online_table_seats s
+    on s.table_id = t.id
+   and s.group_player_id = t.created_by_group_player_id
+   and s.left_at is null
+  left join group_players gp on gp.id = s.group_player_id
+  where t.id = p_table_id
+    and not (coalesce(s.is_bot, false) or coalesce(gp.name, '') ilike 'Bot %')
+  limit 1;
+$$;
+
+drop function if exists online_first_active_human_group_player(uuid);
+create or replace function online_first_active_human_group_player(p_table_id uuid)
+returns uuid
+language sql
+stable
+as $$
+  select s.group_player_id
+  from online_table_seats s
+  left join group_players gp on gp.id = s.group_player_id
+  where s.table_id = p_table_id
+    and s.group_player_id is not null
+    and s.left_at is null
+    and not (coalesce(s.is_bot, false) or coalesce(gp.name, '') ilike 'Bot %')
+  order by s.seat_no
+  limit 1;
+$$;
+
+drop function if exists online_prune_bot_seats(uuid);
+create or replace function online_prune_bot_seats(p_table_id uuid)
+returns integer
+language plpgsql
+as $$
+declare
+  v_removed int := 0;
+begin
+  update online_table_seats s
+  set
+    group_player_id = null,
+    is_bot = false,
+    is_sitting_out = false,
+    seat_token = encode(gen_random_bytes(16), 'hex'),
+    left_at = now()
+  from group_players gp
+  where s.table_id = p_table_id
+    and s.group_player_id = gp.id
+    and s.left_at is null
+    and (coalesce(s.is_bot, false) or gp.name ilike 'Bot %');
+
+  get diagnostics v_removed = row_count;
+  return v_removed;
+end;
+$$;
+
 create unique index if not exists idx_online_table_seats_active_player
   on online_table_seats(table_id, group_player_id)
   where left_at is null and group_player_id is not null;
@@ -427,14 +491,21 @@ as $$
 declare
   v_left online_table_seats%rowtype;
   v_active_count int;
+  v_is_host boolean := false;
+  v_new_host uuid;
 begin
   if coalesce(nullif(trim(p_seat_token), ''), '') = '' then
     raise exception 'seat_token_required';
   end if;
 
+  select (created_by_group_player_id = p_group_player_id) into v_is_host
+  from online_tables
+  where id = p_table_id;
+
   update online_table_seats
   set
     group_player_id = null,
+    is_bot = false,
     is_sitting_out = false,
     seat_token = encode(gen_random_bytes(16), 'hex'),
     left_at = now()
@@ -448,39 +519,20 @@ begin
     raise exception 'active_seat_not_found';
   end if;
 
+  if v_is_host then
+    perform online_prune_bot_seats(p_table_id);
+    select online_first_active_human_group_player(p_table_id) into v_new_host;
+    update online_tables
+    set created_by_group_player_id = v_new_host
+    where id = p_table_id;
+  end if;
+
   select count(*)
   into v_active_count
   from online_table_seats
   where table_id = p_table_id
     and group_player_id is not null
     and left_at is null;
-
-  -- Transfer host if the leaving player was the host and others remain
-  if v_active_count > 0 then
-    declare
-      v_is_host boolean;
-      v_new_host uuid;
-    begin
-      select (created_by_group_player_id = p_group_player_id) into v_is_host
-      from online_tables where id = p_table_id;
-
-      if v_is_host then
-        select group_player_id into v_new_host
-        from online_table_seats
-        where table_id = p_table_id
-          and group_player_id is not null
-          and left_at is null
-        order by seat_no
-        limit 1;
-
-        if v_new_host is not null then
-          update online_tables
-          set created_by_group_player_id = v_new_host
-          where id = p_table_id;
-        end if;
-      end if;
-    end;
-  end if;
 
   if v_active_count = 0 then
     update online_hands
@@ -658,6 +710,40 @@ begin
 end;
 $$;
 
+drop function if exists online_first_postflop_action_seat(uuid, int);
+create or replace function online_first_postflop_action_seat(
+  p_hand_id uuid,
+  p_button_seat int
+)
+returns int
+language plpgsql
+as $$
+declare
+  v_actionable_seats int[];
+begin
+  select array_agg(seat_no order by seat_no)
+  into v_actionable_seats
+  from online_hand_players
+  where hand_id = p_hand_id
+    and not folded
+    and not all_in
+    and coalesce(stack_end, 0) > 0;
+
+  if coalesce(array_length(v_actionable_seats, 1), 0) = 0 then
+    return null;
+  end if;
+
+  -- Heads-up postflop: the dealer/button acts first.
+  if array_length(v_actionable_seats, 1) = 2
+     and p_button_seat is not null
+     and p_button_seat = any(v_actionable_seats) then
+    return p_button_seat;
+  end if;
+
+  return online_next_active_seat(v_actionable_seats, p_button_seat);
+end;
+$$;
+
 create or replace function online_betting_round_complete(p_hand_id uuid)
 returns boolean
 language plpgsql
@@ -729,8 +815,8 @@ begin
     raise exception 'online_table_closed';
   end if;
 
-  -- Enforce host-only table controls. For legacy rows without host set, first starter claims host.
-  if v_table.created_by_group_player_id is null then
+  -- Recover host ownership when the declared host left or a bot was promoted.
+  if online_active_human_host_group_player(p_table_id) is null then
     if p_started_by_group_player_id is null then
       raise exception 'host_identity_required';
     end if;
@@ -744,10 +830,12 @@ begin
       raise exception 'starter_not_in_group';
     end if;
 
+    perform online_prune_bot_seats(p_table_id);
+
     update online_tables
-    set created_by_group_player_id = p_started_by_group_player_id
+    set created_by_group_player_id = online_first_active_human_group_player(p_table_id)
     where id = p_table_id
-      and created_by_group_player_id is null;
+      and online_active_human_host_group_player(p_table_id) is null;
 
     select * into v_table
     from online_tables
@@ -1348,7 +1436,7 @@ begin
         where hand_id = p_hand_id
           and not folded;
 
-        v_next_actor := online_next_action_seat(p_hand_id, v_hand.button_seat);
+        v_next_actor := online_first_postflop_action_seat(p_hand_id, v_hand.button_seat);
 
         update online_hands
         set
@@ -1639,7 +1727,7 @@ begin
 
   -- Only host can force-advance a hand manually.
   if coalesce(nullif(trim(lower(p_reason)), ''), 'tick') = 'force' then
-    if v_table.created_by_group_player_id is null then
+    if online_active_human_host_group_player(v_hand.table_id) is null then
       if p_actor_group_player_id is null then
         raise exception 'host_identity_required';
       end if;
@@ -1653,10 +1741,12 @@ begin
         raise exception 'actor_not_in_group';
       end if;
 
+      perform online_prune_bot_seats(v_hand.table_id);
+
       update online_tables
-      set created_by_group_player_id = p_actor_group_player_id
+      set created_by_group_player_id = online_first_active_human_group_player(v_hand.table_id)
       where id = v_hand.table_id
-        and created_by_group_player_id is null;
+        and online_active_human_host_group_player(v_hand.table_id) is null;
 
       select * into v_table
       from online_tables
@@ -1754,7 +1844,7 @@ begin
     where hand_id = p_hand_id
       and not folded;
 
-    v_next_actor := online_next_action_seat(p_hand_id, v_hand.button_seat);
+    v_next_actor := online_first_postflop_action_seat(p_hand_id, v_hand.button_seat);
 
     update online_hands
     set
@@ -2018,12 +2108,14 @@ $$;
 -- Updated online_join_table: uses table starting_stack when chip_stack not provided.
 drop function if exists online_join_table(uuid, uuid, int, numeric);
 drop function if exists online_join_table(uuid, uuid, int, numeric, text);
+drop function if exists online_join_table(uuid, uuid, int, numeric, text, boolean);
 create or replace function online_join_table(
   p_table_id uuid,
   p_group_player_id uuid,
   p_preferred_seat int default null,
   p_chip_stack numeric default null,
-  p_seat_token text default null
+  p_seat_token text default null,
+  p_is_bot boolean default false
 )
 returns online_table_seats
 language plpgsql
@@ -2080,6 +2172,7 @@ begin
     set
       group_player_id = p_group_player_id,
       chip_stack = greatest(v_stack, 0),
+      is_bot = coalesce(p_is_bot, false),
       is_sitting_out = false,
       seat_token = coalesce(nullif(trim(p_seat_token), ''), encode(gen_random_bytes(16), 'hex')),
       joined_at = now(),
@@ -2099,6 +2192,7 @@ begin
     set
       group_player_id = p_group_player_id,
       chip_stack = greatest(v_stack, 0),
+      is_bot = coalesce(p_is_bot, false),
       is_sitting_out = false,
       seat_token = coalesce(nullif(trim(p_seat_token), ''), encode(gen_random_bytes(16), 'hex')),
       joined_at = now(),
@@ -2121,6 +2215,16 @@ begin
 
   if v_table.status = 'waiting' then
     update online_tables set status = 'active' where id = p_table_id;
+  end if;
+
+  if not coalesce(p_is_bot, false)
+     and online_active_human_host_group_player(p_table_id) is null
+  then
+    perform online_prune_bot_seats(p_table_id);
+    update online_tables
+    set created_by_group_player_id = online_first_active_human_group_player(p_table_id)
+    where id = p_table_id
+      and online_active_human_host_group_player(p_table_id) is null;
   end if;
 
   return v_joined;

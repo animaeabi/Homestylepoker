@@ -158,6 +158,33 @@ Next suggested steps:
   - Added small `OPTIONS` label under the hamburger for discoverability.
   - Mobile drawer changed from full-width to left-anchored floating panel (`max ~460px`) so gameplay remains visible.
 
+Update (online E2E hardening pass):
+- Patched heads-up postflop first-to-act selection in `/Users/abishek/Documents/poker-buyins/supabase/online_poker_schema.sql`:
+  - Added `online_first_postflop_action_seat(...)`
+  - Street transitions now use dealer/button first when only two actionable players remain
+- Updated `/Users/abishek/Documents/poker-buyins/online/table_app.js`:
+  - `online-runtime-tick` is now host-only from the client, so observer/guest tabs stop driving the runtime loop
+  - Added table boot overlay state for same-device rejoin / direct-link entry
+  - Suppressed placeholder top-bar text during booting
+- Updated `/Users/abishek/Documents/poker-buyins/online-table.html`:
+  - Added loading shell overlay (`Loading Table...`) for rejoin/direct open
+  - Replaced non-standard `slider-vertical` styling with standards-safe vertical range styling
+  - Bumped table app cache buster to `v=46`
+
+Validation:
+- `node --check /Users/abishek/Documents/poker-buyins/online/table_app.js` (pass)
+- Playwright local browser check:
+  - loading overlay shows immediately on table open/rejoin
+  - console warnings for vertical slider styling are gone
+  - guest-side network no longer repeatedly calls `online-runtime-tick`
+- Heads-up postflop actor fix is patched in repo but still needs the SQL migration applied to the live Supabase backend before browser E2E can confirm it.
+
+- 2026-03-08: Added immediate turn-action UI cleanup in `/Users/abishek/Documents/poker-buyins/online/table_app.js`:
+  - action buttons now hide as soon as a hand action is submitted
+  - controls stay hidden until the next table-state refresh lands
+  - failures restore the controls so the player is not stuck
+  - bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster to `?v=47`
+
 Validation:
 - `node --check /Users/abishek/Documents/poker-buyins/online/table_app.js` (pass)
 - `node /Users/abishek/Documents/poker-buyins/online/showdown.test.js` (pass)
@@ -218,6 +245,85 @@ Validation:
 - `node --check /Users/abishek/Documents/poker-buyins/online/table_app.js` (pass)
 - Verified source no longer contains `sitSelectedSeat`, `pop-sit`, or `SIT`/`Sit` empty-seat labels.
 - Created a local online table as host, clicked an empty seat, and confirmed the popover shows only `Add Bot`.
+
+Update (portrait vertical actions + collapsible top bar pass):
+- Implemented portrait-mode compact top bar behavior in `/Users/abishek/Documents/poker-buyins/online/table_app.js`:
+  - Added portrait compact media detection.
+  - Reused the existing top-bar toggle state so portrait can collapse/expand the full header from a small arrow button.
+  - Preserved full header behavior on non-compact layouts.
+- Matched portrait action behavior to landscape in `/Users/abishek/Documents/poker-buyins/online/table_app.js`:
+  - Portrait now uses the same on-demand raise panel logic (`Bet/Raise` opens panel first, second click submits).
+  - Preset/slider panel stays hidden until raise panel is opened, and closes on other actions.
+- Updated portrait CSS in `/Users/abishek/Documents/poker-buyins/online-table.html`:
+  - Top bar is hidden by default and expands via the small toggle control.
+  - Action controls changed from horizontal strip to compact vertical stack.
+  - Raise controls moved to a vertical companion panel (slider + presets) beside actions.
+- Bumped cache buster in `/Users/abishek/Documents/poker-buyins/online-table.html` from `?v=37` to `?v=38`.
+
+Validation:
+- `node --check /Users/abishek/Documents/poker-buyins/online/table_app.js` (pass)
+- `node "$WEB_GAME_CLIENT" --url http://127.0.0.1:8000/online-table.html --actions-json '{"steps":[{"buttons":[],"frames":1}]}' --iterations 1 --pause-ms 200 --screenshot-dir output/web-game` (pass)
+- Portrait Playwright visual checks:
+  - Verified collapsed portrait top bar with only small toggle visible.
+  - Verified expanded portrait top bar on toggle tap.
+  - Verified portrait vertical action stack + vertical raise panel layout in viewport (forced visible for visual validation when not on-turn).
+
+Update (real hand overlap verification + portrait spacing fix):
+- Ran a real playable hand as host on table `b62bedd1-0074-4cb9-92ee-6eadb0d97385` in portrait (430x932).
+- Confirmed issue: main player cards overlapped with action/raise controls, especially when raise panel opened.
+- Adjusted portrait layout in `/Users/abishek/Documents/poker-buyins/online-table.html`:
+  - During active-turn action state, `my-hand-area` shifts right (`#tableView.landscape-actions-visible .my-hand-area`) to avoid overlap with left-docked controls.
+  - Raise panel moved from side-by-side with action stack to an upper-left position above action controls.
+  - Tweaked raise panel dimensions/slider height to stay compact while preserving usability.
+
+Validation:
+- Replayed the same hand state and captured before/after screenshots.
+- Verified both states are clear:
+  - Action panel visible: cards and badge no longer overlap controls.
+  - Raise panel open: cards remain fully readable and no panel collision.
+- `node --check /Users/abishek/Documents/poker-buyins/online/table_app.js` (pass).
+
+Update (portrait idle seat rail alignment):
+- Tightened the pre-deal portrait hero seat position in `/Users/abishek/Documents/poker-buyins/online-table.html`.
+- Scoped change to `.my-hand-area.no-hole-cards` only, so it affects the join / before-deal state without changing active-hand spacing.
+- Removed the extra nameplate top offset for that idle state and added an upward visual shift.
+
+Validation:
+- Created a fresh local table in portrait (`430x932`) and checked the idle screen before any hand was dealt.
+- Measured hero badge gap from table rail reduced from about `96px` to `34px`.
+- Visual check confirmed the main player now sits much closer to the table edge in the idle state.
+
+Update (portrait idle black-space reduction):
+- Reworked the portrait idle hero seat from flow-based spacing to absolute positioning in `/Users/abishek/Documents/poker-buyins/online-table.html`.
+- This removed the extra reserved space below the table and let the idle badge sit nearer the rail without affecting active-hand layout.
+
+Validation:
+- Rechecked the same fresh local table in portrait after the change.
+- Idle hero seat now has about `47px` gap to the table rail with about `53px` clearance above the hand-log toggle.
+- Visual check confirmed less empty black space below and a higher idle badge position.
+
+Update (table viewport lock / no-scroll pass):
+- Added `table-mode` viewport locking in `/Users/abishek/Documents/poker-buyins/online-table.html` and `/Users/abishek/Documents/poker-buyins/online/table_app.js`.
+- Table view now applies `overflow: hidden` to `html` and `body` only while the game screen is active.
+- Set `#tableView` to fixed viewport height and added `min-height: 0` to the table flex area.
+- Updated portrait table sizing to derive from available viewport height (`--portrait-ui-reserve`) so the table scales down instead of forcing page scroll.
+- Bumped online table script cache buster from `v=38` to `v=39`.
+
+Validation:
+- Verified in portrait idle table and active dealt-hand state on a fresh local table.
+- In both states:
+  - `html/body` had `table-mode`
+  - computed `overflow` was `hidden`
+  - document `scrollHeight` matched viewport height
+  - `canScroll` was `false`
+
+Update (portrait action spacing + hero card size):
+- Increased spacing between portrait action buttons in `/Users/abishek/Documents/poker-buyins/online-table.html`.
+- Slightly reduced portrait main-player card size and holder footprint so the bottom area feels lighter.
+
+Validation:
+- Rechecked a live portrait hand locally after the CSS change.
+- Verified the vertical action stack had more gap between buttons and the hero cards rendered slightly smaller while staying readable.
 
 Update (online table drama + card dealing pass):
 - Upgraded `/Users/abishek/Documents/poker-buyins/online-table.html` and `/Users/abishek/Documents/poker-buyins/online/table_app.js` to make the online table feel more like a live poker table:
@@ -585,3 +691,220 @@ Validation:
 - `node --check /Users/abishek/Documents/poker-buyins/online/table_app.js` (pass)
 - Browser-measured on a live landscape table:
   - top-seat to `Pot` label gap improved from about `-2px` overlap to about `8px`
+
+Update (landscape density cleanup):
+- Tightened the landscape-phone UI density in `/Users/abishek/Documents/poker-buyins/online-table.html` to reduce crowding:
+  - slimmer bottom control lane and smaller action buttons
+  - smaller my-hand cards/nameplate/badge chips
+  - narrower left lane allocation for my-hand area
+  - slightly lower table center and board spacing for cleaner visual hierarchy
+  - moved top floating cards closer to the top seat so they clear the pot area better
+  - reduced rail/border visual weight a bit for less heaviness
+
+Validation:
+- Browser-validated at `932x430` on the same live 4-seat landscape table:
+  - center area no longer felt as crowded
+  - bottom control cluster consumed less vertical/visual weight
+  - top seat cards had clearer separation from pot label/chips/value
+
+Update (landscape reference-style theme pass):
+- Reworked the landscape-phone presentation in `/Users/abishek/Documents/poker-buyins/online-table.html` to closely match the provided premium reference style while preserving gameplay mechanics:
+  - deeper cinematic table/background lighting
+  - heavier mahogany rail with warm gold trim/glow
+  - upgraded seat card treatment (larger circular avatars, stronger dark nameplates, gold accent chips for `D/SB/BB`)
+  - centered, glossy bottom action rail and matching preset strip
+  - refined pot/board hierarchy and chip stack styling
+  - overlaid compact my-hand tray so the table keeps more visible area
+- Adjusted landscape seat vertical spread in `/Users/abishek/Documents/poker-buyins/online/table_app.js` so top seats fit better with the new visual scale.
+- Bumped `/Users/abishek/Documents/poker-buyins/online-table.html` script cache buster from `?v=30` to `?v=31`.
+
+Validation:
+- `node --check /Users/abishek/Documents/poker-buyins/online/table_app.js` (pass)
+- Browser-validated at `932x430` on the live table state used for previous regressions:
+  - online actions/buttons remained functional
+  - seat rendering and role chips remained functional
+  - landscape visuals now align much closer to the reference tone/layout
+
+Update (landscape fullscreen + pull-down top bar):
+- Implemented an auto-collapsed landscape control bar in `/Users/abishek/Documents/poker-buyins/online-table.html` and `/Users/abishek/Documents/poker-buyins/online/table_app.js`:
+  - the top bar (`hamburger`, table name, copy link/remove bots/leave) now starts hidden in landscape-phone mode
+  - added a compact pull-down handle (`▼/▲`) to expand/collapse controls on demand
+  - expanding the controls shifts table padding down to avoid overlap; collapsing reclaims full table space
+- Continued landscape declutter pass:
+  - reduced seat card and action-button density
+  - rebalanced board/pot vertical spacing
+  - adjusted my-hand area behavior so waiting states no longer render dark placeholder cards
+  - my-hand tray now sits lower when actions are hidden, and lifts only when action controls are visible
+- Bumped `/Users/abishek/Documents/poker-buyins/online-table.html` script cache buster from `?v=31` to `?v=32`.
+
+Validation:
+- `node --check /Users/abishek/Documents/poker-buyins/online/table_app.js` (pass)
+- Playwright MCP visual validation at `932x430` on live table URL:
+  - collapsed state: top bar hidden, only pull-down handle visible, table uses more viewport
+  - expanded state: top bar appears cleanly and remains functional
+  - waiting state no longer shows black/my-card placeholder block over the board area
+
+Update (landscape breathing-space geometry pass):
+- Adjusted landscape table composition in `/Users/abishek/Documents/poker-buyins/online-table.html` to reduce center clutter:
+  - table footprint reduced (`width ~96%`, `height ~90%`, capped max-height) for more breathing room
+  - board card size reduced and board row moved upward
+  - pot label/chips/value moved upward with tighter vertical rhythm
+  - seat card dimensions slightly reduced for cleaner center clearance
+- Adjusted landscape seat ellipse in `/Users/abishek/Documents/poker-buyins/online/table_app.js`:
+  - seats now sit farther toward the table edge (more casino-like rail alignment)
+- Bumped script cache buster from `?v=32` to `?v=33`.
+
+Validation:
+- `node --check /Users/abishek/Documents/poker-buyins/online/table_app.js` (pass)
+- Playwright MCP visual validation at `932x430`:
+  - center board/pot area has more separation from the hero badge and nearby side seats
+  - seats are pushed outward toward the rail in landscape
+
+Update (landscape main-hand anti-clutter pass):
+- Increased hero hand clearance only during active-turn landscape mode in `/Users/abishek/Documents/poker-buyins/online-table.html`:
+  - raised `.my-hand-area` when actions are visible
+  - reduced hero card + nameplate footprint while action bar is visible
+- Goal: prevent hero cards/nameplate from colliding with the action strip and presets row.
+
+Validation:
+- Visual check on a live dealt landscape hand (`932x430`) confirms hero hand now sits above controls with cleaner spacing.
+
+Update (landscape action rail redesign + hero cards):
+- Reworked landscape action UI in `/Users/abishek/Documents/poker-buyins/online-table.html` and `/Users/abishek/Documents/poker-buyins/online/table_app.js`:
+  - action buttons are now a vertical left-side rail (`Fold`, `Call`, `Raise`, `All-in`)
+  - raise options panel is hidden by default and appears only when `Raise` is clicked
+  - raise panel is placed in the left control zone above actions (avoids covering hero cards)
+- Improved main player hand presentation in landscape:
+  - increased hero card size and adjusted overlap/tilt so both cards remain clearly visible
+  - kept hero area centered and readable while actions run on the left
+- Bumped script cache buster from `?v=34` to `?v=35`.
+
+Validation:
+- `node --check /Users/abishek/Documents/poker-buyins/online/table_app.js` (pass)
+- Live landscape hand checks at `932x430`:
+  - vertical action rail renders and functions
+  - raise panel only appears after pressing raise
+  - hero two-card visibility restored and visually aligned
+
+Update (table action announcements + sound cues):
+- Added a shared action announcement banner to `/Users/abishek/Documents/poker-buyins/online-table.html` so live table actions surface as transient labels on the felt.
+- Updated `/Users/abishek/Documents/poker-buyins/online/table_app.js`:
+  - added shared action copy formatting for `check`, `call`, `bet`, `raise`, `fold`, and `all_in`
+  - action sounds now play from new `action_taken` events instead of only on the local button press
+  - added distinct `call` and `raise` tones
+  - hand log action lines now use the same formatted copy as the live announcement
+  - reset announcement queue/timers when entering or leaving a table view
+- Bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster from `?v=39` to `?v=40`.
+
+Validation:
+- `node --check /Users/abishek/Documents/poker-buyins/online/table_app.js` (pass)
+- `node --check /Users/abishek/Documents/poker-buyins/online/client.js` (pass)
+- `node --check /Users/abishek/Documents/poker-buyins/app.js` (pass)
+- Ran the Playwright smoke client against `http://127.0.0.1:8000/online-table.html`
+- Live browser validation on local table `491ce15f-ef11-435b-84cf-5b292ae82611` confirmed:
+  - hero action announces as `Abishek calls $2`
+  - later hero action announces as `Abishek bets $4`
+  - bot actions announce as `Bot Dash folds` and `Bot Cruz checks`
+
+Update (raise preset math fix):
+- Fixed preset sizing in `/Users/abishek/Documents/poker-buyins/online/table_app.js`.
+- Root cause: the quick buttons (`⅓`, `½`, `¾`, `Pot`) were using `pot * fraction` even in raise spots, so the result often collapsed back to the same minimum raise and looked broken.
+- Added `getPresetBetAmount(...)` so presets now use:
+  - normal pot-fraction sizing for fresh bets
+  - call-adjusted target sizing for raises when already facing a bet
+- Bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster from `?v=40` to `?v=41`.
+
+Validation:
+- `node --check /Users/abishek/Documents/poker-buyins/online/table_app.js` (pass)
+- Live browser validation on local table `65ccb435-b24e-4cfa-a3bb-94f980a5d06a`:
+  - preflop facing a raise, `Pot` preset changed amount from `4` to `7`
+  - `¾` preset changed amount to `6`
+  - `½` preset changed amount to `5`
+  - submitting `Raise` after `½` produced `Abishek raises by $5`
+
+Update (raise preset wording clarification):
+- Clarified preset wording in `/Users/abishek/Documents/poker-buyins/online/table_app.js` without changing table layout:
+  - preset buttons now switch to `⅓+`, `½+`, `¾+`, `Pot+` in raise spots
+  - preset buttons keep normal `⅓`, `½`, `¾`, `Pot` labels in pure bet spots
+  - each preset now gets a precise accessible label/title like `pot raise to $7 after calling $2`
+  - tapping a preset shows a toast with the exact result, for example `Pot raise to $7`
+- Updated amount helper text to say `Raise to` instead of a generic dollar label when applicable.
+- Bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster from `?v=41` to `?v=42`.
+
+Validation:
+- `node --check /Users/abishek/Documents/poker-buyins/online/table_app.js` (pass)
+- Live browser validation on local table `def15a9a-aedc-4864-bd73-ea0643d7cfbe`:
+  - preflop facing a raise with pot at `$3`, the preset row showed:
+    - `⅓+` -> `one third pot raise to $4 after calling $2`
+    - `½+` -> `half pot raise to $5 after calling $2`
+    - `¾+` -> `three quarter pot raise to $6 after calling $2`
+    - `Pot+` -> `pot raise to $7 after calling $2`
+  - tapping `Pot+` updated the amount to `7` and showed toast `Pot raise to $7`
+
+Update (portrait hero seat stays anchored after deal):
+- Adjusted portrait hero-seat layout in `/Users/abishek/Documents/poker-buyins/online-table.html` so the main player remains anchored at the same bottom-center rail position before and after cards are dealt.
+- Changed the portrait `.my-hand-area` from a side-by-side tray into a vertically stacked anchored seat:
+  - cards now sit above the hero badge/nameplate
+  - the hero badge no longer shifts to a separate lower tray when hole cards appear
+  - the old turn-state sideways shove is overridden so the whole hero block stays centered at the rail
+- Bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster from `?v=42` to `?v=43`.
+
+Validation:
+- Live browser validation on local table `6bfbe3b7-5f84-4967-b0a1-ded1185e5acc`:
+  - before deal: hero badge stayed seated at the bottom rail
+  - after deal: hero cards stacked above the badge while the badge stayed in the same anchored location
+
+Update (portrait hero card fan + badge overlay):
+- Tweaked the portrait hero stack in `/Users/abishek/Documents/poker-buyins/online-table.html`:
+  - widened the hero card fan by increasing the spread/rotation of both cards
+  - increased the hero card container width slightly
+  - moved the hero badge in front of the cards by flipping z-index layering and increasing overlap
+- This keeps the anchored bottom-center hero seat from the previous pass but makes the stack feel more intentional and readable.
+
+Validation:
+- Live browser validation on local table `98b8fc4c-3c1a-4f78-bb8a-020d2363ff35` confirmed:
+  - cards fan outward more visibly
+  - hero badge sits on top of the lower portion of the cards
+
+Update (portrait hero cards nudged upward):
+- Nudged the portrait hero card stack upward in `/Users/abishek/Documents/poker-buyins/online-table.html` by adding a small upward translate on `.my-hand-cards`.
+- Goal: keep the badge anchored while making more of the fan visible above it.
+
+Validation:
+- Live browser validation on local table `78576507-0c2f-43d5-88c3-6bb59f1405c4` confirmed the hero cards sit slightly higher above the badge than before.
+
+Update (showdown opponent cards readability bump):
+- Increased opponent reveal card size during showdown in `/Users/abishek/Documents/poker-buyins/online-table.html`:
+  - portrait/compact floating showdown cards increased from `31x44` to `35x50`
+  - landscape floating showdown cards increased from `25x35` to `29x41`
+  - added `.seat-cards-row.showdown` sizing for non-compact seat-row reveals
+- Updated `/Users/abishek/Documents/poker-buyins/online/table_app.js` so non-compact opponent seat rows receive a `showdown` class when their cards are revealed at showdown.
+- Bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster from `?v=43` to `?v=44`.
+
+Validation:
+- `node --check /Users/abishek/Documents/poker-buyins/online/table_app.js` (pass)
+- Browser verification with a temporary showdown sample on the live table confirmed portrait showdown reveal cards render at `35px x 50px` with `12px` rank text and are more legible.
+
+- 2026-03-08: Hid the center dealer deck visually by setting base `.dealer-deck` opacity to 0, keeping the element in place so deal animations still have a launch origin.
+
+- 2026-03-08: Made the hand-deal animation more dramatic with slower stagger/timing, a curved dealer-flick flight path, and a softer card settle on arrival.
+
+- 2026-03-08: Replaced the flat black table-view shell with a richer casino-room backdrop using warm spotlight glows, mahogany side shading, and subtle room texture in both portrait and landscape.
+
+- 2026-03-08: Added a bottom-center ambient glow behind the hero seat so the area under the main player no longer drops to flat black.
+
+- 2026-03-08: Reworked the table-view shell from warm mahogany glows to a subtler neon lounge palette: deep blue-black base, soft cyan/emerald light spill, and restrained violet side bloom.
+
+- 2026-03-08: Moved the landscape Deal button upward with a clamped bottom offset so it clears the main player badge on short screens without drifting too close to the board.
+
+Update (QA end-to-end review pass):
+- Ran the web-game smoke client against `http://127.0.0.1:8000/online-table.html`.
+- Ran a live two-tab Playwright check locally:
+  - host created table `2d85c762-d22c-403e-876f-f3bf4a5469d4`
+  - second tab joined as `GuestQA`
+  - dealt a heads-up hand and exercised cross-tab action flow
+  - checked portrait/landscape visuals, console warnings, and network traffic
+- Confirmed a likely heads-up postflop first-to-act bug in `supabase/online_poker_schema.sql`.
+- Confirmed every open client currently calls `online-runtime-tick`, which is a scaling/race risk.
+- Noted a reconnect/loading UX flash (`Table` / `0 seated`) on same-device re-entry before first table state resolves.
+- Noted repeated browser warnings from non-standard `slider-vertical` appearance styling.
