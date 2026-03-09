@@ -2158,14 +2158,14 @@
       @media (max-width: 768px) and (orientation: portrait) {
         .utility-fab-row {
           right: 8px;
-          bottom: calc(env(safe-area-inset-bottom) + 36px);
+          bottom: calc(env(safe-area-inset-bottom) + 62px);
         }
 
         .chat-panel {
           width: min(172px, calc(40vw));
           height: min(206px, calc(100vh - 412px));
           right: 8px;
-          bottom: calc(env(safe-area-inset-bottom) + 74px);
+          bottom: calc(env(safe-area-inset-bottom) + 100px);
         }
       }
 
@@ -2918,6 +2918,7 @@
         }
         .my-hand-area.no-hole-cards {
           gap: 0 !important;
+          bottom: calc(env(safe-area-inset-bottom) + 28px) !important;
         }
         .my-hand-area.no-hole-cards .my-hand-nameplate {
           margin-top: 0 !important;
@@ -3983,6 +3984,6 @@
     <div class="voice-audio-rack" id="voiceAudioRack" aria-hidden="true"></div>
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
-    <script type="module" src="./online/table_app.js?v=86"></script>
+    <script type="module" src="./online/table_app.js?v=87"></script>
   </body>
 </html>

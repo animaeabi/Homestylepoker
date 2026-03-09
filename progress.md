@@ -235,6 +235,12 @@ Validation:
   - viewport height now prefers `visualViewport.height` instead of taking the largest layout/screen height
   - reduced portrait overlap credit and tightened max-height guardrails so the table no longer shoves the hero seat up into the table on real iPhones
   - bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster to `?v=86`
+
+- 2026-03-08: Realigned the portrait bottom anchors in `/Users/abishek/Documents/poker-buyins/online-table.html`:
+  - idle hero seat (`.my-hand-area.no-hole-cards`) now sits lower so the nameplate lands on the rail instead of floating inside the felt
+  - portrait mic/chat row moved higher above the browser toolbar and hand log
+  - chat panel lifted with the fab row
+  - bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster to `?v=87`
   - portrait-only table sizing now favors width more on real phones instead of over-shrinking from `100dvh`
   - reduced the default portrait UI reserve and made it state-aware for hidden vs expanded top bar / action-open states
   - widened the portrait table cap from `92vw` to `96vw` and tightened table-area side/top padding
