@@ -2989,11 +2989,11 @@
 
           .my-hand-area,
           #tableView.landscape-actions-visible .my-hand-area {
-            bottom: calc(env(safe-area-inset-bottom) - 6px) !important;
+            bottom: calc(env(safe-area-inset-bottom) + 8px) !important;
           }
 
           .my-hand-area.no-hole-cards {
-            bottom: calc(env(safe-area-inset-bottom) + 2px) !important;
+            bottom: calc(env(safe-area-inset-bottom) + 14px) !important;
           }
 
           .my-hand-cards {
@@ -3003,7 +3003,7 @@
 
           .log-toggle {
             position: relative;
-            transform: translateY(12px);
+            transform: translateY(6px);
           }
         }
 
@@ -4019,6 +4019,6 @@
     <div class="voice-audio-rack" id="voiceAudioRack" aria-hidden="true"></div>
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
-    <script type="module" src="./online/table_app.js?v=98"></script>
+    <script type="module" src="./online/table_app.js?v=99"></script>
   </body>
 </html>
