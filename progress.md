@@ -218,6 +218,12 @@ Validation:
   - bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster to `?v=53`
 
 - 2026-03-08: Nudged compact opponent card stacks upward in `/Users/abishek/Documents/poker-buyins/online-table.html`:
+
+- 2026-03-08: Retuned portrait iPhone table scaling in `/Users/abishek/Documents/poker-buyins/online-table.html` and `/Users/abishek/Documents/poker-buyins/online/table_app.js`:
+  - added viewport CSS vars sourced from `window.visualViewport` / screen metrics
+  - changed portrait table sizing to use width-first clamping with a smaller reserve and overlap credit
+  - tightened portrait table-area padding so the table can sit closer to edge-to-edge on real iPhones
+  - bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster to `?v=84`
   - portrait-only table sizing now favors width more on real phones instead of over-shrinking from `100dvh`
   - reduced the default portrait UI reserve and made it state-aware for hidden vs expanded top bar / action-open states
   - widened the portrait table cap from `92vw` to `96vw` and tightened table-area side/top padding

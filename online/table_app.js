@@ -1594,6 +1594,41 @@ function setTableViewportLock(enabled) {
   document.body.classList.toggle("table-mode", enabled);
 }
 
+function syncViewportMetrics() {
+  const vv = window.visualViewport;
+  const viewportWidth = Math.max(
+    320,
+    Math.round(
+      Math.max(vv?.width || 0, window.innerWidth || 0, document.documentElement?.clientWidth || 0) * 100
+    ) / 100
+  );
+  const viewportHeight = Math.max(
+    480,
+    Math.round(
+      Math.max(vv?.height || 0, window.innerHeight || 0, document.documentElement?.clientHeight || 0) * 100
+    ) / 100
+  );
+  const screenWidth = Math.max(
+    320,
+    Math.min(
+      window.screen?.width || viewportWidth,
+      window.screen?.availWidth || viewportWidth,
+      window.screen?.height || viewportWidth
+    )
+  );
+  const screenHeight = Math.max(
+    viewportHeight,
+    window.screen?.height || 0,
+    window.screen?.availHeight || 0,
+    window.outerHeight || 0
+  );
+
+  document.documentElement.style.setProperty("--app-vw", `${viewportWidth}px`);
+  document.documentElement.style.setProperty("--app-vh", `${viewportHeight}px`);
+  document.documentElement.style.setProperty("--app-screen-h", `${screenHeight}px`);
+  document.documentElement.style.setProperty("--app-screen-w", `${screenWidth}px`);
+}
+
 function setTableBooting(enabled, label = "Loading Table...") {
   state.tableBooting = enabled;
   el.tableView?.classList.toggle("table-booting", enabled);
@@ -3893,13 +3928,17 @@ function bindEvents() {
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") reconnect(); });
 
   let resizeTimer = null;
-  window.addEventListener("resize", () => {
+  const handleViewportResize = () => {
     if (resizeTimer) clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => {
+      syncViewportMetrics();
       syncLandscapeTopBar();
       if (state.tableState) renderAll();
     }, 200);
-  });
+  };
+  window.addEventListener("resize", handleViewportResize);
+  window.visualViewport?.addEventListener("resize", handleViewportResize);
+  window.visualViewport?.addEventListener("scroll", handleViewportResize);
 
   window.addEventListener("beforeunload", () => {
     if (state.pollTimer) clearInterval(state.pollTimer);
@@ -3923,6 +3962,7 @@ function reconnect() {
 // ============ INIT ============
 function init() {
   bindEvents();
+  syncViewportMetrics();
   syncLandscapeTopBar(true);
   renderChatUi();
 

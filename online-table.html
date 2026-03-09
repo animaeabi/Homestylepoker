@@ -10,6 +10,9 @@
     <style>
       :root {
         color-scheme: dark;
+        --app-vw: 100vw;
+        --app-vh: 100dvh;
+        --app-screen-h: 100dvh;
         --bg: #0b0f0d;
         --surface: #121a16;
         --surface2: #0e1511;
@@ -2625,7 +2628,8 @@
       /* ========== PORTRAIT MOBILE LAYOUT ========== */
       @media (max-width: 768px) and (orientation: portrait) {
         #tableView {
-          --portrait-ui-reserve: 188px;
+          --portrait-ui-reserve: 142px;
+          --portrait-overlap-credit: 124px;
           background:
             radial-gradient(ellipse 90% 28% at 50% 87%, rgba(42,232,184,0.16) 0%, rgba(18,70,92,0.14) 28%, rgba(6,10,14,0) 74%),
             radial-gradient(ellipse 42% 12% at 50% 7%, rgba(123,247,255,0.17) 0%, rgba(123,247,255,0.05) 42%, transparent 78%),
@@ -2640,15 +2644,16 @@
         }
 
         #tableView.landscape-actions-visible {
-          --portrait-ui-reserve: 198px;
+          --portrait-ui-reserve: 162px;
+          --portrait-overlap-credit: 136px;
         }
 
         #tableView.portrait-topbar-expanded {
-          --portrait-ui-reserve: 206px;
+          --portrait-ui-reserve: 158px;
         }
 
         #tableView.portrait-topbar-expanded.landscape-actions-visible {
-          --portrait-ui-reserve: 214px;
+          --portrait-ui-reserve: 178px;
         }
 
         .top-bar {
@@ -2708,13 +2713,21 @@
         .top-btn { padding: 6px 9px; font-size: 10px; }
         .top-bar-actions { flex-shrink: 0; gap: 6px; }
 
-        .table-area { padding: 0 2px 0 !important; flex: 1; min-height: 0 !important; align-items: flex-start !important; padding-top: 56px !important; }
+        .table-area { padding: 0 !important; flex: 1; min-height: 0 !important; align-items: flex-start !important; padding-top: 52px !important; }
         #tableView.portrait-topbar-expanded .table-area { padding-top: 102px !important; }
         .table-surface {
-          width: min(96vw, calc((100dvh - var(--portrait-ui-reserve)) / 1.8)) !important;
+          width: min(
+            calc(var(--app-vw, 100vw) - 2px),
+            calc((var(--app-vh, 100dvh) - var(--portrait-ui-reserve) + var(--portrait-overlap-credit)) / 1.8),
+            calc((var(--app-screen-h, 100dvh) - var(--portrait-ui-reserve)) / 1.8)
+          ) !important;
+          max-width: calc(var(--app-vw, 100vw) - 2px) !important;
           margin: 0 auto;
           aspect-ratio: 1 / 1.8 !important;
-          max-height: calc(100dvh - var(--portrait-ui-reserve)) !important;
+          max-height: min(
+            calc(var(--app-vh, 100dvh) - 12px),
+            calc(var(--app-screen-h, 100dvh) - 78px)
+          ) !important;
           border-radius: 35% !important; border: 10px solid #3a2010 !important;
           background: url("assets/felt_portrait.png") center/cover, radial-gradient(ellipse 100% 100% at 50% 45%, #1d6b48 0%, #145838 40%, #0e3a28 70%, #0a2a1c 100%) !important;
           box-shadow: inset 0 0 0 3px rgba(180,140,50,0.35), inset 0 0 40px rgba(0,0,0,0.25), 0 0 0 3px #2a1508, 0 0 0 5px rgba(160,120,50,0.25), 0 0 0 8px #1a0e06, 0 20px 50px rgba(0,0,0,0.6) !important;
@@ -3970,6 +3983,6 @@
     <div class="voice-audio-rack" id="voiceAudioRack" aria-hidden="true"></div>
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
-    <script type="module" src="./online/table_app.js?v=83"></script>
+    <script type="module" src="./online/table_app.js?v=84"></script>
   </body>
 </html>
