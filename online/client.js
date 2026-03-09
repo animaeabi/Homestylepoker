@@ -121,6 +121,28 @@ export function createOnlinePokerClient(supabase) {
       });
     },
 
+    updateTableSettings({
+      tableId,
+      actorGroupPlayerId,
+      seatToken,
+      smallBlind = null,
+      bigBlind = null,
+      autoDealEnabled = null,
+      showdownDelaySecs = null,
+      decisionTimeSecs = null
+    }) {
+      return callRpc(supabase, "online_update_table_settings", {
+        p_table_id: tableId,
+        p_actor_group_player_id: actorGroupPlayerId,
+        p_actor_seat_token: seatToken,
+        p_small_blind: smallBlind,
+        p_big_blind: bigBlind,
+        p_auto_deal_enabled: autoDealEnabled,
+        p_showdown_delay_secs: showdownDelaySecs,
+        p_decision_time_secs: decisionTimeSecs
+      });
+    },
+
     rebuyChips({ tableId, groupPlayerId, seatToken, amount = null }) {
       return callRpc(supabase, "online_rebuy_chips", {
         p_table_id: tableId,

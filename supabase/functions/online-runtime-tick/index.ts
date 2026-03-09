@@ -3,7 +3,7 @@ import { resolveShowdownPayouts } from "../_shared/showdown.ts";
 
 const STREET_STATES = new Set(["preflop", "flop", "turn", "river"]);
 const ACTIVE_RUNTIME_STATES = new Set(["preflop", "flop", "turn", "river", "showdown"]);
-const TURN_TIMEOUT_SECS = 25;
+const DEFAULT_TURN_TIMEOUT_SECS = 25;
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -61,20 +61,16 @@ function createOnlineRpcClient() {
       tableId: string | null;
       limit: number;
     }) {
-      let query = client
-        .from("online_hands")
-        .select("id, table_id, state, action_seat, last_action_at")
-        .in("state", [...ACTIVE_RUNTIME_STATES])
-        .order("last_action_at", { ascending: true, nullsFirst: false })
-        .limit(limit);
+      return callRpc("online_runtime_processable_hands", {
+        p_table_id: tableId,
+        p_limit: limit
+      });
+    },
 
-      if (tableId) {
-        query = query.eq("table_id", tableId);
-      }
-
-      const { data, error } = await query;
-      if (error) throw normalizeSupabaseError("[listProcessableHands]", error);
-      return data || [];
+    async listAutoDealCandidates({ limit }: { limit: number }) {
+      return callRpc("online_runtime_due_tables", {
+        p_limit: limit
+      });
     },
 
     async getActiveSeatByNumber({ tableId, seatNo }: { tableId: string; seatNo: number }) {
@@ -154,6 +150,19 @@ function createOnlineRpcClient() {
         p_actor_group_player_id: actorGroupPlayerId,
         p_note: note
       });
+    },
+
+    async runtimeStartHand({
+      tableId,
+      note = "edge_runtime_auto_deal"
+    }: {
+      tableId: string;
+      note?: string;
+    }) {
+      return callRpc("online_runtime_start_hand", {
+        p_table_id: tableId,
+        p_note: note
+      });
     }
   };
 }
@@ -231,11 +240,12 @@ async function processHandForRuntime({
 
   if (STREET_STATES.has(currentState) && actionSeat != null) {
     const lastActionAtMs = hand.last_action_at ? Date.parse(hand.last_action_at) : NaN;
+    const turnTimeoutSecs = Math.max(10, Number(hand.decision_time_secs || DEFAULT_TURN_TIMEOUT_SECS));
     const elapsedSecs = Number.isFinite(lastActionAtMs)
       ? Math.max(0, (Date.now() - lastActionAtMs) / 1000)
-      : TURN_TIMEOUT_SECS + 1;
+      : turnTimeoutSecs + 1;
 
-    if (elapsedSecs < TURN_TIMEOUT_SECS) {
+    if (elapsedSecs < turnTimeoutSecs) {
       return {
         handId,
         state: currentState,
@@ -355,6 +365,7 @@ async function runRuntimeTick({
     scanned: hands.length,
     advanced: 0,
     settled: 0,
+    started: 0,
     skipped: 0,
     errors: [] as Array<{ handId: string | null; message: string }>
   };
@@ -375,6 +386,36 @@ async function runRuntimeTick({
       report.errors.push({
         handId: hand?.id || null,
         message: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
+  let dueTables = await onlineClient.listAutoDealCandidates({ limit });
+  if (tableId) {
+    dueTables = (dueTables || []).filter((entry: any) => entry?.table_id === tableId);
+  }
+
+  for (const entry of dueTables || []) {
+    const dueTableId = entry?.table_id || null;
+    if (!dueTableId) continue;
+    try {
+      await onlineClient.runtimeStartHand({
+        tableId: dueTableId,
+        note: "edge_runtime_auto_deal"
+      });
+      report.started += 1;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (
+        message.includes("online_hand_already_active") ||
+        message.includes("not_enough_active_players") ||
+        message.includes("runtime_no_active_human_host")
+      ) {
+        continue;
+      }
+      report.errors.push({
+        handId: null,
+        message: `[table:${dueTableId}] ${message}`
       });
     }
   }

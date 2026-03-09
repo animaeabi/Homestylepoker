@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../config.js";
-import { createOnlinePokerClient } from "./client.js?v=112";
+import { createOnlinePokerClient } from "./client.js?v=113";
 import { describeSevenCardHand, resolveShowdownPayouts } from "./showdown.js";
 import { decide as botDecide, thinkTimeMs, randomPersonality, randomBotName, personalityLabel, OpponentTracker } from "./bot_engine.js";
 
@@ -8,7 +8,6 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const online = createOnlinePokerClient(supabase);
 
 const POLL_MS = 1800;
-const RUNTIME_TICK_MIN_MS = 1200;
 const DEAL_STAGGER_MS = 205;
 const DEAL_ANIMATION_MS = 700;
 const DEAL_REVEAL_MS = 260;
@@ -166,10 +165,7 @@ const state = {
   rtRefreshQueued: false,
   lastSyncAt: 0,
   lastReconnectAt: 0,
-  runtimeTickBusy: false,
-  runtimeTickLastAt: 0,
   winOverlays: new Map(),
-  autoDealTimer: null,
   botSeats: new Map(),
   handLogEntries: [],
   lastLoggedHandId: null,
@@ -2745,7 +2741,6 @@ function startPolling() {
   if (state.pollTimer) clearInterval(state.pollTimer);
   state.pollTimer = setInterval(() => {
     if (state.loading || !state.tableId) return;
-    maybeRuntimeTick();
     if (!state.realtimeHealthy || Date.now() - state.lastSyncAt > FALLBACK_STALE_MS) loadTableState();
   }, POLL_MS);
 }
@@ -2759,17 +2754,11 @@ function startTurnTicker() {
   }, 1000);
 }
 
-async function maybeRuntimeTick() {
-  const hand = getLatestHand();
-  if (!hand || !["preflop","flop","turn","river","showdown"].includes(hand.state)) return;
-  if (!canManageHand()) return;
-  if (state.runtimeTickBusy || Date.now() - state.runtimeTickLastAt < RUNTIME_TICK_MIN_MS) return;
-  state.runtimeTickBusy = true;
-  state.runtimeTickLastAt = Date.now();
-  try {
-    await online.runtimeTick({ tableId: state.tableId, limit: 24, maxAdvancePerHand: 3, actorGroupPlayerId: state.identity?.groupPlayerId || null });
-  } catch { /* ignore */ }
-  finally { state.runtimeTickBusy = false; }
+function syncTableRuntimeConfig(table) {
+  if (!table) return;
+  state.config.autoDeal = table.auto_deal_enabled !== false;
+  state.config.showdownTime = Math.max(1000, Number(table.showdown_delay_secs || 5) * 1000);
+  state.config.turnTime = Math.max(10, Number(table.decision_time_secs || 25));
 }
 
 // ============ LOAD STATE ============
@@ -2789,6 +2778,7 @@ async function loadTableState() {
     const oldHand = getLatestHand();
     const oldPotTotal = Number(oldHand?.pot_total || 0);
     state.tableState = ts;
+    syncTableRuntimeConfig(ts?.table || null);
     syncBotSeatsWithTable();
     state.lastSyncAt = Date.now();
     state.pendingAction = false;
@@ -2836,11 +2826,6 @@ async function loadTableState() {
     prevActionSeat = hand?.action_seat || null;
     trackOpponentActions();
 
-    if (state.config.autoDeal && hand && ["settled","canceled"].includes(hand.state) && !state.autoDealTimer && canManageHand()) {
-      const seated = getSeats().filter(s => s.group_player_id && !s.left_at).length;
-      if (seated >= 2) scheduleAutoDeal();
-    }
-
     renderAll();
     checkBotTurn();
   } catch (err) {
@@ -2876,64 +2861,6 @@ function handleSettlement(hand) {
     cleanupTimer: null,
   } : null;
   if (winners.length > 0) sounds.win();
-  if (state.config.autoDeal) scheduleAutoDeal();
-}
-
-function scheduleAutoDeal() {
-  if (state.autoDealTimer) clearTimeout(state.autoDealTimer);
-  state.autoDealTimer = setTimeout(() => {
-    state.autoDealTimer = null;
-    tryAutoDeal();
-  }, getShowdownTimeMs());
-}
-
-async function tryAutoDeal() {
-  if (!canManageHand()) return;
-  const hand = getLatestHand();
-  if (hand && !["settled","canceled"].includes(hand.state)) return;
-  const seated = getSeats().filter(s => s.group_player_id && !s.left_at).length;
-  if (seated < 2) return;
-
-  // Auto-rebuy busted bots (max 5 rebuys per bot, then they leave)
-  const botsToRemove = [];
-  for (const [seatNo, botInfo] of state.botSeats) {
-    const seat = getSeats().find(s => s.seat_no === seatNo && s.group_player_id && !s.left_at);
-    if (seat && Number(seat.chip_stack || 0) <= 0) {
-      const rebuys = botInfo.rebuyCount || 0;
-      if (rebuys >= 5) {
-        botsToRemove.push(seatNo);
-    } else {
-        try {
-          await online.rebuyChips({ tableId: state.tableId, groupPlayerId: botInfo.groupPlayerId, seatToken: botInfo.seatToken });
-          botInfo.rebuyCount = rebuys + 1;
-          saveBotSeats();
-        } catch { /* ignore */ }
-      }
-    }
-  }
-  for (const seatNo of botsToRemove) {
-    await removeBot(seatNo);
-    toast(`Bot at seat ${seatNo} left after 5 rebuys`);
-  }
-
-  // Refresh state after bot rebuys/removals to get accurate chip counts
-  await loadTableState();
-  const freshSeated = getSeats().filter(s => s.group_player_id && !s.left_at).length;
-  const freshBusted = getSeats().filter(s => s.group_player_id && !s.left_at && Number(s.chip_stack || 0) <= 0).length;
-  if (freshSeated - freshBusted < 2) return;
-
-  try {
-    sounds.deal();
-    await online.startHand({
-      tableId: state.tableId,
-      startedByGroupPlayerId: state.identity.groupPlayerId,
-      hostSeatToken: getSeatToken(),
-    });
-    await loadTableState();
-  } catch {
-    // If auto-deal fails (e.g. another client already started), just refresh
-    await loadTableState();
-  }
 }
 
 // ============ OPPONENT TRACKING ============
@@ -2990,6 +2917,10 @@ function openConfigPanel() {
   if (el.cfgSB) el.cfgSB.value = table?.small_blind || 1;
   if (el.cfgBB) el.cfgBB.value = table?.big_blind || 2;
   if (el.cfgTurnTime) el.cfgTurnTime.value = state.config.turnTime;
+  setToggle(state.config.autoDeal ? "cfgAutoDealYes" : "cfgAutoDealNo", state.config.autoDeal ? "cfgAutoDealNo" : "cfgAutoDealYes");
+  el.configPanel.querySelectorAll("[data-showdown]").forEach((btn) => {
+    btn.classList.toggle("active", Number(btn.dataset.showdown) * 1000 === state.config.showdownTime);
+  });
 
   const isHost = canManageHand();
   if (el.cfgSB) el.cfgSB.disabled = !isHost;
@@ -3897,15 +3828,8 @@ function renderActions() {
   el.tableView.classList.toggle("landscape-actions-visible", Boolean(myTurn));
   el.tableView.classList.toggle("landscape-vertical-actions", compactActions);
 
-  const autoDealPending = Boolean(state.autoDealTimer);
   const hasWinOverlays = state.winOverlays.size > 0 && [...state.winOverlays.values()].some(d => Date.now() < d.until);
-  if (autoDealPending && noActiveHand && hasWinOverlays) {
-    el.startHandBtn.classList.add("hidden");
-  } else if (autoDealPending && noActiveHand) {
-    el.startHandBtn.classList.remove("hidden");
-    el.startHandBtn.disabled = true;
-    el.startHandBtn.textContent = "Dealing...";
-  } else if (isHost && noActiveHand) {
+  if (isHost && noActiveHand && !hasWinOverlays) {
     el.startHandBtn.classList.remove("hidden");
     el.startHandBtn.disabled = false;
     el.startHandBtn.textContent = "Deal";
@@ -4249,14 +4173,21 @@ function bindEvents() {
     const sb = Number(el.cfgSB.value);
     const bb = Number(el.cfgBB.value);
     const turnTime = Number(el.cfgTurnTime.value);
-    if (sb > 0 && bb > 0 && bb >= sb) {
-      try {
-        await supabase.from("online_tables").update({ small_blind: sb, big_blind: bb }).eq("id", state.tableId);
-        toast("Blinds updated", "success");
-      } catch { toast("Failed to update blinds", "error"); }
-    }
-    if (turnTime >= 10 && turnTime <= 120) {
-      state.config.turnTime = turnTime;
+    const showdownSecs = Math.max(1, Math.round((state.config.showdownTime || 5000) / 1000));
+    try {
+      await online.updateTableSettings({
+        tableId: state.tableId,
+        actorGroupPlayerId: state.identity.groupPlayerId,
+        seatToken: getSeatToken(),
+        smallBlind: sb,
+        bigBlind: bb,
+        autoDealEnabled: state.config.autoDeal,
+        showdownDelaySecs: showdownSecs,
+        decisionTimeSecs: turnTime,
+      });
+      toast("Game settings updated", "success");
+    } catch (err) {
+      toast(err.message || "Failed to update game settings", "error");
     }
     closeConfigPanel();
     await loadTableState();
@@ -4370,7 +4301,6 @@ function bindEvents() {
   window.addEventListener("beforeunload", () => {
     if (state.pollTimer) clearInterval(state.pollTimer);
     if (state.turnTimer) clearInterval(state.turnTimer);
-    if (state.autoDealTimer) clearTimeout(state.autoDealTimer);
     if (state.botActionTimer) clearTimeout(state.botActionTimer);
     if (state.realtimeChannel) supabase.removeChannel(state.realtimeChannel);
     if (state.chatChannel) supabase.removeChannel(state.chatChannel);
