@@ -1799,23 +1799,14 @@
       }
 
       .log-toggle {
-        font: inherit;
-        font-size: 11px;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        color: var(--text-muted);
-        background: none;
-        border: none;
-        cursor: pointer;
-        padding: 6px 16px;
-        width: 100%;
-        text-align: center;
-        border-top: 1px solid var(--border);
-        background: var(--surface2);
+        white-space: nowrap;
       }
 
-      .log-toggle:hover { color: var(--text); }
+      .log-toggle.active {
+        background: rgba(212, 175, 85, 0.16);
+        border-color: rgba(236, 178, 86, 0.34);
+        color: var(--text);
+      }
 
       /* Toast */
       .toast-container {
@@ -3001,10 +2992,6 @@
             transform: translateY(14px);
           }
 
-          .log-toggle {
-            position: relative;
-            transform: translateY(12px);
-          }
         }
 
         .action-strip {
@@ -3841,6 +3828,7 @@
           <div class="connection-dot" id="connDot" title="Connection status"></div>
           <button class="top-btn" id="copyLinkBtn" type="button">Copy Link</button>
           <button class="top-btn" id="removeBotsBtn" type="button" style="display:none">Remove Bots</button>
+          <button class="top-btn log-toggle" id="logToggle" type="button" aria-expanded="false">Hand Log</button>
           <button class="top-btn" id="leaveBtn" type="button" style="color:var(--red)">Leave</button>
         </div>
       </header>
@@ -3976,7 +3964,6 @@
         <button class="preset-chip" type="button" data-fraction="1">Pot</button>
       </div>
 
-      <button class="log-toggle" id="logToggle" type="button">Hand Log ▲</button>
       <div class="hand-log" id="handLog">
         <div class="hand-log-inner" id="handLogInner"></div>
       </div>
@@ -4019,6 +4006,6 @@
     <div class="voice-audio-rack" id="voiceAudioRack" aria-hidden="true"></div>
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
-    <script type="module" src="./online/table_app.js?v=102"></script>
+    <script type="module" src="./online/table_app.js?v=103"></script>
   </body>
 </html>

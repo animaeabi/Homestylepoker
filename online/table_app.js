@@ -4014,12 +4014,15 @@ function bindEvents() {
     setToggle("cfgLogOn", "cfgLogOff");
     state.config.showLog = true;
     el.logToggle.classList.remove("hidden");
+    el.logToggle.setAttribute("aria-expanded", state.logOpen ? "true" : "false");
   });
   document.getElementById("cfgLogOff").addEventListener("click", () => {
     setToggle("cfgLogOff", "cfgLogOn");
     state.config.showLog = false;
     el.logToggle.classList.add("hidden");
     el.handLog.classList.remove("open");
+    el.logToggle.classList.remove("active");
+    el.logToggle.setAttribute("aria-expanded", "false");
     state.logOpen = false;
   });
 
@@ -4045,7 +4048,8 @@ function bindEvents() {
   el.logToggle.addEventListener("click", () => {
     state.logOpen = !state.logOpen;
     el.handLog.classList.toggle("open", state.logOpen);
-    el.logToggle.textContent = state.logOpen ? "Hand Log ▼" : "Hand Log ▲";
+    el.logToggle.classList.toggle("active", state.logOpen);
+    el.logToggle.setAttribute("aria-expanded", state.logOpen ? "true" : "false");
   });
 
   el.chatFab?.addEventListener("click", () => {
