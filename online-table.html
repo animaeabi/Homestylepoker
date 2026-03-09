@@ -2982,6 +2982,18 @@
           line-height: 1 !important;
         }
 
+        @supports (-webkit-touch-callout: none) {
+          .utility-fab-row {
+            bottom: calc(env(safe-area-inset-bottom) + 86px);
+          }
+
+          .my-hand-area,
+          .my-hand-area.no-hole-cards,
+          #tableView.landscape-actions-visible .my-hand-area {
+            bottom: calc(env(safe-area-inset-bottom) + 6px) !important;
+          }
+        }
+
         .action-strip {
           position: absolute;
           left: 8px;
@@ -3992,6 +4004,6 @@
     <div class="voice-audio-rack" id="voiceAudioRack" aria-hidden="true"></div>
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
-    <script type="module" src="./online/table_app.js?v=91"></script>
+    <script type="module" src="./online/table_app.js?v=92"></script>
   </body>
 </html>
