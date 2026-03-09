@@ -3021,7 +3021,20 @@
           transform: var(--held-transform) !important;
           margin-left: -4px;
         }
-        .my-hand-nameplate { margin-top: 0; position: relative; z-index: 3; }
+        .my-hand-nameplate {
+          margin-top: 0;
+          position: relative;
+          z-index: 3;
+          min-width: 96px;
+          padding: 3px 9px 6px !important;
+        }
+        .my-hand-avatar {
+          width: 32px;
+          height: 32px;
+          margin-top: -18px;
+        }
+        .my-hand-name { font-size: 10px; }
+        .my-hand-stack { font-size: 11px; }
         .my-hand-badges { gap: 4px !important; min-height: 18px !important; }
         .my-hand-badges .seat-dealer-dot {
           width: 18px !important;
@@ -4083,6 +4096,6 @@
     <div class="voice-audio-rack" id="voiceAudioRack" aria-hidden="true"></div>
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
-    <script type="module" src="./online/table_app.js?v=106"></script>
+    <script type="module" src="./online/table_app.js?v=108"></script>
   </body>
 </html>
