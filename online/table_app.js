@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../config.js";
-import { createOnlinePokerClient } from "./client.js";
+import { createOnlinePokerClient } from "./client.js?v=76";
 import { describeSevenCardHand, resolveShowdownPayouts } from "./showdown.js";
 import { decide as botDecide, thinkTimeMs, randomPersonality, randomBotName, personalityLabel, OpponentTracker } from "./bot_engine.js";
 
@@ -124,6 +124,15 @@ const el = {
   logToggle: document.getElementById("logToggle"),
   handLog: document.getElementById("handLog"),
   handLogInner: document.getElementById("handLogInner"),
+  chatFab: document.getElementById("chatFab"),
+  chatFabBadge: document.getElementById("chatFabBadge"),
+  chatPanel: document.getElementById("chatPanel"),
+  chatClose: document.getElementById("chatClose"),
+  chatList: document.getElementById("chatList"),
+  chatEmpty: document.getElementById("chatEmpty"),
+  chatForm: document.getElementById("chatForm"),
+  chatInput: document.getElementById("chatInput"),
+  chatSend: document.getElementById("chatSend"),
   toastContainer: document.getElementById("toastContainer"),
 };
 
@@ -182,6 +191,12 @@ const state = {
   lastAnnouncedActionSeq: 0,
   showdownRevealHandId: null,
   showdownRevealSeats: new Set(),
+  chatOpen: false,
+  chatUnread: 0,
+  chatMessages: [],
+  chatMessageIds: new Set(),
+  chatChannel: null,
+  chatHealthy: false,
   landscapeTopBarExpanded: true,
   landscapeCompactMode: false,
   compactTopBarMode: null,
@@ -233,6 +248,197 @@ function toast(message, type = "") {
   div.textContent = message;
   el.toastContainer.appendChild(div);
   setTimeout(() => div.remove(), 3500);
+}
+
+function resetChatState() {
+  state.chatOpen = false;
+  state.chatUnread = 0;
+  state.chatMessages = [];
+  state.chatMessageIds = new Set();
+  if (el.chatInput) el.chatInput.value = "";
+}
+
+function formatChatTime(value) {
+  const date = value ? new Date(value) : new Date();
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+function renderChatUi() {
+  const visible = Boolean(state.tableId && !el.tableView.classList.contains("hidden"));
+  el.chatFab?.classList.toggle("hidden", !visible);
+  if (el.chatFab) el.chatFab.setAttribute("aria-expanded", state.chatOpen ? "true" : "false");
+  el.chatPanel?.classList.toggle("hidden", !visible || !state.chatOpen);
+
+  const unread = Number(state.chatUnread || 0);
+  if (el.chatFabBadge) {
+    el.chatFabBadge.classList.toggle("hidden", unread <= 0);
+    el.chatFabBadge.textContent = unread > 99 ? "99+" : String(unread);
+  }
+
+  if (el.chatSend && el.chatInput) {
+    const canSend = Boolean(state.tableId && state.identity && String(el.chatInput.value || "").trim());
+    el.chatSend.disabled = !canSend;
+  }
+
+  if (!el.chatList || !el.chatEmpty) return;
+  el.chatList.innerHTML = "";
+  const messages = state.chatMessages.slice(-40);
+  if (!messages.length) {
+    el.chatList.appendChild(el.chatEmpty);
+    return;
+  }
+
+  for (const msg of messages) {
+    const item = document.createElement("div");
+    item.className = `chat-msg${msg.self ? " self" : ""}`;
+
+    const meta = document.createElement("div");
+    meta.className = "chat-msg-meta";
+    const author = document.createElement("span");
+    author.className = "chat-msg-author";
+    author.textContent = msg.name || "Player";
+    const time = document.createElement("span");
+    time.className = "chat-msg-time";
+    time.textContent = formatChatTime(msg.at);
+    meta.append(author, time);
+
+    const body = document.createElement("div");
+    body.className = "chat-msg-body";
+    body.textContent = msg.text || "";
+    item.append(meta, body);
+    el.chatList.appendChild(item);
+  }
+
+  el.chatList.scrollTop = el.chatList.scrollHeight;
+}
+
+function normalizeChatMessage(message) {
+  const text = String(message?.text || "").trim();
+  const id = String(message?.id || "");
+  const playerId = message?.player_id || message?.playerId || null;
+  if (!text || !id) return null;
+  return {
+    id,
+    tableId: message?.table_id || message?.tableId || state.tableId || null,
+    text: text.slice(0, 180),
+    name: String(message?.name || "Player").slice(0, 30),
+    playerId,
+    at: message?.at || new Date().toISOString(),
+    self: Boolean(playerId && playerId === state.identity?.groupPlayerId),
+  };
+}
+
+function applyServerChatHistory(messages) {
+  if (!Array.isArray(messages)) return;
+  const priorIds = new Set(state.chatMessages.map(msg => msg.id));
+  const priorCount = state.chatMessages.length;
+  const normalized = [];
+  const seen = new Set();
+  let unseenCount = 0;
+
+  for (const raw of messages) {
+    const msg = normalizeChatMessage(raw);
+    if (!msg || seen.has(msg.id)) continue;
+    seen.add(msg.id);
+    normalized.push(msg);
+  }
+
+  const trimmed = normalized.slice(-40);
+  if (priorCount > 0 && !state.chatOpen) {
+    for (const msg of trimmed) {
+      if (!priorIds.has(msg.id) && !msg.self) unseenCount += 1;
+    }
+  }
+
+  state.chatMessages = trimmed;
+  state.chatMessageIds = new Set(trimmed.map(msg => msg.id));
+  if (unseenCount > 0) state.chatUnread += unseenCount;
+  renderChatUi();
+}
+
+function toggleChat(forceOpen = !state.chatOpen) {
+  state.chatOpen = Boolean(forceOpen);
+  if (state.chatOpen) state.chatUnread = 0;
+  renderChatUi();
+  if (state.chatOpen) {
+    requestAnimationFrame(() => {
+      el.chatInput?.focus();
+      if (el.chatList) el.chatList.scrollTop = el.chatList.scrollHeight;
+    });
+  }
+}
+
+function addChatMessage(message, { self = false } = {}) {
+  const text = String(message?.text || "").trim();
+  const id = String(message?.id || "");
+  if (!text || !id || state.chatMessageIds.has(id)) return;
+  state.chatMessageIds.add(id);
+  state.chatMessages.push({
+    id,
+    text: text.slice(0, 180),
+    name: String(message?.name || "Player").slice(0, 30),
+    playerId: message?.playerId || null,
+    at: message?.at || new Date().toISOString(),
+    self,
+  });
+  while (state.chatMessages.length > 40) {
+    const removed = state.chatMessages.shift();
+    if (removed?.id) state.chatMessageIds.delete(removed.id);
+  }
+  if (!self && !state.chatOpen) state.chatUnread += 1;
+  renderChatUi();
+}
+
+async function sendChatMessage(rawText) {
+  const text = String(rawText || "").trim().slice(0, 180);
+  if (!text) return;
+  if (!state.tableId || !state.identity) {
+    toast("Chat is unavailable right now.", "error");
+    return;
+  }
+  const seatToken = getSeatToken();
+  if (!seatToken) {
+    toast("Join a seat to use chat.", "error");
+    return;
+  }
+  const payload = {
+    id: `chat_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    tableId: state.tableId,
+    playerId: state.identity.groupPlayerId,
+    name: state.identity.name || seatName(state.identity.groupPlayerId),
+    text,
+    at: new Date().toISOString(),
+  };
+
+  try {
+    const persisted = await online.postTableChatMessage({
+      tableId: state.tableId,
+      actorGroupPlayerId: state.identity.groupPlayerId,
+      seatToken,
+      message: text,
+    });
+    const nextMessage = normalizeChatMessage(persisted) || normalizeChatMessage(payload) || payload;
+
+    addChatMessage(nextMessage, { self: true });
+    if (state.chatChannel && state.chatHealthy) {
+      const status = await state.chatChannel.send({
+        type: "broadcast",
+        event: "table_chat",
+        payload: nextMessage,
+      });
+      if (status !== "ok" && !persisted) {
+        throw new Error(typeof status === "string" ? status : "broadcast failed");
+      }
+    }
+    if (el.chatInput) el.chatInput.value = "";
+    renderChatUi();
+    if (persisted) {
+      queueRtRefresh();
+    }
+  } catch (err) {
+    toast(err?.message || "Chat failed", "error");
+  }
 }
 
 // ============ SOUNDS ============
@@ -1605,6 +1811,7 @@ function enterTable(tableId) {
   prevHandState = null;
   prevActionSeat = null;
   resetActionAnnouncements();
+  resetChatState();
   const url = new URL(window.location.href);
   url.searchParams.set("table", tableId);
   url.searchParams.delete("mode");
@@ -1618,6 +1825,7 @@ function enterTable(tableId) {
   setTableViewportLock(true);
   syncLandscapeTopBar(true);
   setTableBooting(true, "Loading Table...");
+  renderChatUi();
 
   loadBotSeats();
   loadTableState();
@@ -1633,8 +1841,14 @@ async function stopRealtime() {
   if (state.realtimeChannel) {
     try { await supabase.removeChannel(state.realtimeChannel); } catch { /* ignore */ }
   }
+  if (state.chatChannel) {
+    try { await supabase.removeChannel(state.chatChannel); } catch { /* ignore */ }
+  }
   state.realtimeChannel = null;
   state.realtimeHealthy = false;
+  state.chatChannel = null;
+  state.chatHealthy = false;
+  renderChatUi();
 }
 
 function queueRtRefresh() {
@@ -1649,22 +1863,51 @@ function queueRtRefresh() {
 
 async function startRealtime(tableId) {
   if (!tableId) { await stopRealtime(); return; }
-  if (state.realtimeChannel && state.realtimeHealthy) return;
+  if (state.realtimeChannel && state.realtimeHealthy && state.chatChannel && state.chatHealthy) return;
   await stopRealtime();
 
   const ch = supabase
-    .channel(`table:${tableId}:${Math.random().toString(36).slice(2, 8)}`)
+    .channel(`table:${tableId}`)
     .on("postgres_changes", { event: "*", schema: "public", table: "online_tables", filter: `id=eq.${tableId}` }, queueRtRefresh)
     .on("postgres_changes", { event: "*", schema: "public", table: "online_table_seats", filter: `table_id=eq.${tableId}` }, queueRtRefresh)
     .on("postgres_changes", { event: "*", schema: "public", table: "online_hands", filter: `table_id=eq.${tableId}` }, queueRtRefresh)
     .on("postgres_changes", { event: "*", schema: "public", table: "online_hand_events", filter: `table_id=eq.${tableId}` }, queueRtRefresh);
 
+  const chatCh = supabase
+    .channel(`table-chat:${tableId}`, {
+      config: {
+        broadcast: {
+          ack: true,
+          self: false,
+        },
+      },
+    })
+    .on("broadcast", { event: "table_chat" }, ({ payload }) => {
+      const payloadTableId = payload?.tableId || payload?.table_id || null;
+      if (!payload || payloadTableId !== state.tableId) return;
+      const selfPlayerId = payload?.playerId || payload?.player_id || null;
+      const self = selfPlayerId && selfPlayerId === state.identity?.groupPlayerId;
+      addChatMessage(payload, { self });
+    });
+
   state.realtimeChannel = ch;
   state.realtimeHealthy = false;
+  state.chatChannel = chatCh;
+  state.chatHealthy = false;
 
   ch.subscribe((status) => {
     if (status === "SUBSCRIBED") { state.realtimeHealthy = true; updateConnDot(); queueRtRefresh(); }
     else if (["TIMED_OUT","CHANNEL_ERROR","CLOSED"].includes(status)) { state.realtimeHealthy = false; updateConnDot(); }
+  });
+
+  chatCh.subscribe((status) => {
+    if (status === "SUBSCRIBED") {
+      state.chatHealthy = true;
+      renderChatUi();
+    } else if (["TIMED_OUT","CHANNEL_ERROR","CLOSED"].includes(status)) {
+      state.chatHealthy = false;
+      renderChatUi();
+    }
   });
 }
 
@@ -1724,6 +1967,9 @@ async function loadTableState() {
     state.lastSyncAt = Date.now();
     state.pendingAction = false;
     if (state.tableBooting) setTableBooting(false);
+    if (Array.isArray(ts?.chat_messages)) {
+      applyServerChatHistory(ts.chat_messages);
+    }
 
     const hand = getLatestHand();
     syncShowdownRevealState(hand);
@@ -2127,6 +2373,7 @@ function renderAll() {
   renderMyHand();
   renderActions();
   renderHandLog();
+  renderChatUi();
   maybeLaunchPotPushFx();
   maybeLaunchDealFx();
   maybeLaunchStreetRevealFx();
@@ -2988,6 +3235,30 @@ function bindEvents() {
     el.logToggle.textContent = state.logOpen ? "Hand Log ▼" : "Hand Log ▲";
   });
 
+  el.chatFab?.addEventListener("click", () => {
+    toggleChat();
+  });
+
+  el.chatClose?.addEventListener("click", () => {
+    toggleChat(false);
+  });
+
+  el.chatInput?.addEventListener("input", () => {
+    renderChatUi();
+  });
+
+  el.chatInput?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      el.chatForm?.requestSubmit();
+    }
+  });
+
+  el.chatForm?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    await sendChatMessage(el.chatInput?.value || "");
+  });
+
   el.betSlider.addEventListener("input", () => {
     setBetControlValue(el.betSlider.value);
     refreshBetControls();
@@ -3037,6 +3308,7 @@ function bindEvents() {
     if (state.autoDealTimer) clearTimeout(state.autoDealTimer);
     if (state.botActionTimer) clearTimeout(state.botActionTimer);
     if (state.realtimeChannel) supabase.removeChannel(state.realtimeChannel);
+    if (state.chatChannel) supabase.removeChannel(state.chatChannel);
   });
 }
 
@@ -3052,6 +3324,7 @@ function reconnect() {
 function init() {
   bindEvents();
   syncLandscapeTopBar(true);
+  renderChatUi();
 
   const savedIdentity = loadIdentity();
   const urlTable = getUrlTableId();

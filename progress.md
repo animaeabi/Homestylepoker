@@ -1038,6 +1038,21 @@ Update (QA end-to-end review pass):
   - intended effect is a hover-into-slot / place-in-board feel rather than an offset linger followed by a snap
   - bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster to `?v=72`
 
+- 2026-03-08: Added temporary live table chat in `/Users/abishek/Documents/poker-buyins/online/table_app.js` and `/Users/abishek/Documents/poker-buyins/online-table.html`:
+  - chat uses a dedicated Supabase Realtime broadcast channel per table (`table-chat:{tableId}`), so connected players can chat live without any schema migration
+  - messages are intentionally ephemeral and are not persisted or replayed after reconnect, matching the “temp chat” requirement
+  - added lower-corner chat button, unread badge, compact slide-up panel, enter-to-send, and local dedupe
+  - bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster to `?v=74`
+  - verified cross-tab delivery on the same live table after moving chat off the main table-state channel and onto its own explicit broadcast transport
+- 2026-03-08: Extended chat for late joiners:
+  - added `online_table_chat_messages` plus `online_get_table_chat_messages` and `online_post_table_chat_message` in `/Users/abishek/Documents/poker-buyins/supabase/online_poker_schema.sql`
+  - `online_get_table_state_viewer` now includes `chat_messages`, so a player joining mid-session can hydrate recent table chat immediately after seating
+  - kept live broadcast for instant delivery, with DB-backed recent history as the source of truth for catch-up
+  - bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster to `?v=75`
+- 2026-03-08: Fixed chat send regression caused by stale browser module cache:
+  - versioned the `online/client.js` import from `/Users/abishek/Documents/poker-buyins/online/table_app.js`
+  - bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster to `?v=76`
+
 Validation:
 - `node --check /Users/abishek/Documents/poker-buyins/online/bot_engine.js` (pass)
 - `node --check /Users/abishek/Documents/poker-buyins/online/table_app.js` (pass)

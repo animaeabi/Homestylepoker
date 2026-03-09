@@ -72,14 +72,16 @@ export function createOnlinePokerClient(supabase) {
       groupPlayerId,
       preferredSeat = null,
       chipStack = null,
-      seatToken = null
+      seatToken = null,
+      isBot = false
     }) {
       return callRpc(supabase, "online_join_table", {
         p_table_id: tableId,
         p_group_player_id: groupPlayerId,
         p_preferred_seat: preferredSeat,
         p_chip_stack: chipStack,
-        p_seat_token: seatToken
+        p_seat_token: seatToken,
+        p_is_bot: isBot
       });
     },
 
@@ -163,6 +165,27 @@ export function createOnlinePokerClient(supabase) {
         throw new Error(
           "Online schema is outdated: missing online_get_table_state_viewer. Re-run supabase/online_poker_schema.sql."
         );
+      }
+    },
+
+    async postTableChatMessage({
+      tableId,
+      actorGroupPlayerId,
+      seatToken,
+      message
+    }) {
+      try {
+        return await callRpc(supabase, "online_post_table_chat_message", {
+          p_table_id: tableId,
+          p_actor_group_player_id: actorGroupPlayerId,
+          p_seat_token: seatToken,
+          p_message: message
+        });
+      } catch (error) {
+        if (isMissingRpcFunction(error, "online_post_table_chat_message")) {
+          return null;
+        }
+        throw error;
       }
     },
 
