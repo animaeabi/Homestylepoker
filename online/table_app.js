@@ -361,7 +361,7 @@ function renderVoiceUi() {
 
   let label = "Hold to talk";
   if (uiState === "speaking") label = "Speaking";
-  else if (uiState === "connected") label = "Hold to talk";
+  else if (uiState === "connected") label = "Voice ready — hold to talk";
   else if (uiState === "joining") label = "Joining voice";
   else if (uiState === "busy") label = serverVoice.speakerName ? `${serverVoice.speakerName} is talking` : "Voice busy";
   else if (uiState === "locked") label = "Voice unavailable until next month";
@@ -698,7 +698,7 @@ async function startPushToTalk() {
   try {
     const call = await ensureVoiceConnected();
     if (!state.voiceHoldRequested) {
-      await disconnectVoice({ silent: true, destroy: true });
+      renderVoiceUi();
       return;
     }
 
@@ -715,7 +715,6 @@ async function startPushToTalk() {
         state.lastVoiceBusyToastAt = Date.now();
         toast(payload?.speaker_name ? `${payload.speaker_name} is on the mic` : "Voice is busy right now.");
       }
-      await disconnectVoice({ silent: true, destroy: true });
       renderVoiceUi();
       return;
     }
@@ -726,7 +725,7 @@ async function startPushToTalk() {
         actorGroupPlayerId: state.identity.groupPlayerId,
         seatToken,
       });
-      await disconnectVoice({ silent: true, destroy: true });
+      renderVoiceUi();
       return;
     }
 
@@ -801,9 +800,6 @@ function onVoicePointerEnd(event) {
   void (async () => {
     if (state.voiceSpeaking) {
       await stopPushToTalk({ silent: true });
-    }
-    if (state.voiceConnected || state.voiceCall) {
-      await disconnectVoice({ silent: true, destroy: true });
     }
   })();
 }
@@ -1596,18 +1592,10 @@ function setTableViewportLock(enabled) {
 
 function syncViewportMetrics() {
   const vv = window.visualViewport;
-  const viewportWidth = Math.max(
-    320,
-    Math.round(
-      Math.max(vv?.width || 0, window.innerWidth || 0, document.documentElement?.clientWidth || 0) * 100
-    ) / 100
-  );
-  const viewportHeight = Math.max(
-    480,
-    Math.round(
-      Math.max(vv?.height || 0, window.innerHeight || 0, document.documentElement?.clientHeight || 0) * 100
-    ) / 100
-  );
+  const viewportWidthSource = vv?.width || document.documentElement?.clientWidth || window.innerWidth || 0;
+  const viewportHeightSource = vv?.height || document.documentElement?.clientHeight || window.innerHeight || 0;
+  const viewportWidth = Math.max(320, Math.round(viewportWidthSource * 100) / 100);
+  const viewportHeight = Math.max(480, Math.round(viewportHeightSource * 100) / 100);
   const screenWidth = Math.max(
     320,
     Math.min(
@@ -3925,7 +3913,15 @@ function bindEvents() {
 
   window.addEventListener("focus", () => reconnect());
   window.addEventListener("online", () => reconnect());
-  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") reconnect(); });
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      reconnect();
+      return;
+    }
+    if (state.voiceConnected || state.voiceCall) {
+      void disconnectVoice({ silent: true, destroy: true });
+    }
+  });
 
   let resizeTimer = null;
   const handleViewportResize = () => {

@@ -224,6 +224,17 @@ Validation:
   - changed portrait table sizing to use width-first clamping with a smaller reserve and overlap credit
   - tightened portrait table-area padding so the table can sit closer to edge-to-edge on real iPhones
   - bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster to `?v=84`
+
+- 2026-03-08: Fixed the Daily voice state model in `/Users/abishek/Documents/poker-buyins/online/table_app.js`:
+  - releasing the mic now stops speaking but keeps the player connected in the room as a listener
+  - if the floor is busy, the player stays connected instead of being disconnected
+  - this preserves push-to-talk while making remote audio actually hearable after a player has joined voice once
+  - bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster to `?v=85`
+
+- 2026-03-08: Corrected the iPhone portrait oversizing regression in `/Users/abishek/Documents/poker-buyins/online-table.html` and `/Users/abishek/Documents/poker-buyins/online/table_app.js`:
+  - viewport height now prefers `visualViewport.height` instead of taking the largest layout/screen height
+  - reduced portrait overlap credit and tightened max-height guardrails so the table no longer shoves the hero seat up into the table on real iPhones
+  - bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster to `?v=86`
   - portrait-only table sizing now favors width more on real phones instead of over-shrinking from `100dvh`
   - reduced the default portrait UI reserve and made it state-aware for hidden vs expanded top bar / action-open states
   - widened the portrait table cap from `92vw` to `96vw` and tightened table-area side/top padding
