@@ -85,6 +85,16 @@ export function createOnlinePokerClient(supabase) {
       });
     },
 
+    claimTableSeat({
+      tableId,
+      groupPlayerId
+    }) {
+      return callRpc(supabase, "online_claim_table_seat", {
+        p_table_id: tableId,
+        p_group_player_id: groupPlayerId
+      });
+    },
+
     leaveTable({ tableId, groupPlayerId, seatToken }) {
       return callRpc(supabase, "online_leave_table", {
         p_table_id: tableId,

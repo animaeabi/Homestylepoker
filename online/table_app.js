@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../config.js";
-import { createOnlinePokerClient } from "./client.js?v=78";
+import { createOnlinePokerClient } from "./client.js?v=90";
 import { describeSevenCardHand, resolveShowdownPayouts } from "./showdown.js";
 import { decide as botDecide, thinkTimeMs, randomPersonality, randomBotName, personalityLabel, OpponentTracker } from "./bot_engine.js";
 
@@ -270,6 +270,16 @@ function setSeatToken(tableId, playerId, token) {
   if (!key) return;
   if (token) localStorage.setItem(key, token);
   else localStorage.removeItem(key);
+}
+
+function isSeatClaimRequiredError(error) {
+  return /player_already_seated_claim_required/i.test(String(error?.message || error || ""));
+}
+
+function isSeatAutoReclaimMiss(error) {
+  return /active_seat_not_found|online_table_not_found|player_not_eligible_for_group/i.test(
+    String(error?.message || error || "")
+  );
 }
 
 // ============ TOAST ============
@@ -2488,12 +2498,38 @@ async function createAndJoinTable() {
 
 async function joinExistingTable(tableId) {
   const id = state.identity;
-  const seat = await online.joinTable({
-    tableId,
-    groupPlayerId: id.groupPlayerId,
-  });
+  let seat = null;
+  try {
+    seat = await online.joinTable({
+      tableId,
+      groupPlayerId: id.groupPlayerId,
+    });
+  } catch (err) {
+    if (!isSeatClaimRequiredError(err)) throw err;
+    seat = await online.claimTableSeat({
+      tableId,
+      groupPlayerId: id.groupPlayerId,
+    });
+  }
   if (seat?.seat_token) setSeatToken(tableId, id.groupPlayerId, seat.seat_token);
   enterTable(tableId);
+}
+
+async function tryRestoreExistingSeat(tableId, identity) {
+  try {
+    const seat = await online.claimTableSeat({
+      tableId,
+      groupPlayerId: identity.groupPlayerId,
+    });
+    if (!seat?.seat_token) return false;
+    setSeatToken(tableId, identity.groupPlayerId, seat.seat_token);
+    enterTable(tableId);
+    return true;
+  } catch (err) {
+    if (isSeatAutoReclaimMiss(err)) return false;
+    console.warn("Failed to auto-reclaim seat", err);
+    return false;
+  }
 }
 
 // ============ ENTER TABLE ============
@@ -4063,7 +4099,7 @@ function reconnect() {
 }
 
 // ============ INIT ============
-function init() {
+async function init() {
   bindEvents();
   syncViewportMetrics();
   syncLandscapeTopBar(true);
@@ -4081,9 +4117,16 @@ function init() {
       enterTable(urlTable);
       return;
     }
+
+    if (await tryRestoreExistingSeat(urlTable, savedIdentity)) {
+      return;
+    }
   }
 
   initLobby();
 }
 
-init();
+init().catch((err) => {
+  console.error("Failed to initialize online table", err);
+  initLobby();
+});
