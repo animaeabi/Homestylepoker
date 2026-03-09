@@ -217,6 +217,8 @@ const state = {
   voiceHoldRequested: false,
   voiceSuppressClickUntil: 0,
   lastVoiceBusyToastAt: 0,
+  chatInputFocused: false,
+  viewportFreezeHeight: 0,
   chatOpen: false,
   chatUnread: 0,
   chatMessages: [],
@@ -1736,8 +1738,14 @@ function syncViewportMetrics() {
   const vv = window.visualViewport;
   const viewportWidthSource = vv?.width || document.documentElement?.clientWidth || window.innerWidth || 0;
   const viewportHeightSource = vv?.height || document.documentElement?.clientHeight || window.innerHeight || 0;
+  const frozenViewportHeight = Number(state.viewportFreezeHeight || 0);
+  const effectiveViewportHeightSource = (
+    state.chatInputFocused && frozenViewportHeight > 0 && viewportHeightSource < frozenViewportHeight
+  )
+    ? frozenViewportHeight
+    : viewportHeightSource;
   const viewportWidth = Math.max(320, Math.round(viewportWidthSource * 100) / 100);
-  const viewportHeight = Math.max(480, Math.round(viewportHeightSource * 100) / 100);
+  const viewportHeight = Math.max(480, Math.round(effectiveViewportHeightSource * 100) / 100);
   const screenWidth = Math.max(
     320,
     Math.min(
@@ -1757,6 +1765,26 @@ function syncViewportMetrics() {
   document.documentElement.style.setProperty("--app-vh", `${viewportHeight}px`);
   document.documentElement.style.setProperty("--app-screen-h", `${screenHeight}px`);
   document.documentElement.style.setProperty("--app-screen-w", `${screenWidth}px`);
+}
+
+function lockViewportHeightForChatInput() {
+  const vv = window.visualViewport;
+  const currentHeight = vv?.height || document.documentElement?.clientHeight || window.innerHeight || 0;
+  state.chatInputFocused = true;
+  state.viewportFreezeHeight = Math.max(state.viewportFreezeHeight || 0, currentHeight);
+  syncViewportMetrics();
+}
+
+function unlockViewportHeightForChatInput() {
+  state.chatInputFocused = false;
+  window.setTimeout(() => {
+    if (document.activeElement === el.chatInput) return;
+    state.viewportFreezeHeight = 0;
+    syncViewportMetrics();
+    if (state.chatOpen) applyChatPanelPosition();
+    syncLandscapeTopBar();
+    if (state.tableState) renderAll();
+  }, 240);
 }
 
 function setTableBooting(enabled, label = "Loading Table...") {
@@ -4042,6 +4070,14 @@ function bindEvents() {
 
   el.chatInput?.addEventListener("input", () => {
     renderChatUi();
+  });
+
+  el.chatInput?.addEventListener("focus", () => {
+    lockViewportHeightForChatInput();
+  });
+
+  el.chatInput?.addEventListener("blur", () => {
+    unlockViewportHeightForChatInput();
   });
 
   el.chatInput?.addEventListener("keydown", (e) => {
