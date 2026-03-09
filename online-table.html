@@ -2001,6 +2001,14 @@
         gap: 8px;
         padding: 9px 10px 8px;
         border-bottom: 1px solid rgba(255,255,255,0.06);
+        cursor: grab;
+        touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
+      }
+
+      .chat-panel.dragging .chat-header {
+        cursor: grabbing;
       }
 
       .chat-title {
@@ -2905,7 +2913,7 @@
           display: flex !important;
           position: absolute !important;
           left: 50%;
-          bottom: calc(env(safe-area-inset-bottom) + 80px);
+          bottom: calc(env(safe-area-inset-bottom) + 28px);
           transform: translateX(-50%);
           width: max-content;
           padding: 0 !important;
@@ -2925,7 +2933,7 @@
         }
         #tableView.landscape-actions-visible .my-hand-area {
           left: 50% !important;
-          bottom: calc(env(safe-area-inset-bottom) + 80px) !important;
+          bottom: calc(env(safe-area-inset-bottom) + 28px) !important;
           transform: translateX(-50%) !important;
           width: max-content !important;
           padding: 0 !important;
@@ -2936,9 +2944,9 @@
           min-width: 166px;
           min-height: 108px;
           padding: 18px 12px 8px;
-          margin-bottom: -18px;
+          margin-bottom: -10px;
           z-index: 1;
-          transform: translateY(-8px);
+          transform: translateY(-2px);
         }
         .my-hand-cards::before { inset: 16px 4px 0; }
         .my-hand-cards .card { width: 62px !important; height: 88px !important; font-size: 24px !important; }
@@ -3962,7 +3970,7 @@
     </div>
 
     <div class="chat-panel hidden" id="chatPanel" aria-live="polite">
-      <div class="chat-header">
+      <div class="chat-header" id="chatHeader">
         <div>
           <div class="chat-title">Table Chat</div>
           <div class="chat-subtitle">Recent table chat</div>
@@ -3984,6 +3992,6 @@
     <div class="voice-audio-rack" id="voiceAudioRack" aria-hidden="true"></div>
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
-    <script type="module" src="./online/table_app.js?v=87"></script>
+    <script type="module" src="./online/table_app.js?v=89"></script>
   </body>
 </html>

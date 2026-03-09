@@ -241,6 +241,17 @@ Validation:
   - portrait mic/chat row moved higher above the browser toolbar and hand log
   - chat panel lifted with the fab row
   - bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster to `?v=87`
+
+- 2026-03-09: Made the table chat panel draggable in `/Users/abishek/Documents/poker-buyins/online/table_app.js` and `/Users/abishek/Documents/poker-buyins/online-table.html`:
+  - chat header is now the drag handle on mouse/touch/pointer
+  - panel position is clamped within the visible viewport
+  - moved panel keeps its position while open and re-clamps on viewport resize
+  - bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster to `?v=88`
+
+- 2026-03-09: Lowered the active portrait hero stack in `/Users/abishek/Documents/poker-buyins/online-table.html`:
+  - active hero `my-hand-area` bottom anchor moved down to the rail zone
+  - reduced extra upward lift on hero cards so the cards + badge read closer to the reference layout
+  - bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster to `?v=89`
   - portrait-only table sizing now favors width more on real phones instead of over-shrinking from `100dvh`
   - reduced the default portrait UI reserve and made it state-aware for hidden vs expanded top bar / action-open states
   - widened the portrait table cap from `92vw` to `96vw` and tightened table-area side/top padding

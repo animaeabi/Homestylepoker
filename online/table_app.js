@@ -135,6 +135,7 @@ const el = {
   chatFab: document.getElementById("chatFab"),
   chatFabBadge: document.getElementById("chatFabBadge"),
   chatPanel: document.getElementById("chatPanel"),
+  chatHeader: document.getElementById("chatHeader"),
   chatClose: document.getElementById("chatClose"),
   chatList: document.getElementById("chatList"),
   chatEmpty: document.getElementById("chatEmpty"),
@@ -220,6 +221,13 @@ const state = {
   chatMessageIds: new Set(),
   chatChannel: null,
   chatHealthy: false,
+  chatPanelPosition: null,
+  chatDrag: {
+    active: false,
+    pointerId: null,
+    offsetX: 0,
+    offsetY: 0,
+  },
   landscapeTopBarExpanded: true,
   landscapeCompactMode: false,
   compactTopBarMode: null,
@@ -278,7 +286,17 @@ function resetChatState() {
   state.chatUnread = 0;
   state.chatMessages = [];
   state.chatMessageIds = new Set();
+  state.chatPanelPosition = null;
+  state.chatDrag.active = false;
+  state.chatDrag.pointerId = null;
   if (el.chatInput) el.chatInput.value = "";
+  if (el.chatPanel) {
+    el.chatPanel.style.left = "";
+    el.chatPanel.style.top = "";
+    el.chatPanel.style.right = "";
+    el.chatPanel.style.bottom = "";
+    el.chatPanel.classList.remove("dragging");
+  }
 }
 
 function resetVoiceState() {
@@ -831,11 +849,94 @@ function formatChatTime(value) {
   return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
+function getChatViewportBounds() {
+  const vv = window.visualViewport;
+  return {
+    width: vv?.width || window.innerWidth || document.documentElement.clientWidth || 0,
+    height: vv?.height || window.innerHeight || document.documentElement.clientHeight || 0,
+    offsetLeft: vv?.offsetLeft || 0,
+    offsetTop: vv?.offsetTop || 0,
+  };
+}
+
+function clampChatPanelPosition(x, y, panelRect = el.chatPanel?.getBoundingClientRect()) {
+  const viewport = getChatViewportBounds();
+  const panelWidth = panelRect?.width || 184;
+  const panelHeight = panelRect?.height || 220;
+  const margin = 8;
+  const minX = viewport.offsetLeft + margin;
+  const maxX = viewport.offsetLeft + Math.max(margin, viewport.width - panelWidth - margin);
+  const minY = viewport.offsetTop + margin;
+  const maxY = viewport.offsetTop + Math.max(margin, viewport.height - panelHeight - margin);
+  return {
+    x: Math.min(maxX, Math.max(minX, x)),
+    y: Math.min(maxY, Math.max(minY, y)),
+  };
+}
+
+function applyChatPanelPosition() {
+  if (!el.chatPanel) return;
+  const position = state.chatPanelPosition;
+  if (!position) {
+    el.chatPanel.style.left = "";
+    el.chatPanel.style.top = "";
+    el.chatPanel.style.right = "";
+    el.chatPanel.style.bottom = "";
+    return;
+  }
+  const clamped = clampChatPanelPosition(position.x, position.y);
+  state.chatPanelPosition = clamped;
+  el.chatPanel.style.left = `${clamped.x}px`;
+  el.chatPanel.style.top = `${clamped.y}px`;
+  el.chatPanel.style.right = "auto";
+  el.chatPanel.style.bottom = "auto";
+}
+
+function startChatDrag(event) {
+  if (!state.chatOpen || !el.chatPanel || !el.chatHeader) return;
+  if (event.target?.closest?.(".chat-close")) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const rect = el.chatPanel.getBoundingClientRect();
+  const startX = event.clientX ?? event.pageX ?? 0;
+  const startY = event.clientY ?? event.pageY ?? 0;
+  const initial = state.chatPanelPosition || { x: rect.left, y: rect.top };
+  const clamped = clampChatPanelPosition(initial.x, initial.y, rect);
+  state.chatPanelPosition = clamped;
+  state.chatDrag.active = true;
+  state.chatDrag.pointerId = event.pointerId ?? null;
+  state.chatDrag.offsetX = startX - clamped.x;
+  state.chatDrag.offsetY = startY - clamped.y;
+  el.chatPanel.classList.add("dragging");
+  applyChatPanelPosition();
+  try { event.currentTarget?.setPointerCapture?.(event.pointerId); } catch {}
+}
+
+function moveChatDrag(event) {
+  if (!state.chatDrag.active || !el.chatPanel) return;
+  if (state.chatDrag.pointerId != null && event.pointerId != null && event.pointerId !== state.chatDrag.pointerId) return;
+  event.preventDefault();
+  const nextX = (event.clientX ?? event.pageX ?? 0) - state.chatDrag.offsetX;
+  const nextY = (event.clientY ?? event.pageY ?? 0) - state.chatDrag.offsetY;
+  state.chatPanelPosition = clampChatPanelPosition(nextX, nextY);
+  applyChatPanelPosition();
+}
+
+function endChatDrag(event) {
+  if (!state.chatDrag.active) return;
+  if (state.chatDrag.pointerId != null && event?.pointerId != null && event.pointerId !== state.chatDrag.pointerId) return;
+  try { event?.currentTarget?.releasePointerCapture?.(event.pointerId); } catch {}
+  state.chatDrag.active = false;
+  state.chatDrag.pointerId = null;
+  el.chatPanel?.classList.remove("dragging");
+}
+
 function renderChatUi() {
   const visible = Boolean(state.tableId && !el.tableView.classList.contains("hidden"));
   el.chatFab?.classList.toggle("hidden", !visible || state.chatOpen);
   if (el.chatFab) el.chatFab.setAttribute("aria-expanded", state.chatOpen ? "true" : "false");
   el.chatPanel?.classList.toggle("hidden", !visible || !state.chatOpen);
+  if (visible && state.chatOpen) applyChatPanelPosition();
 
   const unread = Number(state.chatUnread || 0);
   if (el.chatFabBadge) {
@@ -3854,6 +3955,11 @@ function bindEvents() {
     toggleChat();
   });
 
+  el.chatHeader?.addEventListener("pointerdown", startChatDrag);
+  el.chatHeader?.addEventListener("pointermove", moveChatDrag);
+  el.chatHeader?.addEventListener("pointerup", endChatDrag);
+  el.chatHeader?.addEventListener("pointercancel", endChatDrag);
+
   el.voiceFab?.addEventListener("pointerdown", onVoicePointerDown);
   el.voiceFab?.addEventListener("pointerup", onVoicePointerEnd);
   el.voiceFab?.addEventListener("pointercancel", onVoicePointerEnd);
@@ -3928,6 +4034,7 @@ function bindEvents() {
     if (resizeTimer) clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => {
       syncViewportMetrics();
+      if (state.chatOpen) applyChatPanelPosition();
       syncLandscapeTopBar();
       if (state.tableState) renderAll();
     }, 200);
