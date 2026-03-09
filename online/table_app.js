@@ -200,6 +200,7 @@ const state = {
   showdownRevealHandId: null,
   showdownRevealSeats: new Set(),
   voiceCall: null,
+  voiceSession: null,
   voiceJoinPromise: null,
   voiceConnected: false,
   voiceJoining: false,
@@ -282,6 +283,7 @@ function resetChatState() {
 
 function resetVoiceState() {
   state.voiceJoinPromise = null;
+  state.voiceSession = null;
   state.voiceConnected = false;
   state.voiceJoining = false;
   state.voiceSpeaking = false;
@@ -382,6 +384,55 @@ function ensureDailyIframe() {
     throw new Error("Voice library failed to load.");
   }
   return daily;
+}
+
+function decodeVoiceTokenExpiry(token) {
+  try {
+    const payload = token.split(".")[1];
+    if (!payload) return null;
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized.padEnd(normalized.length + ((4 - normalized.length % 4) % 4), "=");
+    const parsed = JSON.parse(atob(padded));
+    const exp = Number(parsed?.exp || 0);
+    return Number.isFinite(exp) && exp > 0 ? exp * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+function rememberVoiceSession(session) {
+  if (!session?.room_url || !session?.meeting_token) {
+    state.voiceSession = null;
+    return null;
+  }
+  state.voiceSession = {
+    room_url: session.room_url,
+    meeting_token: session.meeting_token,
+    usage_minutes: Number(session?.usage_minutes || 0),
+    limit_minutes: Number(session?.limit_minutes || 9000),
+    usage_estimated: Boolean(session?.usage_estimated),
+    expires_at_ms: decodeVoiceTokenExpiry(session.meeting_token),
+  };
+  return state.voiceSession;
+}
+
+function hasReusableVoiceSession() {
+  const session = state.voiceSession;
+  if (!session?.room_url || !session?.meeting_token) return false;
+  if (!session.expires_at_ms) return true;
+  return session.expires_at_ms - Date.now() > 15000;
+}
+
+async function getVoiceSession({ forceFresh = false } = {}) {
+  if (!forceFresh && hasReusableVoiceSession()) return state.voiceSession;
+  const session = await online.createVoiceSession({
+    tableId: state.tableId,
+    actorGroupPlayerId: state.identity.groupPlayerId,
+    seatToken: getSeatToken(),
+  });
+  state.voiceUsageMinutes = Number(session?.usage_minutes || 0);
+  state.voiceUsageLimit = Number(session?.limit_minutes || 9000);
+  return rememberVoiceSession(session);
 }
 
 function clearVoiceAudioRack() {
@@ -511,27 +562,35 @@ async function ensureVoiceConnected() {
   state.voiceJoining = true;
   renderVoiceUi();
   state.voiceJoinPromise = (async () => {
-    const session = await online.createVoiceSession({
-      tableId: state.tableId,
-      actorGroupPlayerId: state.identity.groupPlayerId,
-      seatToken,
-    });
-
-    state.voiceUsageMinutes = Number(session?.usage_minutes || 0);
-    state.voiceUsageLimit = Number(session?.limit_minutes || 9000);
-
     const call = await ensureVoiceCallObject();
-    await call.join({
-      url: session.room_url,
-      token: session.meeting_token,
-      userName: state.identity?.name || "Player",
-      audioSource: true,
-      videoSource: false,
-      startAudioOff: true,
-      startVideoOff: true,
-      subscribeToTracksAutomatically: true,
-      dailyConfig: { avoidEval: true },
-    });
+    let session = await getVoiceSession();
+    try {
+      await call.join({
+        url: session.room_url,
+        token: session.meeting_token,
+        userName: state.identity?.name || "Player",
+        audioSource: true,
+        videoSource: false,
+        startAudioOff: true,
+        startVideoOff: true,
+        subscribeToTracksAutomatically: true,
+        dailyConfig: { avoidEval: true },
+      });
+    } catch (error) {
+      state.voiceSession = null;
+      session = await getVoiceSession({ forceFresh: true });
+      await call.join({
+        url: session.room_url,
+        token: session.meeting_token,
+        userName: state.identity?.name || "Player",
+        audioSource: true,
+        videoSource: false,
+        startAudioOff: true,
+        startVideoOff: true,
+        subscribeToTracksAutomatically: true,
+        dailyConfig: { avoidEval: true },
+      });
+    }
     state.voiceConnected = true;
     syncVoiceAudioRack();
     return call;

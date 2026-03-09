@@ -3,7 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const DAILY_API_BASE = "https://api.daily.co/v1";
 const VOICE_LIMIT_MINUTES = 9000;
 const ROOM_TTL_SECS = 3 * 60 * 60;
-const USAGE_CACHE_MS = 60 * 1000;
+const USAGE_CACHE_MS = 15 * 60 * 1000;
 const LIST_LIMIT = 100;
 
 const usageCache = {
@@ -163,6 +163,33 @@ async function fetchMonthlyUsageMinutes(apiKey: string) {
   return { monthKey, usageMinutes };
 }
 
+async function getMonthlyUsageMinutesSafe(apiKey: string) {
+  const { monthKey } = getCurrentMonthWindow();
+  try {
+    const usage = await fetchMonthlyUsageMinutes(apiKey);
+    return { ...usage, estimated: false };
+  } catch (error) {
+    const status = Number((error as { status?: number })?.status || 0);
+    const message = String((error as Error)?.message || error || "");
+    const isRateLimited = status === 429 || /rate-limit-error|rate limit/i.test(message);
+    if (!isRateLimited) throw error;
+
+    if (usageCache.monthKey === monthKey && Number.isFinite(usageCache.usageMinutes)) {
+      return {
+        monthKey,
+        usageMinutes: usageCache.usageMinutes,
+        estimated: true,
+      };
+    }
+
+    return {
+      monthKey,
+      usageMinutes: 0,
+      estimated: true,
+    };
+  }
+}
+
 async function ensureRoom(apiKey: string, dailyDomain: string, tableId: string) {
   const roomName = roomNameForTable(tableId);
   try {
@@ -265,7 +292,7 @@ Deno.serve(async (req) => {
       .maybeSingle();
     if (playerError) throw playerError;
 
-    const usage = await fetchMonthlyUsageMinutes(dailyApiKey);
+    const usage = await getMonthlyUsageMinutesSafe(dailyApiKey);
     if (usage.usageMinutes >= VOICE_LIMIT_MINUTES) {
       return json({
         ok: false,
@@ -274,6 +301,7 @@ Deno.serve(async (req) => {
         usage_minutes: usage.usageMinutes,
         limit_minutes: VOICE_LIMIT_MINUTES,
         month_key: usage.monthKey,
+        usage_estimated: usage.estimated,
       }, 429);
     }
 
@@ -298,6 +326,7 @@ Deno.serve(async (req) => {
       usage_minutes: usage.usageMinutes,
       limit_minutes: VOICE_LIMIT_MINUTES,
       month_key: usage.monthKey,
+      usage_estimated: usage.estimated,
     });
   } catch (error) {
     console.error("[online-voice-session]", error);

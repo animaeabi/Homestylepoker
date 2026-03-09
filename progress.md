@@ -224,7 +224,14 @@ Validation:
   - verified on a 430x932 portrait viewport that the table fills much more of the screen while still clearing hero seat, hand log, and utility buttons
   - Daily voice custom UI was joining rooms successfully but not rendering remote audio elements, so connected players could not hear one another
   - added hidden `voiceAudioRack` audio elements driven from Daily participant/track events in `/Users/abishek/Documents/poker-buyins/online/table_app.js` and `/Users/abishek/Documents/poker-buyins/online-table.html`
-  - updated the voice connected hint to say `Hold to talk` and bumped the table script cache buster to `?v=79`
+  - simplified voice UX to true hold-to-talk: hold connects/talks, release disconnects
+  - prevented iPhone long-press text selection/callouts on the mic button
+  - chat button now hides while the floating chat panel is open
+  - chat input uses iOS-safe font sizing to avoid Safari zoom on focus
+  - cached voice session tokens client-side so repeated holds do not keep calling the Edge Function
+  - relaxed Daily usage polling in the Edge Function so rate-limited usage checks fall back to cached/estimated values instead of 500ing voice joins
+  - redeployed `supabase/functions/online-voice-session/index.ts` after the rate-limit fix
+  - bumped the table script cache buster through `?v=83`
   - raised the centered held-card stack in both portrait and landscape compact modes
   - bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster to `?v=54`
 
