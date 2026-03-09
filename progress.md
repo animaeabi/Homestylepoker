@@ -222,6 +222,9 @@ Validation:
   - reduced the default portrait UI reserve and made it state-aware for hidden vs expanded top bar / action-open states
   - widened the portrait table cap from `92vw` to `96vw` and tightened table-area side/top padding
   - verified on a 430x932 portrait viewport that the table fills much more of the screen while still clearing hero seat, hand log, and utility buttons
+  - Daily voice custom UI was joining rooms successfully but not rendering remote audio elements, so connected players could not hear one another
+  - added hidden `voiceAudioRack` audio elements driven from Daily participant/track events in `/Users/abishek/Documents/poker-buyins/online/table_app.js` and `/Users/abishek/Documents/poker-buyins/online-table.html`
+  - updated the voice connected hint to say `Hold to talk` and bumped the table script cache buster to `?v=79`
   - raised the centered held-card stack in both portrait and landscape compact modes
   - bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster to `?v=54`
 

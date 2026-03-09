@@ -131,6 +131,7 @@ const el = {
   handLogInner: document.getElementById("handLogInner"),
   voiceFab: document.getElementById("voiceFab"),
   voiceFabDot: document.getElementById("voiceFabDot"),
+  voiceAudioRack: document.getElementById("voiceAudioRack"),
   chatFab: document.getElementById("chatFab"),
   chatFabBadge: document.getElementById("chatFabBadge"),
   chatPanel: document.getElementById("chatPanel"),
@@ -207,6 +208,7 @@ const state = {
   voiceUsageMinutes: 0,
   voiceUsageLimit: 9000,
   voiceFloorHeartbeatTimer: null,
+  voiceAudioElements: new Map(),
   voicePressTimer: null,
   voiceHoldRequested: false,
   voiceSuppressClickUntil: 0,
@@ -296,6 +298,14 @@ function resetVoiceState() {
     clearInterval(state.voiceFloorHeartbeatTimer);
     state.voiceFloorHeartbeatTimer = null;
   }
+  if (state.voiceAudioElements?.size) {
+    for (const audio of state.voiceAudioElements.values()) {
+      try { audio.pause(); } catch {}
+      try { audio.srcObject = null; } catch {}
+      audio.remove();
+    }
+    state.voiceAudioElements.clear();
+  }
 }
 
 function getServerVoiceState() {
@@ -347,9 +357,9 @@ function renderVoiceUi() {
   button.dataset.state = uiState;
   button.disabled = disabled || state.voiceJoining;
 
-  let label = "Voice";
+  let label = "Hold to talk";
   if (uiState === "speaking") label = "Speaking";
-  else if (uiState === "connected") label = "Voice connected";
+  else if (uiState === "connected") label = "Hold to talk";
   else if (uiState === "joining") label = "Joining voice";
   else if (uiState === "busy") label = serverVoice.speakerName ? `${serverVoice.speakerName} is talking` : "Voice busy";
   else if (uiState === "locked") label = "Voice unavailable until next month";
@@ -374,6 +384,73 @@ function ensureDailyIframe() {
   return daily;
 }
 
+function clearVoiceAudioRack() {
+  if (state.voiceAudioElements?.size) {
+    for (const audio of state.voiceAudioElements.values()) {
+      try { audio.pause(); } catch {}
+      try { audio.srcObject = null; } catch {}
+      audio.remove();
+    }
+    state.voiceAudioElements.clear();
+  }
+}
+
+function getParticipantAudioTrack(participant) {
+  const audio = participant?.tracks?.audio;
+  if (!audio) return null;
+  return audio.persistentTrack || audio.track || null;
+}
+
+function syncVoiceAudioRack() {
+  const rack = el.voiceAudioRack;
+  const call = state.voiceCall;
+  if (!rack || !call || !state.voiceConnected || typeof call.participants !== "function") {
+    clearVoiceAudioRack();
+    return;
+  }
+
+  const participants = call.participants() || {};
+  const keep = new Set();
+
+  for (const [participantId, participant] of Object.entries(participants)) {
+    if (!participant || participantId === "local" || participant.local) continue;
+
+    const key = String(participant.session_id || participantId);
+    const track = getParticipantAudioTrack(participant);
+    if (!track) continue;
+    keep.add(key);
+
+    let audio = state.voiceAudioElements.get(key);
+    if (!audio) {
+      audio = document.createElement("audio");
+      audio.autoplay = true;
+      audio.playsInline = true;
+      audio.dataset.participantId = key;
+      rack.appendChild(audio);
+      state.voiceAudioElements.set(key, audio);
+    }
+
+    const trackId = String(track.id || "");
+    if (audio.dataset.trackId !== trackId) {
+      audio.dataset.trackId = trackId;
+      audio.srcObject = new MediaStream([track]);
+    }
+
+    const playResult = audio.play?.();
+    if (playResult && typeof playResult.catch === "function") {
+      playResult.catch(() => {});
+    }
+  }
+
+  for (const [key, audio] of state.voiceAudioElements.entries()) {
+    if (keep.has(key)) continue;
+    try { audio.pause(); } catch {}
+    try { audio.srcObject = null; } catch {}
+    audio.remove();
+    state.voiceAudioElements.delete(key);
+  }
+}
+
 async function ensureVoiceCallObject() {
   if (state.voiceCall) return state.voiceCall;
   const daily = ensureDailyIframe();
@@ -385,6 +462,7 @@ async function ensureVoiceCallObject() {
   call.on("joined-meeting", () => {
     state.voiceConnected = true;
     state.voiceJoining = false;
+    syncVoiceAudioRack();
     renderVoiceUi();
   });
 
@@ -396,8 +474,15 @@ async function ensureVoiceCallObject() {
       clearInterval(state.voiceFloorHeartbeatTimer);
       state.voiceFloorHeartbeatTimer = null;
     }
+    clearVoiceAudioRack();
     renderVoiceUi();
   });
+
+  call.on("participant-joined", syncVoiceAudioRack);
+  call.on("participant-updated", syncVoiceAudioRack);
+  call.on("participant-left", syncVoiceAudioRack);
+  call.on("track-started", syncVoiceAudioRack);
+  call.on("track-stopped", syncVoiceAudioRack);
 
   call.on("error", (event) => {
     state.voiceJoining = false;
@@ -448,6 +533,7 @@ async function ensureVoiceConnected() {
       dailyConfig: { avoidEval: true },
     });
     state.voiceConnected = true;
+    syncVoiceAudioRack();
     return call;
   })();
 
@@ -508,6 +594,7 @@ async function disconnectVoice({ silent = false, destroy = false } = {}) {
   if (!call) {
     state.voiceConnected = false;
     state.voiceJoining = false;
+    clearVoiceAudioRack();
     renderVoiceUi();
     return;
   }
@@ -526,6 +613,7 @@ async function disconnectVoice({ silent = false, destroy = false } = {}) {
     state.voiceJoining = false;
     state.voiceSpeaking = false;
     clearVoiceFloorHeartbeat();
+    clearVoiceAudioRack();
     renderVoiceUi();
     if (!silent) toast("Voice off", "success");
   }
@@ -550,7 +638,10 @@ async function startPushToTalk() {
 
   try {
     const call = await ensureVoiceConnected();
-    if (!state.voiceHoldRequested) return;
+    if (!state.voiceHoldRequested) {
+      await disconnectVoice({ silent: true, destroy: true });
+      return;
+    }
 
     const seatToken = getSeatToken();
     const payload = await online.claimVoiceFloor({
@@ -565,6 +656,7 @@ async function startPushToTalk() {
         state.lastVoiceBusyToastAt = Date.now();
         toast(payload?.speaker_name ? `${payload.speaker_name} is on the mic` : "Voice is busy right now.");
       }
+      await disconnectVoice({ silent: true, destroy: true });
       renderVoiceUi();
       return;
     }
@@ -575,6 +667,7 @@ async function startPushToTalk() {
         actorGroupPlayerId: state.identity.groupPlayerId,
         seatToken,
       });
+      await disconnectVoice({ silent: true, destroy: true });
       return;
     }
 
@@ -583,6 +676,9 @@ async function startPushToTalk() {
     startVoiceFloorHeartbeat();
     renderVoiceUi();
   } catch (error) {
+    if (state.voiceConnected || state.voiceCall) {
+      await disconnectVoice({ silent: true, destroy: true });
+    }
     toast(error?.message || "Voice failed", "error");
     renderVoiceUi();
   }
@@ -615,7 +711,10 @@ async function stopPushToTalk({ skipRelease = false, silent = false } = {}) {
 }
 
 function onVoicePointerDown(event) {
+  event.preventDefault();
+  event.stopPropagation();
   if (event.pointerType === "mouse" && event.button !== 0) return;
+  try { event.currentTarget?.setPointerCapture?.(event.pointerId); } catch {}
   if (state.voicePressTimer) clearTimeout(state.voicePressTimer);
   state.voiceHoldRequested = false;
   state.voicePressTimer = setTimeout(() => {
@@ -626,7 +725,12 @@ function onVoicePointerDown(event) {
   }, VOICE_HOLD_DELAY_MS);
 }
 
-function onVoicePointerEnd() {
+function onVoicePointerEnd(event) {
+  event?.preventDefault?.();
+  event?.stopPropagation?.();
+  try {
+    if (event?.pointerId != null) event.currentTarget?.releasePointerCapture?.(event.pointerId);
+  } catch {}
   if (state.voicePressTimer) {
     clearTimeout(state.voicePressTimer);
     state.voicePressTimer = null;
@@ -635,11 +739,19 @@ function onVoicePointerEnd() {
   if (!state.voiceHoldRequested && !state.voiceSpeaking) return;
   state.voiceHoldRequested = false;
   state.voiceSuppressClickUntil = Date.now() + VOICE_CLICK_SUPPRESS_MS;
-  void stopPushToTalk({ silent: true });
+  void (async () => {
+    if (state.voiceSpeaking) {
+      await stopPushToTalk({ silent: true });
+    }
+    if (state.voiceConnected || state.voiceCall) {
+      await disconnectVoice({ silent: true, destroy: true });
+    }
+  })();
 }
 
 async function onVoiceFabClick(event) {
   event.preventDefault();
+  event.stopPropagation();
   if (Date.now() < state.voiceSuppressClickUntil) return;
   if (!canUseVoice()) {
     toast("Take a seat to use voice.", "error");
@@ -650,16 +762,12 @@ async function onVoiceFabClick(event) {
     return;
   }
   if (state.voiceJoining) return;
-  try {
-    if (state.voiceConnected) {
-      await disconnectVoice();
-    } else {
-      await ensureVoiceConnected();
-      toast("Voice on", "success");
-    }
-  } catch (error) {
-    toast(error?.message || "Voice failed", "error");
-  }
+  toast("Hold to talk");
+}
+
+function onVoiceContextMenu(event) {
+  event.preventDefault();
+  event.stopPropagation();
 }
 
 function formatChatTime(value) {
@@ -670,7 +778,7 @@ function formatChatTime(value) {
 
 function renderChatUi() {
   const visible = Boolean(state.tableId && !el.tableView.classList.contains("hidden"));
-  el.chatFab?.classList.toggle("hidden", !visible);
+  el.chatFab?.classList.toggle("hidden", !visible || state.chatOpen);
   if (el.chatFab) el.chatFab.setAttribute("aria-expanded", state.chatOpen ? "true" : "false");
   el.chatPanel?.classList.toggle("hidden", !visible || !state.chatOpen);
 
@@ -3669,6 +3777,7 @@ function bindEvents() {
   el.voiceFab?.addEventListener("pointercancel", onVoicePointerEnd);
   el.voiceFab?.addEventListener("pointerleave", onVoicePointerEnd);
   el.voiceFab?.addEventListener("click", onVoiceFabClick);
+  el.voiceFab?.addEventListener("contextmenu", onVoiceContextMenu);
 
   el.chatClose?.addEventListener("click", () => {
     toggleChat(false);

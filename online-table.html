@@ -1886,6 +1886,10 @@
         display: inline-flex;
         align-items: center;
         color: rgba(219,243,255,0.92);
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-touch-callout: none;
+        touch-action: none;
       }
 
       .voice-fab svg {
@@ -2110,6 +2114,7 @@
         padding: 7px 34px 7px 9px;
         font: inherit;
         font-size: 11px;
+        line-height: 1.25;
       }
 
       .chat-input::placeholder {
@@ -2141,6 +2146,12 @@
         opacity: 0.4;
       }
 
+      @supports (-webkit-touch-callout: none) {
+        .chat-input {
+          font-size: 16px;
+        }
+      }
+
       @media (max-width: 768px) and (orientation: portrait) {
         .utility-fab-row {
           right: 8px;
@@ -2153,6 +2164,16 @@
           right: 8px;
           bottom: calc(env(safe-area-inset-bottom) + 74px);
         }
+      }
+
+      .voice-audio-rack {
+        position: fixed;
+        width: 1px;
+        height: 1px;
+        left: -9999px;
+        top: -9999px;
+        overflow: hidden;
+        pointer-events: none;
       }
 
       @media (orientation: landscape) and (max-height: 500px) {
@@ -3946,8 +3967,9 @@
     </div>
 
     <div class="toast-container" id="toastContainer"></div>
+    <div class="voice-audio-rack" id="voiceAudioRack" aria-hidden="true"></div>
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
-    <script type="module" src="./online/table_app.js?v=78"></script>
+    <script type="module" src="./online/table_app.js?v=82"></script>
   </body>
 </html>
