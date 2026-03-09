@@ -44,16 +44,120 @@ function preflopStrength(hole1, hole2) {
 }
 
 function postflopStrength(holeCards, boardCards) {
-  if (!holeCards || holeCards.length < 2 || !boardCards || boardCards.length < 3) return 0.3;
+  return analyzePostflopHand(holeCards, boardCards).strength;
+}
+
+function toParsedCard(token) {
+  if (!token || token.length < 2) return null;
+  const rank = RANK_VAL[token[0].toUpperCase()];
+  const suit = token[token.length - 1].toUpperCase();
+  if (!rank || !["S", "H", "D", "C"].includes(suit)) return null;
+  return { rank, suit };
+}
+
+function uniqueRanksWithWheel(cards) {
+  const ranks = Array.from(new Set(
+    (cards || [])
+      .map((card) => card?.rank)
+      .filter((rank) => Number.isFinite(rank))
+  )).sort((a, b) => a - b);
+  if (ranks.includes(14)) ranks.unshift(1);
+  return ranks;
+}
+
+function bestStraightDrawScore(cards) {
+  const ranks = uniqueRanksWithWheel(cards);
+  if (ranks.length < 4) return 0;
+  let best = 0;
+  for (let start = 1; start <= 10; start += 1) {
+    const window = [start, start + 1, start + 2, start + 3, start + 4];
+    const hits = window.filter((rank) => ranks.includes(rank)).length;
+    if (hits >= 4) {
+      const edgeHits = [window[0], window[4]].filter((rank) => ranks.includes(rank)).length;
+      best = Math.max(best, hits === 5 ? 0.18 : edgeHits === 2 ? 0.13 : 0.08);
+    }
+  }
+  return best;
+}
+
+function drawPotential(holeCards, boardCards, classRank = 0) {
+  if (!holeCards || holeCards.length < 2 || !boardCards || boardCards.length < 3 || classRank >= 4) {
+    return 0;
+  }
+
+  const parsedHole = holeCards.map(toParsedCard).filter(Boolean);
+  const parsedBoard = boardCards.map(toParsedCard).filter(Boolean);
+  const cards = [...parsedHole, ...parsedBoard];
+  if (cards.length < 5) return 0;
+
+  const suitCounts = cards.reduce((acc, card) => {
+    acc[card.suit] = (acc[card.suit] || 0) + 1;
+    return acc;
+  }, {});
+
+  let flushDraw = 0;
+  for (const [suit, count] of Object.entries(suitCounts)) {
+    const holeSuited = parsedHole.some((card) => card.suit === suit);
+    if (!holeSuited) continue;
+    if (count >= 4) flushDraw = Math.max(flushDraw, 0.16);
+    else if (parsedBoard.length === 3 && count === 3 && parsedHole.filter((card) => card.suit === suit).length === 2) {
+      flushDraw = Math.max(flushDraw, 0.05);
+    }
+  }
+
+  const straightDraw = bestStraightDrawScore(cards);
+  return Math.min(0.24, flushDraw + straightDraw);
+}
+
+function pairBonus(holeCards, boardCards, result) {
+  if (!result || result.classRank == null || result.classRank >= 4) return 0;
+  const parsedHole = holeCards.map(toParsedCard).filter(Boolean);
+  const parsedBoard = boardCards.map(toParsedCard).filter(Boolean);
+  if (parsedHole.length < 2 || parsedBoard.length < 3) return 0;
+
+  const holeRanks = parsedHole.map((card) => card.rank).sort((a, b) => b - a);
+  const boardRanks = parsedBoard.map((card) => card.rank).sort((a, b) => b - a);
+  const pairRank = Number(result.tuple?.[1] || 0);
+  if (!pairRank) return 0;
+
+  const holeHasPairRank = holeRanks.includes(pairRank);
+  const highestBoard = boardRanks[0] || 0;
+  const secondBoard = boardRanks[1] || highestBoard;
+
+  if (result.classRank === 1) {
+    if (holeRanks[0] === holeRanks[1] && pairRank > highestBoard) return 0.16;
+    if (holeHasPairRank && pairRank >= highestBoard) return 0.13;
+    if (holeHasPairRank && pairRank >= secondBoard) return 0.08;
+    if (!holeHasPairRank) return -0.05;
+  }
+
+  if (result.classRank === 2) {
+    const highPair = Number(result.tuple?.[1] || 0);
+    const lowPair = Number(result.tuple?.[2] || 0);
+    if (holeRanks.includes(highPair) && holeRanks.includes(lowPair)) return 0.12;
+    if (holeRanks.includes(highPair) || holeRanks.includes(lowPair)) return 0.07;
+  }
+
+  if (result.classRank === 3 && holeHasPairRank) return 0.08;
+  return 0;
+}
+
+function analyzePostflopHand(holeCards, boardCards) {
+  if (!holeCards || holeCards.length < 2 || !boardCards || boardCards.length < 3) {
+    return { strength: 0.3, drawStrength: 0, classRank: null };
+  }
   try {
     const allCards = [...holeCards, ...boardCards];
     const result = describeSevenCardHand(allCards);
-    if (result.classRank == null) return 0.3;
+    if (result.classRank == null) return { strength: 0.3, drawStrength: 0, classRank: null };
     const base = result.classRank / 8;
     const kicker = (result.tuple[1] || 7) / 14;
-    return Math.min(1.0, base * 0.75 + kicker * 0.25);
+    const drawStrength = drawPotential(holeCards, boardCards, result.classRank);
+    const pairEdge = pairBonus(holeCards, boardCards, result);
+    const strength = Math.min(1.0, Math.max(0.0, base * 0.72 + kicker * 0.18 + drawStrength + pairEdge));
+    return { strength, drawStrength, classRank: result.classRank };
   } catch {
-    return 0.3;
+    return { strength: 0.3, drawStrength: 0, classRank: null };
   }
 }
 
@@ -249,13 +353,16 @@ export function decide({
   const stack = stackEnd || 0;
   const isPreflop = street === "preflop" || !boardCards || boardCards.length < 3;
   const isFlop = street === "flop";
+  const postflop = isPreflop ? { strength: 0, drawStrength: 0, classRank: null } : analyzePostflopHand(holeCards, boardCards);
 
   if (stack <= 0) return { actionType: "check", amount: null };
 
   // Base hand strength
   const rawStrength = isPreflop
     ? preflopStrength(holeCards?.[0], holeCards?.[1])
-    : postflopStrength(holeCards, boardCards);
+    : postflop.strength;
+  const drawStrength = isPreflop ? 0 : postflop.drawStrength;
+  const madeClassRank = isPreflop ? null : postflop.classRank;
 
   // Position adjustment: play looser in late position, tighter early
   const posMult = positionMultiplier(seatNo || 0, buttonSeat || 0, totalSeats || 6, activeSeatCount || 2);
@@ -263,7 +370,7 @@ export function decide({
   // Opponent-based adjustments
   const opAdj = opponentAdjustments(opponentProfile || null);
 
-  const noise = rand(-0.08, 0.08);
+  const noise = rand(-0.05, 0.05);
   const effectiveStrength = Math.min(1.0, Math.max(0.0, rawStrength * posMult + noise));
 
   const adjustedBluffRate = Math.max(0, Math.min(0.3, profile.bluffRate + opAdj.bluffMod));
@@ -271,11 +378,14 @@ export function decide({
     ? Math.max(0.1, profile.preflopFoldBelow + opAdj.foldMod)
     : Math.max(0.1, profile.postflopFoldBelow + opAdj.foldMod);
   const adjustedRaiseAbove = Math.max(0.3, profile.raiseAbove - opAdj.betMod);
+  const strongDraw = !isPreflop && drawStrength >= 0.12;
+  const premiumMadeHand = !isPreflop && madeClassRank >= 2;
 
   // ---- CONTINUATION BET ----
   // If bot was the preflop aggressor and it's the flop with no bet yet, c-bet frequently
   if (isFlop && wasAggressor && currentBet === 0 && toCall === 0) {
-    if (coinFlip(profile.cbetRate)) {
+    const cbetRate = Math.min(0.9, profile.cbetRate + (strongDraw ? 0.08 : 0) + (premiumMadeHand ? 0.06 : 0));
+    if (coinFlip(cbetRate)) {
       const cbetSize = Math.max(Math.round(pot * rand(0.4, 0.7)), bigBlind || 2);
       if (cbetSize < stack) {
         return { actionType: "bet", amount: cbetSize };
@@ -287,6 +397,21 @@ export function decide({
   if (!isPreflop && effectiveStrength >= 0.7 && currentBet === 0 && toCall === 0) {
     if (coinFlip(profile.checkRaiseRate)) {
       return { actionType: "check", amount: null };
+    }
+  }
+
+  if (strongDraw && toCall > 0) {
+    const potOdds = toCall / Math.max(1, pot + toCall);
+    const affordableDraw = toCall <= stack * 0.34 || potOdds <= Math.min(0.42, effectiveStrength + drawStrength * 0.55);
+    if (affordableDraw) {
+      if (coinFlip(Math.min(0.36, adjustedBluffRate + 0.14)) && stack > toCall * 2.5) {
+        const raiseSize = Math.max(Math.round(pot * rand(0.45, 0.8)), bigBlind || 2);
+        const raiseTarget = (currentBet || 0) + raiseSize;
+        if (raiseTarget <= (streetContribution || 0) + stack) {
+          return { actionType: "raise", amount: raiseTarget };
+        }
+      }
+      return { actionType: "call", amount: null };
     }
   }
 
@@ -338,6 +463,13 @@ export function decide({
   }
 
   // ---- NO BET TO CALL: CHECK OR PROBE BET ----
+  if (strongDraw && coinFlip(0.42)) {
+    const semibluffSize = Math.max(Math.round(pot * rand(0.38, 0.62)), bigBlind || 2);
+    if (semibluffSize < stack) {
+      return { actionType: "bet", amount: semibluffSize };
+    }
+  }
+
   if (effectiveStrength > adjustedFoldThreshold + 0.15 && coinFlip(0.3)) {
     const betSize = Math.max(Math.round(pot * rand(0.3, 0.5)), bigBlind || 2);
     if (betSize < stack) {
@@ -348,6 +480,25 @@ export function decide({
   return { actionType: "check", amount: null };
 }
 
-export function thinkTimeMs() {
-  return 1000 + Math.floor(Math.random() * 2000);
+export function thinkTimeMs({
+  street = "preflop",
+  toCall = 0,
+  pot = 0,
+  currentBet = 0,
+  activeSeatCount = 2,
+} = {}) {
+  const baseByStreet = {
+    preflop: 1650,
+    flop: 2350,
+    turn: 2750,
+    river: 3200,
+  };
+  let delay = baseByStreet[street] || 2000;
+  if (toCall > 0) delay += 320;
+  if (currentBet > 0) delay += 180;
+  if (pot >= 40) delay += 260;
+  if (pot >= 120) delay += 320;
+  if (activeSeatCount <= 3) delay += 140;
+  delay += Math.floor(Math.random() * 850);
+  return delay;
 }

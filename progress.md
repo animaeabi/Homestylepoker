@@ -185,6 +185,96 @@ Validation:
   - failures restore the controls so the player is not stuck
   - bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster to `?v=47`
 
+- 2026-03-08: Fixed heads-up seat badge overlap in `/Users/abishek/Documents/poker-buyins/online/table_app.js` and `/Users/abishek/Documents/poker-buyins/online-table.html`:
+  - grouped `D`, `SB`, and `BB` into a shared seat badge row
+  - compact portrait and landscape seat layouts now place the badge row together instead of stacking both labels on the same top-right corner
+  - bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster to `?v=48`
+
+- 2026-03-08: Adjusted compact seat badge placement in `/Users/abishek/Documents/poker-buyins/online-table.html`:
+  - moved compact `D/SB/BB` badge rows into the seat header flow so they no longer overlap avatars
+  - stacked compact seat header content vertically for cleaner heads-up seats
+  - bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster to `?v=49`
+
+- 2026-03-08: Moved compact opponent cards to a seat-attached stack in `/Users/abishek/Documents/poker-buyins/online/table_app.js` and `/Users/abishek/Documents/poker-buyins/online-table.html`:
+  - compact opponent cards now sit above the seat card instead of floating across the stack text
+  - avatar, name, stack, and role chips stay readable under the cards
+  - tuned separate portrait and landscape compact card sizes/offsets
+  - bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster to `?v=50`
+
+- 2026-03-08: Restored compact opponent card visibility in `/Users/abishek/Documents/poker-buyins/online-table.html`:
+  - compact breakpoints now hide only non-compact seat card rows
+  - `.seat-cards-row.compact-opponent` is explicitly shown in portrait and landscape compact modes
+  - bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster to `?v=51`
+
+- 2026-03-08: Made compact opponent card placement directional in `/Users/abishek/Documents/poker-buyins/online/table_app.js` and `/Users/abishek/Documents/poker-buyins/online-table.html`:
+  - top seats now place cards below the seat card, toward table center
+  - side seats place cards inward from the rail
+  - lower seats keep cards above the seat card
+  - bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster to `?v=52`
+
+- 2026-03-08: Reverted compact opponent cards to a hero-style held stack in `/Users/abishek/Documents/poker-buyins/online/table_app.js` and `/Users/abishek/Documents/poker-buyins/online-table.html`:
+  - compact opponent cards are centered above the seat/avatar again
+  - lowered the stack so it stays visible while still reading as “held above the badge”
+  - bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster to `?v=53`
+
+- 2026-03-08: Nudged compact opponent card stacks upward in `/Users/abishek/Documents/poker-buyins/online-table.html`:
+  - raised the centered held-card stack in both portrait and landscape compact modes
+  - bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster to `?v=54`
+
+- 2026-03-08: Raised compact opponent held-card stacks another step in `/Users/abishek/Documents/poker-buyins/online-table.html`:
+  - moved the centered opponent card stack higher in portrait and compact landscape
+  - bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster to `?v=55`
+
+- 2026-03-08: Adjusted portrait 4-player side-seat positions in `/Users/abishek/Documents/poker-buyins/online/table_app.js`:
+  - moved the left and right seats upward in the 4-player portrait map so they clear the board cards
+  - bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster to `?v=56`
+
+- 2026-03-08: Corrected compact portrait 4-player seat positioning in `/Users/abishek/Documents/poker-buyins/online/table_app.js`:
+  - updated the `3-seat` portrait map used by compact mobile when the hero seat is hidden
+  - moved the left and right visible seats upward so 4-player compact tables clear the board
+  - bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster to `?v=57`
+
+- 2026-03-08: Nudged compact portrait 4-player side seats higher in `/Users/abishek/Documents/poker-buyins/online/table_app.js`:
+  - moved the left and right visible seats from `y: 52` to `y: 48` in the compact `3-seat` portrait map
+  - bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster to `?v=58`
+
+- 2026-03-08: Raised compact portrait 4-player side seats another step in `/Users/abishek/Documents/poker-buyins/online/table_app.js`:
+  - moved the left and right visible seats from `y: 48` to `y: 44` in the compact `3-seat` portrait map
+  - bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster to `?v=59`
+
+- 2026-03-08: Pushed compact portrait 6-player lower side seats outward in `/Users/abishek/Documents/poker-buyins/online/table_app.js`:
+  - updated the compact `5-seat` portrait map used when the hero seat is hidden in a 6-player game
+  - moved the lower left/right seats from `x: 15/85` to `x: 10/90`
+  - bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster to `?v=60`
+
+- 2026-03-08: Nudged compact portrait 6-player lower side seats outward again in `/Users/abishek/Documents/poker-buyins/online/table_app.js`:
+  - moved the lower left/right seats from `x: 10/90` to `x: 8/92`
+  - bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster to `?v=61`
+
+- 2026-03-08: Moved portrait board cards slightly upward in `/Users/abishek/Documents/poker-buyins/online-table.html`:
+  - reduced portrait board-card top margin from `18px` to `12px`
+  - bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster to `?v=62`
+
+- 2026-03-08: Moved the portrait center stack upward in `/Users/abishek/Documents/poker-buyins/online-table.html`:
+  - raised `.table-center` from `top: 55%` to `top: 53%`
+  - bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster to `?v=63`
+
+- 2026-03-08: Added showdown-only directional opponent card placement in compact layouts:
+  - compact opponent cards keep the held-above-avatar look during normal play
+  - at showdown, left-side seats reveal cards to the right, right-side seats reveal to the left, and the top seat reveals below the badge
+  - updated `/Users/abishek/Documents/poker-buyins/online/table_app.js` and `/Users/abishek/Documents/poker-buyins/online-table.html`
+  - bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster to `?v=64`
+
+- 2026-03-08: Cleaned up showdown card presentation in `/Users/abishek/Documents/poker-buyins/online-table.html`:
+  - showdown cards now separate cleanly instead of keeping the held overlap
+  - added a small staggered reveal animation for the two cards
+  - increased compact showdown gap for clearer readability
+  - bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster to `?v=65`
+
+- 2026-03-08: Strengthened compact showdown card separation overrides in `/Users/abishek/Documents/poker-buyins/online-table.html`:
+  - explicitly reset compact showdown first/last card transforms and overlap margins
+  - bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster to `?v=66`
+
 Validation:
 - `node --check /Users/abishek/Documents/poker-buyins/online/table_app.js` (pass)
 - `node /Users/abishek/Documents/poker-buyins/online/showdown.test.js` (pass)
@@ -908,3 +998,34 @@ Update (QA end-to-end review pass):
 - Confirmed every open client currently calls `online-runtime-tick`, which is a scaling/race risk.
 - Noted a reconnect/loading UX flash (`Table` / `0 seated`) on same-device re-entry before first table state resolves.
 - Noted repeated browser warnings from non-standard `slider-vertical` appearance styling.
+
+- 2026-03-08: Slowed the overall online-table rhythm and upgraded bot behavior:
+  - increased hole-card deal stagger/flight timings in `/Users/abishek/Documents/poker-buyins/online/table_app.js`
+  - made bot think-time context-aware by street / facing-bet / pot size in `/Users/abishek/Documents/poker-buyins/online/bot_engine.js`
+  - improved postflop bot judgment with draw detection, pair-quality bonuses, and semi-bluff handling in `/Users/abishek/Documents/poker-buyins/online/bot_engine.js`
+
+- 2026-03-08: Added a staged board reveal for new streets in `/Users/abishek/Documents/poker-buyins/online/table_app.js` and `/Users/abishek/Documents/poker-buyins/online-table.html`:
+  - newly dealt flop/turn/river cards now land face-down on an FX layer and flip after settling
+  - flop uses a three-card laydown followed by a staggered flip to feel more casino-like
+  - real board cards stay hidden only while the reveal FX is active, then restore normally
+  - bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster to `?v=67`
+
+- 2026-03-08: Tightened the board reveal landing in `/Users/abishek/Documents/poker-buyins/online/table_app.js`:
+  - board FX cards now arrive square to the board slots instead of landing slightly misaligned first
+  - keeps the dramatic laydown + flip while removing the visible “straighten” effect at the end
+  - bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster to `?v=68`
+
+- 2026-03-08: Fixed repeated showdown card blinking for opponents in `/Users/abishek/Documents/poker-buyins/online/table_app.js` and `/Users/abishek/Documents/poker-buyins/online-table.html`:
+  - showdown reveal animation now runs once per revealed opponent seat per hand instead of restarting on every state refresh
+  - added per-hand showdown reveal tracking in client state
+  - moved the CSS animation trigger from generic `.showdown` to `.showdown.showdown-fresh`
+  - bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster to `?v=69`
+
+Validation:
+- `node --check /Users/abishek/Documents/poker-buyins/online/bot_engine.js` (pass)
+- `node --check /Users/abishek/Documents/poker-buyins/online/table_app.js` (pass)
+- Ran `$WEB_GAME_CLIENT` smoke load against `http://127.0.0.1:8000/online-table.html`
+- Live local Playwright hand on table `4a41636e-a06b-4eaa-b057-578331c8da21`:
+  - confirmed `sawBoardFx: true` during the flop reveal
+  - measured roughly `3045ms` from hero preflop call to flop landing
+  - visually confirmed slower pacing and board reveal without breaking the hand flow
