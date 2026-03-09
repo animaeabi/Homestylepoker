@@ -128,6 +128,7 @@ const el = {
   cfgSaveGame: document.getElementById("cfgSaveGame"),
   logToggle: document.getElementById("logToggle"),
   handLog: document.getElementById("handLog"),
+  handLogClose: document.getElementById("handLogClose"),
   handLogInner: document.getElementById("handLogInner"),
   voiceFab: document.getElementById("voiceFab"),
   voiceFabDot: document.getElementById("voiceFabDot"),
@@ -1827,6 +1828,9 @@ function syncLandscapeTopBar(forceCollapse = false) {
   state.compactTopBarMode = compactMode;
   const inLandscape = compactMode === "landscape";
   const inPortrait = compactMode === "portrait";
+  if (!state.landscapeTopBarExpanded) {
+    setHandLogOpen(false);
+  }
   el.tableView.classList.toggle("landscape-topbar-expanded", inLandscape && state.landscapeTopBarExpanded);
   el.tableView.classList.toggle("landscape-topbar-collapsed", inLandscape && !state.landscapeTopBarExpanded);
   el.tableView.classList.toggle("portrait-topbar-expanded", inPortrait && state.landscapeTopBarExpanded);
@@ -3774,6 +3778,15 @@ function accumulateHandLog() {
   for (const ev of events) {
     if (ev.seq > state.lastLoggedSeq) {
       state.lastLoggedSeq = ev.seq;
+      if (ev.event_type === "street_dealt" && ev.payload?.burned) {
+        state.handLogEntries.push({
+          type: "event",
+          ev: {
+            event_type: "burn_notice",
+            payload: { street: ev.payload?.street },
+          },
+        });
+      }
       state.handLogEntries.push({ type: "event", ev });
     }
   }
@@ -3796,7 +3809,7 @@ function renderHandLog() {
       el.handLogInner.appendChild(sep);
     } else {
       const div = document.createElement("div");
-      div.className = "log-entry";
+      div.className = `log-entry${entry.ev?.event_type === "burn_notice" ? " log-entry-burn" : ""}`;
       div.innerHTML = describeEvent(entry.ev);
       el.handLogInner.appendChild(div);
     }
@@ -3812,12 +3825,24 @@ function describeEvent(ev) {
     case "hand_started": return `Hand #${p.hand_no || "?"} started`;
     case "blind_posted": return `Blinds: SB ${fmtShort(p.small_blind_amount)} / BB ${fmtShort(p.big_blind_amount)}`;
     case "hole_dealt": return "Hole cards dealt";
+    case "burn_notice": return `Burn before ${(p.street || "next street").toUpperCase()}`;
     case "action_taken": {
       const copy = getActionCopy(ev);
       return `<strong>${copy.actor || actor}</strong> ${copy.detail}`;
     }
     case "street_dealt": {
-      const cards = Array.isArray(p.board_cards) ? p.board_cards.map(t => { const f = cardFace(t); return f.valid ? f.text : "?"; }).join(" ") : "";
+      const board = Array.isArray(p.board_cards) ? p.board_cards : [];
+      const revealed = p.street === "flop"
+        ? board.slice(0, 3)
+        : p.street === "turn"
+          ? board.slice(-1)
+          : p.street === "river"
+            ? board.slice(-1)
+            : board;
+      const cards = revealed.map(t => {
+        const f = cardFace(t);
+        return f.valid ? f.text : "?";
+      }).join(" ");
       return `${(p.street || "street").toUpperCase()} dealt ${cards}`;
     }
     case "showdown_ready": return "Showdown";
@@ -3825,6 +3850,13 @@ function describeEvent(ev) {
     case "hand_settled": return "Hand settled";
     default: return ev.event_type;
   }
+}
+
+function setHandLogOpen(open) {
+  state.logOpen = Boolean(open) && state.config.showLog !== false;
+  el.handLog.classList.toggle("open", state.logOpen);
+  el.logToggle.classList.toggle("active", state.logOpen);
+  el.logToggle.setAttribute("aria-expanded", state.logOpen ? "true" : "false");
 }
 
 // ============ ACTIONS ============
@@ -3963,6 +3995,9 @@ function bindEvents() {
   });
 
   el.tableSurface.addEventListener("click", (e) => {
+    if (state.logOpen && !e.target.closest("#handLog")) {
+      setHandLogOpen(false);
+    }
     if ((isLandscapeCollapseMode() || isPortraitCollapseMode()) && state.landscapeTopBarExpanded) {
       state.landscapeTopBarExpanded = false;
       syncLandscapeTopBar();
@@ -4014,16 +4049,13 @@ function bindEvents() {
     setToggle("cfgLogOn", "cfgLogOff");
     state.config.showLog = true;
     el.logToggle.classList.remove("hidden");
-    el.logToggle.setAttribute("aria-expanded", state.logOpen ? "true" : "false");
+    setHandLogOpen(state.logOpen);
   });
   document.getElementById("cfgLogOff").addEventListener("click", () => {
     setToggle("cfgLogOff", "cfgLogOn");
     state.config.showLog = false;
     el.logToggle.classList.add("hidden");
-    el.handLog.classList.remove("open");
-    el.logToggle.classList.remove("active");
-    el.logToggle.setAttribute("aria-expanded", "false");
-    state.logOpen = false;
+    setHandLogOpen(false);
   });
 
   // Save game config (blinds, turn time)
@@ -4046,11 +4078,9 @@ function bindEvents() {
   });
 
   el.logToggle.addEventListener("click", () => {
-    state.logOpen = !state.logOpen;
-    el.handLog.classList.toggle("open", state.logOpen);
-    el.logToggle.classList.toggle("active", state.logOpen);
-    el.logToggle.setAttribute("aria-expanded", state.logOpen ? "true" : "false");
+    setHandLogOpen(!state.logOpen);
   });
+  el.handLogClose?.addEventListener("click", () => setHandLogOpen(false));
 
   el.chatFab?.addEventListener("click", () => {
     toggleChat();

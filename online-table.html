@@ -1753,22 +1753,74 @@
 
       /* Hand Log */
       .hand-log {
-        max-height: 0;
+        position: fixed;
+        top: max(60px, calc(env(safe-area-inset-top) + 56px));
+        right: max(14px, calc(env(safe-area-inset-right) + 14px));
+        width: min(260px, calc(54vw));
+        max-height: min(320px, calc(100vh - 120px));
+        display: flex;
+        flex-direction: column;
         overflow: hidden;
-        transition: max-height 0.3s ease;
-        background: var(--surface2);
-        border-top: 1px solid var(--border);
+        border-radius: 16px;
+        border: 1px solid rgba(228,205,146,0.12);
+        background:
+          linear-gradient(180deg, rgba(10,16,20,0.78), rgba(7,11,16,0.68)),
+          radial-gradient(circle at top, rgba(72,221,214,0.08), transparent 62%);
+        backdrop-filter: blur(20px) saturate(1.1);
+        box-shadow: 0 14px 30px rgba(0,0,0,0.28);
+        opacity: 0;
+        transform: translateY(-8px);
+        pointer-events: none;
+        z-index: 62;
+        transition: opacity 0.2s ease, transform 0.2s ease;
       }
 
-      .hand-log.open { max-height: 300px; }
+      .hand-log.open {
+        opacity: 1;
+        transform: translateY(0);
+        pointer-events: auto;
+      }
+
+      .hand-log-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 10px 12px 8px;
+        border-bottom: 1px solid rgba(255,255,255,0.06);
+      }
+
+      .hand-log-title {
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--gold-bright);
+      }
+
+      .hand-log-close {
+        width: 26px;
+        height: 26px;
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 999px;
+        background: rgba(255,255,255,0.04);
+        color: var(--text-muted);
+        font: inherit;
+        font-size: 13px;
+        line-height: 1;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+      }
 
       .hand-log-inner {
-        padding: 12px 16px;
-        max-height: 280px;
+        padding: 10px 12px 12px;
         overflow-y: auto;
         display: flex;
         flex-direction: column;
         gap: 4px;
+        min-height: 0;
       }
 
       .log-entry {
@@ -1796,6 +1848,11 @@
         margin-top: 0;
         border-top: none;
         padding-top: 0;
+      }
+
+      .log-entry-burn {
+        color: rgba(229, 210, 168, 0.82);
+        font-style: italic;
       }
 
       .log-toggle {
@@ -2155,6 +2212,13 @@
       }
 
       @media (max-width: 768px) and (orientation: portrait) {
+        .hand-log {
+          top: max(52px, calc(env(safe-area-inset-top) + 52px));
+          right: max(8px, calc(env(safe-area-inset-right) + 8px));
+          width: min(188px, calc(42vw));
+          max-height: min(250px, calc(100vh - 180px));
+        }
+
         .utility-fab-row {
           right: 8px;
           bottom: calc(env(safe-area-inset-bottom) + 62px);
@@ -2179,6 +2243,13 @@
       }
 
       @media (orientation: landscape) and (max-height: 500px) {
+        .hand-log {
+          top: max(48px, calc(env(safe-area-inset-top) + 48px));
+          right: max(10px, calc(env(safe-area-inset-right) + 10px));
+          width: min(190px, calc(24vw));
+          max-height: min(220px, calc(100vh - 96px));
+        }
+
         .utility-fab-row {
           right: 10px;
           bottom: 28px;
@@ -2992,6 +3063,10 @@
             transform: translateY(14px);
           }
 
+          .my-hand-area:not(.no-hole-cards) .my-hand-nameplate {
+            transform: translateY(10px);
+          }
+
         }
 
         .action-strip {
@@ -3739,8 +3814,6 @@
           box-shadow: 0 7px 20px rgba(0,0,0,0.42), inset 0 0 0 1px rgba(255,233,188,0.2);
         }
 
-        .log-toggle { display: none; }
-        .hand-log { display: none; }
       }
 
       @media (orientation: landscape) and (max-height: 500px) and (min-width: 668px) {
@@ -3965,6 +4038,10 @@
       </div>
 
       <div class="hand-log" id="handLog">
+        <div class="hand-log-head">
+          <span class="hand-log-title">Hand Log</span>
+          <button class="hand-log-close" id="handLogClose" type="button" aria-label="Close hand log">✕</button>
+        </div>
         <div class="hand-log-inner" id="handLogInner"></div>
       </div>
     </section>
@@ -4006,6 +4083,6 @@
     <div class="voice-audio-rack" id="voiceAudioRack" aria-hidden="true"></div>
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
-    <script type="module" src="./online/table_app.js?v=103"></script>
+    <script type="module" src="./online/table_app.js?v=104"></script>
   </body>
 </html>
