@@ -1,8 +1,8 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../config.js";
-import { createOnlinePokerClient } from "./client.js?v=113";
+import { createOnlinePokerClient } from "./client.js?v=114";
 import { describeSevenCardHand, resolveShowdownPayouts } from "./showdown.js";
-import { decide as botDecide, thinkTimeMs, randomPersonality, randomBotName, personalityLabel, OpponentTracker } from "./bot_engine.js";
+import { randomPersonality, randomBotName, personalityLabel, OpponentTracker } from "./bot_engine.js";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const online = createOnlinePokerClient(supabase);
@@ -177,7 +177,6 @@ const state = {
     soundOn: true,
     showLog: true,
   },
-  botActionTimer: null,
   opponentTracker: new OpponentTracker(),
   lastTrackedEventSeq: 0,
   equityCacheKey: "",
@@ -1502,6 +1501,20 @@ function seatLooksBot(seat) {
   return /^bot\b/i.test(String(seat.player_name || "").trim());
 }
 
+function findSeatByNo(seatNo) {
+  return getSeats().find((seat) => seat.seat_no === seatNo) || null;
+}
+
+function isBotGroupPlayerId(groupPlayerId) {
+  if (!groupPlayerId) return false;
+  return getSeats().some(
+    (seat) =>
+      seat.group_player_id === groupPlayerId &&
+      !seat.left_at &&
+      seatLooksBot(seat)
+  );
+}
+
 function getEffectiveHostGroupPlayerId() {
   const table = getTable();
   if (!table) return null;
@@ -2723,17 +2736,19 @@ function updateConnDot() {
 }
 
 function syncBotSeatsWithTable() {
-  if (!state.botSeats.size) return;
-  let changed = false;
-  const seatsByNo = new Map(getSeats().map((seat) => [seat.seat_no, seat]));
-  for (const [seatNo, info] of [...state.botSeats.entries()]) {
-    const seat = seatsByNo.get(seatNo);
-    if (!seat || seat.left_at || seat.group_player_id !== info.groupPlayerId || !seatLooksBot(seat)) {
-      state.botSeats.delete(seatNo);
-      changed = true;
-    }
+  const existing = new Map(state.botSeats);
+  state.botSeats.clear();
+  for (const seat of getSeats()) {
+    if (!seat.group_player_id || seat.left_at || !seatLooksBot(seat)) continue;
+    const cached = existing.get(seat.seat_no) || null;
+    state.botSeats.set(seat.seat_no, {
+      groupPlayerId: seat.group_player_id,
+      seatToken: cached?.seatToken || null,
+      personality: seat.bot_personality || cached?.personality || "TAG",
+      name: seat.player_name || cached?.name || seatName(seat.group_player_id),
+    });
   }
-  if (changed) saveBotSeats();
+  saveBotSeats();
 }
 
 // ============ POLLING ============
@@ -2827,7 +2842,6 @@ async function loadTableState() {
     trackOpponentActions();
 
     renderAll();
-    checkBotTurn();
   } catch (err) {
     console.error("[loadTableState]", err);
     if (state.pendingAction) {
@@ -2875,11 +2889,7 @@ function trackOpponentActions() {
 
     const actorId = ev.actor_group_player_id;
     if (!actorId) continue;
-    if (state.botSeats.size > 0) {
-      let isBot = false;
-      for (const [, b] of state.botSeats) { if (b.groupPlayerId === actorId) { isBot = true; break; } }
-      if (isBot) continue;
-    }
+    if (isBotGroupPlayerId(actorId)) continue;
 
     const p = ev.payload || {};
     if (ev.event_type === "hand_started") {
@@ -2903,10 +2913,7 @@ function trackOpponentActions() {
 function getPrimaryOpponentProfile() {
   const me = state.identity?.groupPlayerId;
   const seats = getSeats().filter(s => s.group_player_id && !s.left_at && s.group_player_id !== me);
-  const humans = seats.filter(s => {
-    for (const [, b] of state.botSeats) { if (b.groupPlayerId === s.group_player_id) return false; }
-    return true;
-  });
+  const humans = seats.filter((seat) => !seatLooksBot(seat));
   if (humans.length === 0) return null;
   return state.opponentTracker.getProfile(humans[0].group_player_id);
 }
@@ -3024,11 +3031,19 @@ async function transferHostToPlayer(seat) {
 
 // ============ BOT MANAGEMENT ============
 function isBotSeat(seatNo) {
-  return state.botSeats.has(seatNo);
+  return seatLooksBot(findSeatByNo(seatNo));
 }
 
 function getBotInfo(seatNo) {
-  return state.botSeats.get(seatNo) || null;
+  const seat = findSeatByNo(seatNo);
+  if (!seat || !seatLooksBot(seat)) return state.botSeats.get(seatNo) || null;
+  const cached = state.botSeats.get(seatNo) || null;
+  return {
+    groupPlayerId: seat.group_player_id,
+    seatToken: cached?.seatToken || null,
+    personality: seat.bot_personality || cached?.personality || "TAG",
+    name: seat.player_name || cached?.name || seatName(seat.group_player_id),
+  };
 }
 
 async function addBot(seatNo) {
@@ -3043,6 +3058,7 @@ async function addBot(seatNo) {
       groupPlayerId: identity.group_player_id,
       preferredSeat: seatNo,
       isBot: true,
+      botPersonality: personality,
     });
 
     if (seat?.seat_token) {
@@ -3062,24 +3078,35 @@ async function addBot(seatNo) {
 }
 
 async function removeBot(seatNo) {
-  const bot = state.botSeats.get(seatNo);
-  if (!bot) return;
-  try {
-    await online.leaveTable({
-      tableId: state.tableId,
-      groupPlayerId: bot.groupPlayerId,
-      seatToken: bot.seatToken,
-    });
-  } catch { /* seat may already be gone */ }
+  const seat = findSeatByNo(seatNo);
+  const bot = getBotInfo(seatNo);
+  if (canManageHand() && seat?.group_player_id) {
+    try {
+      await online.kickTablePlayer({
+        tableId: state.tableId,
+        actorGroupPlayerId: state.identity.groupPlayerId,
+        seatToken: getSeatToken(),
+        targetGroupPlayerId: seat.group_player_id,
+      });
+    } catch { /* seat may already be gone */ }
+  } else if (bot?.groupPlayerId && bot?.seatToken) {
+    try {
+      await online.leaveTable({
+        tableId: state.tableId,
+        groupPlayerId: bot.groupPlayerId,
+        seatToken: bot.seatToken,
+      });
+    } catch { /* seat may already be gone */ }
+  }
   state.botSeats.delete(seatNo);
   saveBotSeats();
   await loadTableState();
 }
 
 async function removeAllBots() {
-  const entries = [...state.botSeats.entries()];
-  for (const [seatNo] of entries) {
-    await removeBot(seatNo);
+  const botSeats = getSeatedPlayers().filter((seat) => seatLooksBot(seat));
+  for (const seat of botSeats) {
+    await removeBot(seat.seat_no);
   }
   toast("All bots removed", "success");
 }
@@ -3104,78 +3131,6 @@ function loadBotSeats() {
       state.botSeats.set(Number(seatNo), info);
     }
   } catch { /* ignore */ }
-}
-
-function checkBotTurn() {
-  if (state.botActionTimer) return;
-  const hand = getLatestHand();
-  if (!hand || !isActionStreet(hand.state) || !hand.action_seat) return;
-
-  const botInfo = getBotInfo(hand.action_seat);
-  if (!botInfo) return;
-
-  const hp = getHandPlayers().find(p => p.seat_no === hand.action_seat);
-  if (!hp || hp.folded || hp.all_in) return;
-
-  const delay = thinkTimeMs({
-    street: hand.state,
-    toCall: Math.max(0, Number(hand.current_bet || 0) - Number(hp.street_contribution || 0)),
-    pot: Number(hand.pot_total || 0),
-    currentBet: Number(hand.current_bet || 0),
-    activeSeatCount: getHandPlayers().filter((player) => !player.folded).length,
-  });
-  state.botActionTimer = setTimeout(async () => {
-    state.botActionTimer = null;
-    const freshHand = getLatestHand();
-    if (!freshHand || freshHand.action_seat !== hand.action_seat) return;
-
-    const freshHp = getHandPlayers().find(p => p.seat_no === freshHand.action_seat);
-    if (!freshHp || freshHp.folded || freshHp.all_in) return;
-
-    const table = getTable();
-    const activePlayers = getHandPlayers().filter(p => !p.folded).length;
-    const wasAggressor = botInfo._wasAggressor || false;
-    const opProfile = getPrimaryOpponentProfile();
-
-    const decision = botDecide({
-      personality: botInfo.personality,
-      holeCards: freshHp.hole_cards || [],
-      boardCards: freshHand.board_cards || [],
-      pot: Number(freshHand.pot_total || 0),
-      currentBet: Number(freshHand.current_bet || 0),
-      streetContribution: Number(freshHp.street_contribution || 0),
-      stackEnd: Number(freshHp.stack_end || 0),
-      bigBlind: Number(table?.big_blind || 2),
-      street: freshHand.state,
-      seatNo: freshHp.seat_no,
-      buttonSeat: freshHand.button_seat,
-      totalSeats: table?.max_seats || 6,
-      activeSeatCount: activePlayers,
-      wasAggressor,
-      opponentProfile: opProfile,
-    });
-
-    if (decision.actionType === "raise" || decision.actionType === "bet") {
-      botInfo._wasAggressor = true;
-    }
-    if (freshHand.state === "preflop" && (decision.actionType === "raise" || decision.actionType === "all_in")) {
-      botInfo._wasAggressor = true;
-    }
-
-    try {
-      await online.submitAction({
-        handId: freshHand.id,
-        actorGroupPlayerId: botInfo.groupPlayerId,
-        actionType: decision.actionType,
-        amount: decision.amount,
-        clientActionId: `bot_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-        seatToken: botInfo.seatToken,
-      });
-    } catch (err) {
-      console.warn("[bot-action]", err?.message || err);
-    }
-  await loadTableState();
-  }, delay);
 }
 
 // ============ RENDER ============
@@ -3209,7 +3164,8 @@ function renderTopBar() {
   el.tbBlinds.textContent = table ? `${table.small_blind}/${table.big_blind}` : "";
   const seated = getSeats().filter(s => s.group_player_id && !s.left_at).length;
   el.tbPlayers.textContent = `${seated} seated`;
-  el.removeBotsBtn.style.display = (canManageHand() && state.botSeats.size > 0) ? "" : "none";
+  const hasBots = getSeatedPlayers().some((seat) => seatLooksBot(seat));
+  el.removeBotsBtn.style.display = (canManageHand() && hasBots) ? "" : "none";
 }
 
 function renderConfigPlayers() {
@@ -3538,7 +3494,7 @@ function renderSeats() {
       if (botInfo) {
         const botTag = document.createElement("div");
         botTag.className = "bot-label";
-        botTag.textContent = `AI · ${personalityLabel(botInfo.personality)}`;
+        botTag.textContent = `AI · ${personalityLabel(botInfo.personality || seat.bot_personality || "TAG")}`;
         node.appendChild(botTag);
       }
 
@@ -4301,7 +4257,6 @@ function bindEvents() {
   window.addEventListener("beforeunload", () => {
     if (state.pollTimer) clearInterval(state.pollTimer);
     if (state.turnTimer) clearInterval(state.turnTimer);
-    if (state.botActionTimer) clearTimeout(state.botActionTimer);
     if (state.realtimeChannel) supabase.removeChannel(state.realtimeChannel);
     if (state.chatChannel) supabase.removeChannel(state.chatChannel);
     void disconnectVoice({ silent: true, destroy: true });

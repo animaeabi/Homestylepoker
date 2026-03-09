@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { resolveShowdownPayouts } from "../_shared/showdown.ts";
+import { botThinkTimeMs, decideBotAction } from "../_shared/bot_engine.ts";
 
 const STREET_STATES = new Set(["preflop", "flop", "turn", "river"]);
 const ACTIVE_RUNTIME_STATES = new Set(["preflop", "flop", "turn", "river", "showdown"]);
@@ -76,12 +77,52 @@ function createOnlineRpcClient() {
     async getActiveSeatByNumber({ tableId, seatNo }: { tableId: string; seatNo: number }) {
       const { data, error } = await client
         .from("online_table_seats")
-        .select("group_player_id, seat_token")
+        .select("id, group_player_id, seat_token, is_bot, bot_personality, bot_rebuy_count, chip_stack")
         .eq("table_id", tableId)
         .eq("seat_no", seatNo)
         .is("left_at", null)
         .maybeSingle();
       if (error) throw normalizeSupabaseError("[getActiveSeatByNumber]", error);
+      return data || null;
+    },
+
+    async listActiveBotSeats({ tableId }: { tableId: string }) {
+      const { data, error } = await client
+        .from("online_table_seats")
+        .select("id, seat_no, group_player_id, seat_token, bot_personality, bot_rebuy_count, chip_stack")
+        .eq("table_id", tableId)
+        .eq("is_bot", true)
+        .is("left_at", null)
+        .not("group_player_id", "is", null)
+        .order("seat_no", { ascending: true });
+      if (error) throw normalizeSupabaseError("[listActiveBotSeats]", error);
+      return data || [];
+    },
+
+    async getTableById({ tableId }: { tableId: string }) {
+      const { data, error } = await client
+        .from("online_tables")
+        .select("id, big_blind, max_seats")
+        .eq("id", tableId)
+        .maybeSingle();
+      if (error) throw normalizeSupabaseError("[getTableById]", error);
+      return data || null;
+    },
+
+    async updateBotSeat({
+      seatId,
+      patch
+    }: {
+      seatId: string;
+      patch: Record<string, unknown>;
+    }) {
+      const { data, error } = await client
+        .from("online_table_seats")
+        .update(patch)
+        .eq("id", seatId)
+        .select("id")
+        .maybeSingle();
+      if (error) throw normalizeSupabaseError("[updateBotSeat]", error);
       return data || null;
     },
 
@@ -163,6 +204,39 @@ function createOnlineRpcClient() {
         p_table_id: tableId,
         p_note: note
       });
+    },
+
+    async rebuyChips({
+      tableId,
+      groupPlayerId,
+      seatToken
+    }: {
+      tableId: string;
+      groupPlayerId: string;
+      seatToken: string;
+    }) {
+      return callRpc("online_rebuy_chips", {
+        p_table_id: tableId,
+        p_group_player_id: groupPlayerId,
+        p_seat_token: seatToken,
+        p_amount: null
+      });
+    },
+
+    async leaveTable({
+      tableId,
+      groupPlayerId,
+      seatToken
+    }: {
+      tableId: string;
+      groupPlayerId: string;
+      seatToken: string;
+    }) {
+      return callRpc("online_leave_table", {
+        p_table_id: tableId,
+        p_group_player_id: groupPlayerId,
+        p_seat_token: seatToken
+      });
     }
   };
 }
@@ -206,6 +280,134 @@ async function settleShowdownFromState({
   });
 }
 
+function didSeatAggressInCurrentHand(events: any[], groupPlayerId: string | null) {
+  if (!groupPlayerId) return false;
+  for (let i = (events || []).length - 1; i >= 0; i -= 1) {
+    const ev = events[i];
+    if (ev?.event_type !== "action_taken") continue;
+    if (ev?.actor_group_player_id !== groupPlayerId) continue;
+    const action = String(ev?.payload?.action_type || "");
+    if (action === "bet" || action === "raise" || action === "all_in") return true;
+  }
+  return false;
+}
+
+async function processBotAction({
+  onlineClient,
+  hand,
+  actingSeat,
+  actorGroupPlayerId = null,
+  settleNote = "edge_runtime_auto_showdown"
+}: {
+  onlineClient: ReturnType<typeof createOnlineRpcClient>;
+  hand: any;
+  actingSeat: any;
+  actorGroupPlayerId?: string | null;
+  settleNote?: string;
+}) {
+  const handState = await onlineClient.getHandState({ handId: hand.id, sinceSeq: null });
+  const table = await onlineClient.getTableById({ tableId: hand.table_id });
+  const players = Array.isArray(handState?.players) ? handState.players : [];
+  const botPlayer = players.find((player: any) => Number(player.seat_no) === Number(hand.action_seat));
+
+  if (!botPlayer) {
+    return { handId: hand.id, state: hand.state, advanced: 0, settled: false, skipped: true, reason: "bot_player_not_found" };
+  }
+
+  const elapsedMs = hand.last_action_at ? (Date.now() - Date.parse(hand.last_action_at)) : Number.MAX_SAFE_INTEGER;
+  const thinkMs = botThinkTimeMs({
+    street: hand.state,
+    toCall: Math.max(0, Number(hand.current_bet || 0) - Number(botPlayer.street_contribution || 0)),
+    pot: Number(hand.pot_total || 0),
+    currentBet: Number(hand.current_bet || 0),
+    activeSeatCount: players.filter((player: any) => !player.folded).length,
+  });
+
+  if (elapsedMs < thinkMs) {
+    return { handId: hand.id, state: hand.state, advanced: 0, settled: false, skipped: true, reason: "awaiting_bot_think" };
+  }
+
+  const decision = decideBotAction({
+    personality: actingSeat.bot_personality || "TAG",
+    holeCards: Array.isArray(botPlayer.hole_cards) ? botPlayer.hole_cards : [],
+    boardCards: Array.isArray(hand.board_cards) ? hand.board_cards : [],
+    pot: Number(hand.pot_total || 0),
+    currentBet: Number(hand.current_bet || 0),
+    streetContribution: Number(botPlayer.street_contribution || 0),
+    stackEnd: Number(botPlayer.stack_end || 0),
+    bigBlind: Number(table?.big_blind || 2),
+    street: String(hand.state || "preflop"),
+    seatNo: Number(botPlayer.seat_no || 0),
+    buttonSeat: Number(hand.button_seat || 0),
+    totalSeats: Number(table?.max_seats || 6),
+    activeSeatCount: players.filter((player: any) => !player.folded).length,
+    wasAggressor: didSeatAggressInCurrentHand(handState?.events || [], actingSeat.group_player_id),
+    opponentProfile: null
+  });
+
+  await onlineClient.submitAction({
+    handId: hand.id,
+    actorGroupPlayerId: actingSeat.group_player_id,
+    actionType: decision.actionType,
+    amount: decision.amount,
+    seatToken: actingSeat.seat_token,
+    clientActionId: `runtime_bot_action:${hand.id}:${actingSeat.id}:${Date.now()}`
+  });
+
+  const postActionState = await onlineClient.getHandState({ handId: hand.id, sinceSeq: null });
+  let currentState = postActionState?.hand?.state || hand.state;
+  let settled = false;
+
+  if (currentState === "showdown") {
+    await settleShowdownFromState({
+      onlineClient,
+      handId: hand.id,
+      actorGroupPlayerId,
+      note: settleNote
+    });
+    settled = true;
+    currentState = "settled";
+  }
+
+  return { handId: hand.id, state: currentState, advanced: 0, settled, skipped: false };
+}
+
+async function prepareBotsForNextHand({
+  onlineClient,
+  tableId
+}: {
+  onlineClient: ReturnType<typeof createOnlineRpcClient>;
+  tableId: string;
+}) {
+  const bots = await onlineClient.listActiveBotSeats({ tableId });
+  for (const bot of bots) {
+    if (Number(bot.chip_stack || 0) > 0) continue;
+    const rebuys = Number(bot.bot_rebuy_count || 0);
+    if (rebuys >= 5) {
+      if (bot.group_player_id && bot.seat_token) {
+        await onlineClient.leaveTable({
+          tableId,
+          groupPlayerId: bot.group_player_id,
+          seatToken: bot.seat_token
+        });
+      }
+      continue;
+    }
+
+    if (bot.group_player_id && bot.seat_token) {
+      await onlineClient.rebuyChips({
+        tableId,
+        groupPlayerId: bot.group_player_id,
+        seatToken: bot.seat_token
+      });
+      await onlineClient.updateBotSeat({
+        seatId: bot.id,
+        patch: { bot_rebuy_count: rebuys + 1 }
+      });
+    }
+  }
+}
+
 async function processHandForRuntime({
   onlineClient,
   hand,
@@ -245,6 +447,21 @@ async function processHandForRuntime({
       ? Math.max(0, (Date.now() - lastActionAtMs) / 1000)
       : turnTimeoutSecs + 1;
 
+    const actingSeat = await onlineClient.getActiveSeatByNumber({
+      tableId: hand.table_id,
+      seatNo: actionSeat
+    });
+
+    if (actingSeat?.is_bot) {
+      return processBotAction({
+        onlineClient,
+        hand,
+        actingSeat,
+        actorGroupPlayerId,
+        settleNote
+      });
+    }
+
     if (elapsedSecs < turnTimeoutSecs) {
       return {
         handId,
@@ -255,11 +472,6 @@ async function processHandForRuntime({
         reason: "awaiting_actor_action"
       };
     }
-
-    const actingSeat = await onlineClient.getActiveSeatByNumber({
-      tableId: hand.table_id,
-      seatNo: actionSeat
-    });
 
     if (!actingSeat?.group_player_id || !actingSeat?.seat_token) {
       return {
@@ -399,6 +611,10 @@ async function runRuntimeTick({
     const dueTableId = entry?.table_id || null;
     if (!dueTableId) continue;
     try {
+      await prepareBotsForNextHand({
+        onlineClient,
+        tableId: dueTableId
+      });
       await onlineClient.runtimeStartHand({
         tableId: dueTableId,
         note: "edge_runtime_auto_deal"

@@ -73,7 +73,8 @@ export function createOnlinePokerClient(supabase) {
       preferredSeat = null,
       chipStack = null,
       seatToken = null,
-      isBot = false
+      isBot = false,
+      botPersonality = null
     }) {
       return callRpc(supabase, "online_join_table", {
         p_table_id: tableId,
@@ -81,7 +82,8 @@ export function createOnlinePokerClient(supabase) {
         p_preferred_seat: preferredSeat,
         p_chip_stack: chipStack,
         p_seat_token: seatToken,
-        p_is_bot: isBot
+        p_is_bot: isBot,
+        p_bot_personality: botPersonality
       });
     },
 

@@ -27,6 +27,8 @@ create table if not exists online_table_seats (
   chip_stack numeric not null default 0,
   is_sitting_out boolean not null default false,
   seat_token text not null default encode(gen_random_bytes(16), 'hex'),
+  bot_personality text,
+  bot_rebuy_count int not null default 0,
   joined_at timestamptz not null default now(),
   left_at timestamptz,
   unique (table_id, seat_no)
@@ -38,6 +40,12 @@ alter table online_table_seats
 
 alter table online_table_seats
   add column if not exists is_bot boolean not null default false;
+
+alter table online_table_seats
+  add column if not exists bot_personality text;
+
+alter table online_table_seats
+  add column if not exists bot_rebuy_count int not null default 0;
 
 drop function if exists online_active_human_host_group_player(uuid);
 create or replace function online_active_human_host_group_player(p_table_id uuid)
@@ -1426,15 +1434,6 @@ as $$
       where active_hand.table_id = t.id
         and active_hand.state not in ('settled', 'canceled')
     )
-    and (
-      select count(*)
-      from online_table_seats s
-      where s.table_id = t.id
-        and s.group_player_id is not null
-        and s.left_at is null
-        and not s.is_sitting_out
-        and coalesce(s.chip_stack, 0) > 0
-    ) >= 2
   order by lh.ended_at asc nulls last
   limit greatest(coalesce(p_limit, 24), 1);
 $$;
@@ -3006,13 +3005,15 @@ $$;
 drop function if exists online_join_table(uuid, uuid, int, numeric);
 drop function if exists online_join_table(uuid, uuid, int, numeric, text);
 drop function if exists online_join_table(uuid, uuid, int, numeric, text, boolean);
+drop function if exists online_join_table(uuid, uuid, int, numeric, text, boolean, text);
 create or replace function online_join_table(
   p_table_id uuid,
   p_group_player_id uuid,
   p_preferred_seat int default null,
   p_chip_stack numeric default null,
   p_seat_token text default null,
-  p_is_bot boolean default false
+  p_is_bot boolean default false,
+  p_bot_personality text default null
 )
 returns online_table_seats
 language plpgsql
@@ -3070,6 +3071,8 @@ begin
       group_player_id = p_group_player_id,
       chip_stack = greatest(v_stack, 0),
       is_bot = coalesce(p_is_bot, false),
+      bot_personality = case when coalesce(p_is_bot, false) then nullif(trim(p_bot_personality), '') else null end,
+      bot_rebuy_count = case when coalesce(p_is_bot, false) then 0 else 0 end,
       is_sitting_out = false,
       seat_token = coalesce(nullif(trim(p_seat_token), ''), encode(gen_random_bytes(16), 'hex')),
       joined_at = now(),
@@ -3090,6 +3093,8 @@ begin
       group_player_id = p_group_player_id,
       chip_stack = greatest(v_stack, 0),
       is_bot = coalesce(p_is_bot, false),
+      bot_personality = case when coalesce(p_is_bot, false) then nullif(trim(p_bot_personality), '') else null end,
+      bot_rebuy_count = case when coalesce(p_is_bot, false) then 0 else 0 end,
       is_sitting_out = false,
       seat_token = coalesce(nullif(trim(p_seat_token), ''), encode(gen_random_bytes(16), 'hex')),
       joined_at = now(),

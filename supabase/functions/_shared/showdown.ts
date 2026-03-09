@@ -180,6 +180,50 @@ function splitCents(totalCents: number, seats: number[]) {
   }));
 }
 
+const HAND_CLASS_NAMES: Record<number, string> = {
+  8: "Straight Flush",
+  7: "Four of a Kind",
+  6: "Full House",
+  5: "Flush",
+  4: "Straight",
+  3: "Three of a Kind",
+  2: "Two Pair",
+  1: "One Pair",
+  0: "High Card"
+};
+
+function rankToFace(rankValue: number) {
+  if (rankValue === 14) return "A";
+  if (rankValue === 13) return "K";
+  if (rankValue === 12) return "Q";
+  if (rankValue === 11) return "J";
+  if (rankValue === 10) return "10";
+  if (rankValue === 1) return "A";
+  return String(rankValue || "");
+}
+
+export function describeSevenCardHand(cardTokens: string[]) {
+  const cards = (cardTokens || []).map(toCard);
+  if (cards.length < 5) {
+    return { classRank: null, className: "", label: "", tuple: [] as number[] };
+  }
+
+  const tuple = best5Rank(cards);
+  const classRank = Number(tuple[0]);
+  const className = HAND_CLASS_NAMES[classRank] || "Hand";
+  let label = className;
+
+  if (classRank === 8 && Number(tuple[1]) === 14) {
+    label = "Royal Flush";
+  } else if (classRank === 4 || classRank === 8) {
+    label = `${className} (${rankToFace(tuple[1])} high)`;
+  } else if (classRank === 7 || classRank === 3 || classRank === 1) {
+    label = `${className} (${rankToFace(tuple[1])})`;
+  }
+
+  return { classRank, className, label, tuple };
+}
+
 export function resolveShowdownPayouts({
   boardCards,
   players
@@ -234,4 +278,3 @@ export function resolveShowdownPayouts({
     .map(([seatNo, cents]) => ({ seat_no: seatNo, amount: Number((cents / 100).toFixed(2)) }))
     .sort((a, b) => a.seat_no - b.seat_no);
 }
-
