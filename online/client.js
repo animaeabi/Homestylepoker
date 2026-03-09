@@ -103,6 +103,24 @@ export function createOnlinePokerClient(supabase) {
       });
     },
 
+    kickTablePlayer({ tableId, actorGroupPlayerId, seatToken, targetGroupPlayerId }) {
+      return callRpc(supabase, "online_kick_table_player", {
+        p_table_id: tableId,
+        p_actor_group_player_id: actorGroupPlayerId,
+        p_actor_seat_token: seatToken,
+        p_target_group_player_id: targetGroupPlayerId
+      });
+    },
+
+    transferTableHost({ tableId, actorGroupPlayerId, seatToken, targetGroupPlayerId }) {
+      return callRpc(supabase, "online_transfer_table_host", {
+        p_table_id: tableId,
+        p_actor_group_player_id: actorGroupPlayerId,
+        p_actor_seat_token: seatToken,
+        p_target_group_player_id: targetGroupPlayerId
+      });
+    },
+
     rebuyChips({ tableId, groupPlayerId, seatToken, amount = null }) {
       return callRpc(supabase, "online_rebuy_chips", {
         p_table_id: tableId,

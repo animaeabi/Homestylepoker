@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../config.js";
-import { createOnlinePokerClient } from "./client.js?v=90";
+import { createOnlinePokerClient } from "./client.js?v=112";
 import { describeSevenCardHand, resolveShowdownPayouts } from "./showdown.js";
 import { decide as botDecide, thinkTimeMs, randomPersonality, randomBotName, personalityLabel, OpponentTracker } from "./bot_engine.js";
 
@@ -126,6 +126,8 @@ const el = {
   cfgBB: document.getElementById("cfgBB"),
   cfgTurnTime: document.getElementById("cfgTurnTime"),
   cfgSaveGame: document.getElementById("cfgSaveGame"),
+  cfgPlayersList: document.getElementById("cfgPlayersList"),
+  cfgPlayersEmpty: document.getElementById("cfgPlayersEmpty"),
   logToggle: document.getElementById("logToggle"),
   handLog: document.getElementById("handLog"),
   handLogClose: document.getElementById("handLogClose"),
@@ -218,6 +220,7 @@ const state = {
   voiceHoldRequested: false,
   voiceSuppressClickUntil: 0,
   lastVoiceBusyToastAt: 0,
+  lastTurnTickSoundKey: null,
   chatInputFocused: false,
   viewportFreezeHeight: 0,
   chatOpen: false,
@@ -1526,6 +1529,12 @@ function canManageHand() {
   return isHostPlayer() && Boolean(getSeatToken()) && Boolean(getMySeat());
 }
 
+function getSeatedPlayers() {
+  return getSeats()
+    .filter((seat) => seat.group_player_id && !seat.left_at)
+    .sort((a, b) => a.seat_no - b.seat_no);
+}
+
 function isActionStreet(s) {
   return ["preflop","flop","turn","river"].includes(s);
 }
@@ -2717,6 +2726,20 @@ function updateConnDot() {
   el.connDot.className = `connection-dot${state.realtimeHealthy ? "" : " error"}`;
 }
 
+function syncBotSeatsWithTable() {
+  if (!state.botSeats.size) return;
+  let changed = false;
+  const seatsByNo = new Map(getSeats().map((seat) => [seat.seat_no, seat]));
+  for (const [seatNo, info] of [...state.botSeats.entries()]) {
+    const seat = seatsByNo.get(seatNo);
+    if (!seat || seat.left_at || seat.group_player_id !== info.groupPlayerId || !seatLooksBot(seat)) {
+      state.botSeats.delete(seatNo);
+      changed = true;
+    }
+  }
+  if (changed) saveBotSeats();
+}
+
 // ============ POLLING ============
 function startPolling() {
   if (state.pollTimer) clearInterval(state.pollTimer);
@@ -2766,6 +2789,7 @@ async function loadTableState() {
     const oldHand = getLatestHand();
     const oldPotTotal = Number(oldHand?.pot_total || 0);
     state.tableState = ts;
+    syncBotSeatsWithTable();
     state.lastSyncAt = Date.now();
     state.pendingAction = false;
     if (state.tableBooting) setTableBooting(false);
@@ -2971,6 +2995,7 @@ function openConfigPanel() {
   if (el.cfgSB) el.cfgSB.disabled = !isHost;
   if (el.cfgBB) el.cfgBB.disabled = !isHost;
   if (el.cfgSaveGame) el.cfgSaveGame.style.display = isHost ? "" : "none";
+  renderConfigPlayers();
 
   el.configOverlay.classList.remove("hidden");
 }
@@ -3015,6 +3040,54 @@ async function doRebuy() {
     await loadTableState();
   } catch (err) {
     toast(err.message || "Rebuy failed", "error");
+  }
+}
+
+async function kickPlayerFromTable(seat) {
+  if (!canManageHand()) {
+    toast("Only the host can remove players.", "error");
+    return;
+  }
+  if (!seat?.group_player_id || seat.group_player_id === state.identity?.groupPlayerId) return;
+  const displayName = seat.player_name || seatName(seat.group_player_id);
+  if (!window.confirm(`Remove ${displayName} from the table?`)) return;
+
+  try {
+    await online.kickTablePlayer({
+      tableId: state.tableId,
+      actorGroupPlayerId: state.identity.groupPlayerId,
+      seatToken: getSeatToken(),
+      targetGroupPlayerId: seat.group_player_id,
+    });
+    state.botSeats.delete(seat.seat_no);
+    saveBotSeats();
+    toast(`${displayName} removed`, "success");
+    await loadTableState();
+  } catch (err) {
+    toast(err.message || "Failed to remove player", "error");
+  }
+}
+
+async function transferHostToPlayer(seat) {
+  if (!canManageHand()) {
+    toast("Only the host can transfer host rights.", "error");
+    return;
+  }
+  if (!seat?.group_player_id || seatLooksBot(seat) || seat.group_player_id === state.identity?.groupPlayerId) return;
+  const displayName = seat.player_name || seatName(seat.group_player_id);
+  if (!window.confirm(`Transfer host rights to ${displayName}?`)) return;
+
+  try {
+    await online.transferTableHost({
+      tableId: state.tableId,
+      actorGroupPlayerId: state.identity.groupPlayerId,
+      seatToken: getSeatToken(),
+      targetGroupPlayerId: seat.group_player_id,
+    });
+    toast(`${displayName} is now the host`, "success");
+    await loadTableState();
+  } catch (err) {
+    toast(err.message || "Failed to transfer host rights", "error");
   }
 }
 
@@ -3182,12 +3255,14 @@ function renderAll() {
   renderMyHand();
   renderActions();
   renderHandLog();
+  renderConfigPlayers();
   renderVoiceUi();
   renderChatUi();
   maybeLaunchPotPushFx();
   maybeLaunchDealFx();
   maybeLaunchStreetRevealFx();
   updateTurnUI();
+  updateTimerRings();
 }
 
 function renderTopBar() {
@@ -3204,6 +3279,94 @@ function renderTopBar() {
   const seated = getSeats().filter(s => s.group_player_id && !s.left_at).length;
   el.tbPlayers.textContent = `${seated} seated`;
   el.removeBotsBtn.style.display = (canManageHand() && state.botSeats.size > 0) ? "" : "none";
+}
+
+function renderConfigPlayers() {
+  if (!el.cfgPlayersList || !el.cfgPlayersEmpty) return;
+
+  const seatedPlayers = getSeatedPlayers();
+  const hostPlayerId = getEffectiveHostGroupPlayerId();
+  const isHost = canManageHand();
+  const myPlayerId = state.identity?.groupPlayerId || null;
+
+  el.cfgPlayersList.innerHTML = "";
+  el.cfgPlayersEmpty.classList.toggle("hidden", seatedPlayers.length > 0);
+
+  for (const seat of seatedPlayers) {
+    const row = document.createElement("div");
+    row.className = "config-player-row";
+
+    const meta = document.createElement("div");
+    meta.className = "config-player-meta";
+
+    const nameRow = document.createElement("div");
+    nameRow.className = "config-player-name-row";
+
+    const nameEl = document.createElement("span");
+    nameEl.className = "config-player-name";
+    nameEl.textContent = seat.player_name || seatName(seat.group_player_id);
+    nameRow.appendChild(nameEl);
+
+    if (seat.group_player_id === myPlayerId) {
+      const youBadge = document.createElement("span");
+      youBadge.className = "config-player-chip";
+      youBadge.textContent = "You";
+      nameRow.appendChild(youBadge);
+    }
+
+    if (seatLooksBot(seat)) {
+      const botBadge = document.createElement("span");
+      botBadge.className = "config-player-chip";
+      botBadge.textContent = "Bot";
+      nameRow.appendChild(botBadge);
+    }
+
+    if (seat.group_player_id === hostPlayerId) {
+      const hostBadge = document.createElement("span");
+      hostBadge.className = "config-player-chip config-player-chip-host";
+      hostBadge.textContent = "Host";
+      nameRow.appendChild(hostBadge);
+    }
+
+    const detailEl = document.createElement("div");
+    detailEl.className = "config-player-detail";
+    detailEl.textContent = `Seat ${seat.seat_no} · ${fmtShort(seat.chip_stack)}`;
+    meta.append(nameRow, detailEl);
+    row.appendChild(meta);
+
+    const actions = document.createElement("div");
+    actions.className = "config-player-actions";
+    const canTargetSeat = seat.group_player_id && seat.group_player_id !== myPlayerId;
+
+    if (isHost && canTargetSeat && !seatLooksBot(seat) && seat.group_player_id !== hostPlayerId) {
+      const hostBtn = document.createElement("button");
+      hostBtn.type = "button";
+      hostBtn.className = "config-player-action";
+      hostBtn.textContent = "Host";
+      hostBtn.addEventListener("click", async () => {
+        await transferHostToPlayer(seat);
+      });
+      actions.appendChild(hostBtn);
+    }
+
+    if (isHost && canTargetSeat) {
+      const kickBtn = document.createElement("button");
+      kickBtn.type = "button";
+      kickBtn.className = "config-player-action danger";
+      kickBtn.setAttribute("aria-label", `Remove ${seat.player_name || "player"} from table`);
+      kickBtn.textContent = "×";
+      kickBtn.addEventListener("click", async () => {
+        await kickPlayerFromTable(seat);
+      });
+      actions.appendChild(kickBtn);
+    }
+
+    if (actions.childElementCount) {
+      row.appendChild(actions);
+    }
+
+    el.cfgPlayersList.appendChild(row);
+  }
 }
 
 function renderBoard() {
@@ -3311,6 +3474,7 @@ function renderSeats() {
   const contestedShowdown = isContestedShowdown(hand, handPlayers);
   const showdownLeaderSeats = new Set(getShowdownLeaders(hand, handPlayers).map(({ player }) => player.seat_no));
   const activeVoiceSpeakerId = getServerVoiceState().speakerPlayerId;
+  const turnRemaining = hand && hand.action_seat ? getTurnClock(hand) : null;
 
   const tableSeats = compactMobile && mySeat ? seats.filter(s => s.seat_no !== mySeat.seat_no) : seats;
   const tableTotal = tableSeats.length;
@@ -3331,6 +3495,7 @@ function renderSeats() {
     const pid = occupied ? seat.group_player_id : null;
     const empty = !pid;
     const isTurn = hand && hand.action_seat === seat.seat_no;
+    const isOvertimeTurn = Boolean(isTurn && turnRemaining != null && turnRemaining <= 0);
     const isFolded = hp?.folded;
     const isAllIn = hp?.all_in;
 
@@ -3377,6 +3542,7 @@ function renderSeats() {
       const isBot = isBotSeat(seat.seat_no);
       if (isBot) node.classList.add("bot-seat");
       if (isTurn) node.classList.add("active-turn");
+      if (isOvertimeTurn) node.classList.add("overtime");
       if (isFolded) node.classList.add("folded");
       if (activeVoiceSpeakerId && pid === activeVoiceSpeakerId) node.classList.add("voice-speaking");
 
@@ -3385,6 +3551,7 @@ function renderSeats() {
       const color = SEAT_COLORS[(seat.seat_no - 1) % SEAT_COLORS.length];
       const avatarEl = document.createElement("div");
       avatarEl.className = "seat-avatar";
+      avatarEl.dataset.seat = String(seat.seat_no);
       applyAvatarTheme(avatarEl, {
         seed: `${pid || seat.player_name || displayName}:${seat.seat_no}`,
         name: displayName,
@@ -3510,28 +3677,6 @@ function renderSeats() {
         }
       }
 
-      if (isTurn) {
-        const ring = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-        ring.setAttribute("class", "seat-timer-ring");
-        ring.setAttribute("viewBox", "0 0 24 24");
-        const bg = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-        bg.setAttribute("class", "seat-timer-bg");
-        bg.setAttribute("cx", "12"); bg.setAttribute("cy", "12"); bg.setAttribute("r", "10");
-        const fg = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-        fg.setAttribute("class", "seat-timer-fg");
-        fg.setAttribute("cx", "12"); fg.setAttribute("cy", "12"); fg.setAttribute("r", "10");
-        fg.setAttribute("data-seat", seat.seat_no);
-        const circ = 2 * Math.PI * 10;
-        fg.style.strokeDasharray = `${circ}`;
-        const remaining = getTurnClock(hand);
-        const frac = remaining != null ? remaining / getTurnClockSecs() : 1;
-        fg.style.strokeDashoffset = `${circ * (1 - frac)}`;
-        if (remaining != null && remaining <= 5) fg.classList.add("danger");
-        else if (remaining != null && remaining <= 10) fg.classList.add("warn");
-        ring.append(bg, fg);
-        node.appendChild(ring);
-      }
-
       const winData = state.winOverlays.get(seat.seat_no);
       if (winData && Date.now() < winData.until) {
         if (winData.isShowdownLeader !== false) node.classList.add("winner-seat");
@@ -3609,6 +3754,8 @@ function renderMyHand() {
   const mySeat = getMySeat();
   if (!mySeat) {
     el.myHandArea?.classList.remove("voice-speaking");
+    el.myHandArea?.classList.remove("active-turn");
+    if (el.myHandAvatar) delete el.myHandAvatar.dataset.seat;
     return;
   }
   const activeVoiceSpeakerId = getServerVoiceState().speakerPlayerId;
@@ -3617,11 +3764,13 @@ function renderMyHand() {
   const displayStack = (hp && hp.stack_end != null) ? hp.stack_end : mySeat.chip_stack;
   stackEl.textContent = fmtShort(displayStack);
   el.myHandArea?.classList.toggle("voice-speaking", Boolean(activeVoiceSpeakerId && mySeat.group_player_id === activeVoiceSpeakerId));
+  el.myHandArea?.classList.toggle("active-turn", Boolean(hand?.action_seat && hand.action_seat === mySeat.seat_no));
   applyAvatarTheme(el.myHandAvatar, {
     seed: `${state.identity?.groupPlayerId || mySeat.group_player_id || mySeat.seat_no}:${state.identity?.name || "You"}`,
     name: state.identity?.name || "You",
     isBot: false,
   });
+  el.myHandAvatar.dataset.seat = String(mySeat.seat_no);
 
   if (hand && badgesEl) {
     if (hand.button_seat === mySeat.seat_no) {
@@ -3686,17 +3835,53 @@ function renderMyHand() {
 
 function updateTimerRings() {
   const hand = getLatestHand();
-  if (!hand || !hand.action_seat) return;
+  const avatars = [
+    ...el.seatsLayer.querySelectorAll(".seat-avatar"),
+    ...(el.myHandAvatar ? [el.myHandAvatar] : []),
+  ];
+
+  const applyClockState = (avatar, active, remainingSecs) => {
+    if (!avatar) return;
+    avatar.classList.remove("turn-clock", "warn", "danger", "overtime");
+    avatar.style.setProperty("--turn-ring-stop", "360deg");
+    avatar.style.setProperty("--turn-ring-color", "var(--avatar-ring)");
+    if (!active || remainingSecs == null) return;
+    const frac = Math.max(0, Math.min(1, remainingSecs / getTurnClockSecs()));
+    avatar.classList.add("turn-clock");
+    avatar.style.setProperty("--turn-ring-stop", `${Math.max(0, Math.min(360, frac * 360))}deg`);
+    if (remainingSecs <= 0) avatar.classList.add("danger", "overtime");
+    else if (remainingSecs <= 5) avatar.classList.add("danger");
+    else if (remainingSecs <= 10) avatar.classList.add("warn");
+  };
+
+  if (!hand || !hand.action_seat) {
+    avatars.forEach((avatar) => applyClockState(avatar, false, null));
+    el.myHandArea?.classList.remove("active-turn");
+    el.myHandArea?.classList.remove("overtime");
+    state.lastTurnTickSoundKey = null;
+    return;
+  }
+
   const remaining = getTurnClock(hand);
-  const frac = remaining != null ? remaining / getTurnClockSecs() : 1;
-  const circ = 2 * Math.PI * 10;
-  const fgs = el.seatsLayer.querySelectorAll(".seat-timer-fg");
-  fgs.forEach(fg => {
-    fg.style.strokeDashoffset = `${circ * (1 - frac)}`;
-    fg.classList.remove("warn", "danger");
-    if (remaining != null && remaining <= 5) { fg.classList.add("danger"); sounds.tick(); }
-    else if (remaining != null && remaining <= 10) fg.classList.add("warn");
+  const actingSeat = Number(hand.action_seat || 0);
+  const mySeat = getMySeat();
+
+  avatars.forEach((avatar) => {
+    const seatNo = Number(avatar.dataset.seat || 0);
+    applyClockState(avatar, seatNo === actingSeat, remaining);
   });
+
+  const isMyTurn = Boolean(mySeat && actingSeat === mySeat.seat_no);
+  const timedOut = remaining != null && remaining <= 0;
+  el.myHandArea?.classList.toggle("active-turn", isMyTurn);
+  el.myHandArea?.classList.toggle("overtime", isMyTurn && timedOut);
+  const soundKey = isMyTurn && remaining != null && remaining > 0 && remaining <= 5
+    ? `${hand.id}:${actingSeat}:${remaining}`
+    : null;
+  if (soundKey && soundKey !== state.lastTurnTickSoundKey) {
+    sounds.tick();
+  }
+  state.lastTurnTickSoundKey = soundKey;
 }
 
 function renderActions() {
