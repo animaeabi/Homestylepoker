@@ -211,6 +211,8 @@ const state = {
   voiceUsageLimit: 9000,
   voiceFloorHeartbeatTimer: null,
   voiceAudioElements: new Map(),
+  voicePermissionPrimed: false,
+  voicePermissionDenied: false,
   voicePressTimer: null,
   voiceHoldRequested: false,
   voiceSuppressClickUntil: 0,
@@ -636,6 +638,35 @@ async function ensureVoiceConnected() {
     state.voiceJoinPromise = null;
     state.voiceJoining = false;
     renderVoiceUi();
+  }
+}
+
+async function requestMicrophonePermissionOnJoin() {
+  if (state.voicePermissionPrimed || state.voicePermissionDenied) return;
+  if (!window.isSecureContext) return;
+  const mediaDevices = navigator.mediaDevices;
+  if (!mediaDevices || typeof mediaDevices.getUserMedia !== "function") return;
+
+  try {
+    const stream = await mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+      video: false,
+    });
+    for (const track of stream.getTracks()) {
+      try { track.stop(); } catch {}
+    }
+    state.voicePermissionPrimed = true;
+    renderVoiceUi();
+  } catch (error) {
+    const name = String(error?.name || "");
+    if (/NotAllowedError|PermissionDeniedError|SecurityError/i.test(name)) {
+      state.voicePermissionDenied = true;
+      toast("Microphone access denied. Voice chat will stay off until you allow it.", "error");
+    }
   }
 }
 
@@ -2493,6 +2524,7 @@ async function createAndJoinTable() {
   });
 
   if (seat?.seat_token) setSeatToken(table.id, id.groupPlayerId, seat.seat_token);
+  await requestMicrophonePermissionOnJoin();
   enterTable(table.id);
 }
 
@@ -2512,6 +2544,7 @@ async function joinExistingTable(tableId) {
     });
   }
   if (seat?.seat_token) setSeatToken(tableId, id.groupPlayerId, seat.seat_token);
+  await requestMicrophonePermissionOnJoin();
   enterTable(tableId);
 }
 
