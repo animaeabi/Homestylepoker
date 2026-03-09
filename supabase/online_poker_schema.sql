@@ -152,6 +152,12 @@ create table if not exists online_hand_players (
   unique (hand_id, seat_no)
 );
 
+alter table online_hand_players
+  add column if not exists stat_vpip_recorded boolean not null default false;
+
+alter table online_hand_players
+  add column if not exists stat_pfr_recorded boolean not null default false;
+
 create table if not exists online_hand_events (
   id bigserial primary key,
   hand_id uuid not null references online_hands(id) on delete cascade,
@@ -218,6 +224,337 @@ create table if not exists online_table_voice_state (
   floor_expires_at timestamptz,
   updated_at timestamptz not null default now()
 );
+
+create table if not exists online_player_read_profiles (
+  group_player_id uuid primary key references group_players(id) on delete cascade,
+  hands_observed numeric not null default 0,
+  vpip_hands numeric not null default 0,
+  pfr_hands numeric not null default 0,
+  faced_bet_events numeric not null default 0,
+  fold_to_bet_events numeric not null default 0,
+  postflop_bet_events numeric not null default 0,
+  postflop_call_events numeric not null default 0,
+  river_faced_bet_events numeric not null default 0,
+  river_fold_events numeric not null default 0,
+  showdown_wins numeric not null default 0,
+  showdown_losses numeric not null default 0,
+  aggressive_showdown_losses numeric not null default 0,
+  trap_showdown_wins numeric not null default 0,
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists online_table_player_read_profiles (
+  table_id uuid not null references online_tables(id) on delete cascade,
+  group_player_id uuid not null references group_players(id) on delete cascade,
+  hands_observed int not null default 0,
+  vpip_hands int not null default 0,
+  pfr_hands int not null default 0,
+  faced_bet_events int not null default 0,
+  fold_to_bet_events int not null default 0,
+  postflop_bet_events int not null default 0,
+  postflop_call_events int not null default 0,
+  river_faced_bet_events int not null default 0,
+  river_fold_events int not null default 0,
+  showdown_wins int not null default 0,
+  showdown_losses int not null default 0,
+  aggressive_showdown_losses int not null default 0,
+  trap_showdown_wins int not null default 0,
+  net_result numeric not null default 0,
+  recent_aggression_ema numeric not null default 0,
+  recent_call_ema numeric not null default 0,
+  recent_fold_ema numeric not null default 0,
+  consecutive_losses int not null default 0,
+  last_showdown_result text,
+  last_showdown_at timestamptz,
+  actions_since_showdown int not null default 999,
+  updated_at timestamptz not null default now(),
+  primary key (table_id, group_player_id)
+);
+
+drop function if exists online_bot_profile_is_human(uuid, uuid);
+create or replace function online_bot_profile_is_human(
+  p_table_id uuid,
+  p_group_player_id uuid
+)
+returns boolean
+language sql
+stable
+as $$
+  select
+    exists (
+      select 1
+      from group_players gp
+      where gp.id = p_group_player_id
+        and gp.archived_at is null
+        and coalesce(gp.name, '') not ilike 'Bot %'
+    )
+    and not exists (
+      select 1
+      from online_table_seats s
+      where s.table_id = p_table_id
+        and s.group_player_id = p_group_player_id
+        and s.left_at is null
+        and coalesce(s.is_bot, false)
+    );
+$$;
+
+drop function if exists online_bot_profile_ema(numeric, numeric, numeric);
+create or replace function online_bot_profile_ema(
+  p_prev numeric,
+  p_observation numeric,
+  p_alpha numeric default 0.25
+)
+returns numeric
+language sql
+immutable
+as $$
+  select (coalesce(p_prev, 0) * (1 - greatest(0, least(coalesce(p_alpha, 0.25), 1))))
+       + (coalesce(p_observation, 0) * greatest(0, least(coalesce(p_alpha, 0.25), 1)));
+$$;
+
+drop function if exists online_bot_profile_ensure(uuid, uuid);
+create or replace function online_bot_profile_ensure(
+  p_table_id uuid,
+  p_group_player_id uuid
+)
+returns void
+language plpgsql
+as $$
+begin
+  if p_group_player_id is null or not online_bot_profile_is_human(p_table_id, p_group_player_id) then
+    return;
+  end if;
+
+  insert into online_player_read_profiles(group_player_id)
+  values (p_group_player_id)
+  on conflict (group_player_id) do nothing;
+
+  insert into online_table_player_read_profiles(table_id, group_player_id)
+  values (p_table_id, p_group_player_id)
+  on conflict (table_id, group_player_id) do nothing;
+end;
+$$;
+
+drop function if exists online_bot_profile_record_hand_start(uuid, uuid);
+create or replace function online_bot_profile_record_hand_start(
+  p_table_id uuid,
+  p_group_player_id uuid
+)
+returns void
+language plpgsql
+as $$
+declare
+  v_decay numeric := 0.985;
+begin
+  if p_group_player_id is null or not online_bot_profile_is_human(p_table_id, p_group_player_id) then
+    return;
+  end if;
+
+  perform online_bot_profile_ensure(p_table_id, p_group_player_id);
+
+  update online_player_read_profiles
+  set
+    hands_observed = (hands_observed * v_decay) + 1,
+    vpip_hands = vpip_hands * v_decay,
+    pfr_hands = pfr_hands * v_decay,
+    faced_bet_events = faced_bet_events * v_decay,
+    fold_to_bet_events = fold_to_bet_events * v_decay,
+    postflop_bet_events = postflop_bet_events * v_decay,
+    postflop_call_events = postflop_call_events * v_decay,
+    river_faced_bet_events = river_faced_bet_events * v_decay,
+    river_fold_events = river_fold_events * v_decay,
+    showdown_wins = showdown_wins * v_decay,
+    showdown_losses = showdown_losses * v_decay,
+    aggressive_showdown_losses = aggressive_showdown_losses * v_decay,
+    trap_showdown_wins = trap_showdown_wins * v_decay,
+    updated_at = now()
+  where group_player_id = p_group_player_id;
+
+  update online_table_player_read_profiles
+  set
+    hands_observed = hands_observed + 1,
+    actions_since_showdown = least(coalesce(actions_since_showdown, 999) + 1, 999),
+    updated_at = now()
+  where table_id = p_table_id
+    and group_player_id = p_group_player_id;
+end;
+$$;
+
+drop function if exists online_bot_profile_record_action(uuid, uuid, text, text, boolean, boolean, boolean);
+create or replace function online_bot_profile_record_action(
+  p_table_id uuid,
+  p_group_player_id uuid,
+  p_street text,
+  p_action_type text,
+  p_facing_bet boolean default false,
+  p_record_vpip boolean default false,
+  p_record_pfr boolean default false
+)
+returns void
+language plpgsql
+as $$
+declare
+  v_aggressive boolean := coalesce(p_street, '') <> 'preflop' and p_action_type in ('bet', 'raise', 'all_in');
+  v_call boolean := coalesce(p_street, '') <> 'preflop' and p_action_type = 'call';
+  v_fold_to_bet boolean := coalesce(p_facing_bet, false) and p_action_type = 'fold';
+  v_river_face boolean := coalesce(p_street, '') = 'river' and coalesce(p_facing_bet, false);
+  v_river_fold boolean := v_river_face and p_action_type = 'fold';
+begin
+  if p_group_player_id is null or not online_bot_profile_is_human(p_table_id, p_group_player_id) then
+    return;
+  end if;
+
+  perform online_bot_profile_ensure(p_table_id, p_group_player_id);
+
+  update online_player_read_profiles
+  set
+    vpip_hands = vpip_hands + case when coalesce(p_record_vpip, false) then 1 else 0 end,
+    pfr_hands = pfr_hands + case when coalesce(p_record_pfr, false) then 1 else 0 end,
+    faced_bet_events = faced_bet_events + case when coalesce(p_facing_bet, false) then 1 else 0 end,
+    fold_to_bet_events = fold_to_bet_events + case when v_fold_to_bet then 1 else 0 end,
+    postflop_bet_events = postflop_bet_events + case when v_aggressive then 1 else 0 end,
+    postflop_call_events = postflop_call_events + case when v_call then 1 else 0 end,
+    river_faced_bet_events = river_faced_bet_events + case when v_river_face then 1 else 0 end,
+    river_fold_events = river_fold_events + case when v_river_fold then 1 else 0 end,
+    updated_at = now()
+  where group_player_id = p_group_player_id;
+
+  update online_table_player_read_profiles
+  set
+    vpip_hands = vpip_hands + case when coalesce(p_record_vpip, false) then 1 else 0 end,
+    pfr_hands = pfr_hands + case when coalesce(p_record_pfr, false) then 1 else 0 end,
+    faced_bet_events = faced_bet_events + case when coalesce(p_facing_bet, false) then 1 else 0 end,
+    fold_to_bet_events = fold_to_bet_events + case when v_fold_to_bet then 1 else 0 end,
+    postflop_bet_events = postflop_bet_events + case when v_aggressive then 1 else 0 end,
+    postflop_call_events = postflop_call_events + case when v_call then 1 else 0 end,
+    river_faced_bet_events = river_faced_bet_events + case when v_river_face then 1 else 0 end,
+    river_fold_events = river_fold_events + case when v_river_fold then 1 else 0 end,
+    recent_aggression_ema = online_bot_profile_ema(recent_aggression_ema, case when v_aggressive then 1 else 0 end, 0.28),
+    recent_call_ema = online_bot_profile_ema(recent_call_ema, case when v_call then 1 else 0 end, 0.24),
+    recent_fold_ema = online_bot_profile_ema(recent_fold_ema, case when v_fold_to_bet then 1 else 0 end, 0.24),
+    actions_since_showdown = least(coalesce(actions_since_showdown, 999) + 1, 999),
+    updated_at = now()
+  where table_id = p_table_id
+    and group_player_id = p_group_player_id;
+end;
+$$;
+
+drop function if exists online_bot_profile_record_hand_completion(uuid, boolean);
+create or replace function online_bot_profile_record_hand_completion(
+  p_hand_id uuid,
+  p_showdown boolean default false
+)
+returns void
+language plpgsql
+as $$
+declare
+  v_hand online_hands%rowtype;
+  v_row record;
+  v_net_change numeric;
+  v_outcome text;
+begin
+  select * into v_hand
+  from online_hands
+  where id = p_hand_id;
+
+  if not found then
+    return;
+  end if;
+
+  for v_row in
+    select
+      hp.group_player_id,
+      hp.committed,
+      hp.result_amount,
+      hp.folded,
+      exists (
+        select 1
+        from online_hand_events ev
+        where ev.hand_id = p_hand_id
+          and ev.event_type = 'action_taken'
+          and ev.actor_group_player_id = hp.group_player_id
+          and coalesce(ev.payload->>'action_type', '') in ('bet', 'raise', 'all_in')
+      ) as was_aggressor
+    from online_hand_players hp
+    where hp.hand_id = p_hand_id
+      and hp.group_player_id is not null
+  loop
+    if not online_bot_profile_is_human(v_hand.table_id, v_row.group_player_id) then
+      continue;
+    end if;
+
+    perform online_bot_profile_ensure(v_hand.table_id, v_row.group_player_id);
+
+    v_net_change := coalesce(v_row.result_amount, 0) - coalesce(v_row.committed, 0);
+    v_outcome := case
+      when v_net_change > 0.01 then 'won'
+      when v_net_change < -0.01 then 'lost'
+      else 'split'
+    end;
+
+    if p_showdown then
+      update online_player_read_profiles
+      set
+        showdown_wins = showdown_wins + case when v_outcome = 'won' then 1 else 0 end,
+        showdown_losses = showdown_losses + case when v_outcome = 'lost' then 1 else 0 end,
+        aggressive_showdown_losses = aggressive_showdown_losses + case when v_outcome = 'lost' and v_row.was_aggressor then 1 else 0 end,
+        trap_showdown_wins = trap_showdown_wins + case when v_outcome = 'won' and not v_row.was_aggressor then 1 else 0 end,
+        updated_at = now()
+      where group_player_id = v_row.group_player_id;
+    end if;
+
+    update online_table_player_read_profiles
+    set
+      net_result = net_result + v_net_change,
+      showdown_wins = showdown_wins + case when p_showdown and v_outcome = 'won' then 1 else 0 end,
+      showdown_losses = showdown_losses + case when p_showdown and v_outcome = 'lost' then 1 else 0 end,
+      aggressive_showdown_losses = aggressive_showdown_losses + case when p_showdown and v_outcome = 'lost' and v_row.was_aggressor then 1 else 0 end,
+      trap_showdown_wins = trap_showdown_wins + case when p_showdown and v_outcome = 'won' and not v_row.was_aggressor then 1 else 0 end,
+      consecutive_losses = case when v_outcome = 'lost' then consecutive_losses + 1 else 0 end,
+      last_showdown_result = case when p_showdown then v_outcome else last_showdown_result end,
+      last_showdown_at = case when p_showdown then now() else last_showdown_at end,
+      actions_since_showdown = case when p_showdown then 0 else actions_since_showdown end,
+      updated_at = now()
+    where table_id = v_hand.table_id
+      and group_player_id = v_row.group_player_id;
+  end loop;
+end;
+$$;
+
+drop function if exists online_get_bot_opponent_profiles(uuid);
+create or replace function online_get_bot_opponent_profiles(
+  p_table_id uuid
+)
+returns jsonb
+language sql
+stable
+as $$
+  select coalesce(
+    jsonb_agg(
+      jsonb_build_object(
+        'group_player_id', s.group_player_id,
+        'seat_no', s.seat_no,
+        'player_name', gp.name,
+        'chip_stack', s.chip_stack,
+        'overall', coalesce(to_jsonb(op) - 'group_player_id', '{}'::jsonb),
+        'session', coalesce(to_jsonb(sp) - 'table_id' - 'group_player_id', '{}'::jsonb)
+      )
+      order by s.seat_no
+    ),
+    '[]'::jsonb
+  )
+  from online_table_seats s
+  left join group_players gp on gp.id = s.group_player_id
+  left join online_player_read_profiles op on op.group_player_id = s.group_player_id
+  left join online_table_player_read_profiles sp
+    on sp.table_id = s.table_id
+   and sp.group_player_id = s.group_player_id
+  where s.table_id = p_table_id
+    and s.group_player_id is not null
+    and s.left_at is null
+    and not coalesce(s.is_bot, false)
+    and coalesce(gp.name, '') not ilike 'Bot %';
+$$;
 
 -- Keep table updated_at current.
 create or replace function set_online_table_updated_at()
@@ -1728,6 +2065,11 @@ begin
       false,
       '[]'::jsonb
     );
+
+    perform online_bot_profile_record_hand_start(
+      p_table_id,
+      v_seat.group_player_id
+    );
   end loop;
 
   -- Deal hole cards like a real table: one card per seat, two rounds.
@@ -1865,6 +2207,9 @@ declare
   v_burn_card text;
   v_winner_seat int;
   v_active_seat online_table_seats%rowtype;
+  v_action_street text;
+  v_record_vpip boolean := false;
+  v_record_pfr boolean := false;
 begin
   select * into v_hand
   from online_hands
@@ -1936,6 +2281,7 @@ begin
   end if;
 
   v_prev_bet := coalesce(v_hand.current_bet, 0);
+  v_action_street := v_hand.state;
   v_to_call := greatest(v_prev_bet - coalesce(v_hand_player.street_contribution, 0), 0);
   v_stack := greatest(coalesce(v_hand_player.stack_end, 0), 0);
 
@@ -2022,6 +2368,31 @@ begin
   end if;
 
   v_new_street_contribution := coalesce(v_hand_player.street_contribution, 0);
+  v_record_vpip := v_action_street = 'preflop'
+    and p_action_type in ('call', 'raise', 'all_in')
+    and not coalesce(v_hand_player.stat_vpip_recorded, false);
+  v_record_pfr := v_action_street = 'preflop'
+    and p_action_type in ('raise', 'all_in')
+    and not coalesce(v_hand_player.stat_pfr_recorded, false);
+
+  if v_record_vpip or v_record_pfr then
+    update online_hand_players
+    set
+      stat_vpip_recorded = stat_vpip_recorded or v_record_vpip,
+      stat_pfr_recorded = stat_pfr_recorded or v_record_pfr
+    where id = v_hand_player.id
+    returning * into v_hand_player;
+  end if;
+
+  perform online_bot_profile_record_action(
+    v_hand.table_id,
+    p_actor_group_player_id,
+    v_action_street,
+    p_action_type,
+    v_to_call > 0,
+    v_record_vpip,
+    v_record_pfr
+  );
 
   if p_action_type in ('bet', 'raise', 'all_in') and v_new_street_contribution > v_prev_bet then
     if p_action_type = 'bet' then
@@ -2113,6 +2484,11 @@ begin
       'hand_settled',
       p_actor_group_player_id,
       jsonb_build_object('reason', 'everyone_else_folded')
+    );
+
+    perform online_bot_profile_record_hand_completion(
+      p_hand_id,
+      false
     );
   else
     v_round_done := online_betting_round_complete(p_hand_id);
@@ -2244,7 +2620,7 @@ begin
       'amount', case when p_action_type in ('call','bet','raise','all_in') then v_add else null end,
       'to_call_before', v_to_call,
       'seat_no', v_hand_player.seat_no,
-      'street', v_hand.state
+      'street', v_action_street
     )
   );
 
@@ -2345,6 +2721,11 @@ begin
     last_action_at = now()
   where id = p_hand_id
   returning * into v_hand;
+
+  perform online_bot_profile_record_hand_completion(
+    p_hand_id,
+    true
+  );
 
   perform online_append_hand_event(
     p_hand_id,

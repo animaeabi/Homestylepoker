@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { resolveShowdownPayouts } from "../_shared/showdown.ts";
-import { botThinkTimeMs, decideBotAction } from "../_shared/bot_engine.ts";
+import { botThinkTimeMs, classifyOpponentProfile, combineOpponentProfiles, decideBotAction } from "../_shared/bot_engine.ts";
 
 const STREET_STATES = new Set(["preflop", "flop", "turn", "river"]);
 const ACTIVE_RUNTIME_STATES = new Set(["preflop", "flop", "turn", "river", "showdown"]);
@@ -107,6 +107,12 @@ function createOnlineRpcClient() {
         .maybeSingle();
       if (error) throw normalizeSupabaseError("[getTableById]", error);
       return data || null;
+    },
+
+    async getBotOpponentProfiles({ tableId }: { tableId: string }) {
+      return callRpc("online_get_bot_opponent_profiles", {
+        p_table_id: tableId
+      });
     },
 
     async updateBotSeat({
@@ -292,6 +298,33 @@ function didSeatAggressInCurrentHand(events: any[], groupPlayerId: string | null
   return false;
 }
 
+function toNumber(value: unknown, fallback = 0) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function buildOpponentRead({
+  profileRow,
+  handPlayer,
+  tableBigBlind,
+  avgStackBb,
+}: {
+  profileRow: any;
+  handPlayer: any;
+  tableBigBlind: number;
+  avgStackBb: number;
+}) {
+  return classifyOpponentProfile({
+    seatNo: Number(profileRow?.seat_no || handPlayer?.seat_no || 0) || null,
+    playerName: String(profileRow?.player_name || ""),
+    stack: toNumber(handPlayer?.stack_end, profileRow?.chip_stack),
+    bigBlind: tableBigBlind,
+    avgStackBb,
+    overall: profileRow?.overall || null,
+    session: profileRow?.session || null,
+  });
+}
+
 async function processBotAction({
   onlineClient,
   hand,
@@ -306,20 +339,48 @@ async function processBotAction({
   settleNote?: string;
 }) {
   const handState = await onlineClient.getHandState({ handId: hand.id, sinceSeq: null });
+  const liveHand = handState?.hand || hand;
   const table = await onlineClient.getTableById({ tableId: hand.table_id });
+  const profileRows = await onlineClient.getBotOpponentProfiles({ tableId: hand.table_id });
   const players = Array.isArray(handState?.players) ? handState.players : [];
-  const botPlayer = players.find((player: any) => Number(player.seat_no) === Number(hand.action_seat));
+  const botPlayer = players.find((player: any) => Number(player.seat_no) === Number(liveHand?.action_seat || hand.action_seat));
 
   if (!botPlayer) {
     return { handId: hand.id, state: hand.state, advanced: 0, settled: false, skipped: true, reason: "bot_player_not_found" };
   }
 
+  const liveOpponents = players.filter((player: any) =>
+    Number(player.seat_no) !== Number(botPlayer.seat_no)
+    && !player.folded
+    && !player.all_in
+    && toNumber(player.stack_end, 0) > 0
+    && String(player.group_player_id || "")
+  );
+  const averageStackBb = liveOpponents.length
+    ? liveOpponents.reduce((sum: number, player: any) => sum + (toNumber(player.stack_end, 0) / Math.max(1, Number(table?.big_blind || 2))), 0) / liveOpponents.length
+    : (toNumber(botPlayer.stack_end, 0) / Math.max(1, Number(table?.big_blind || 2)));
+  const activeHumanReads = liveOpponents
+    .filter((player: any) => !player.is_bot)
+    .map((player: any) => {
+      const profileRow = Array.isArray(profileRows)
+        ? profileRows.find((row: any) => String(row?.group_player_id || "") === String(player.group_player_id || ""))
+        : null;
+      return buildOpponentRead({
+        profileRow,
+        handPlayer: player,
+        tableBigBlind: Math.max(1, Number(table?.big_blind || 2)),
+        avgStackBb: averageStackBb,
+      });
+    })
+    .filter(Boolean);
+  const opponentProfile = combineOpponentProfiles(activeHumanReads);
+
   const elapsedMs = hand.last_action_at ? (Date.now() - Date.parse(hand.last_action_at)) : Number.MAX_SAFE_INTEGER;
   const thinkMs = botThinkTimeMs({
-    street: hand.state,
-    toCall: Math.max(0, Number(hand.current_bet || 0) - Number(botPlayer.street_contribution || 0)),
-    pot: Number(hand.pot_total || 0),
-    currentBet: Number(hand.current_bet || 0),
+    street: liveHand?.state || hand.state,
+    toCall: Math.max(0, Number(liveHand?.current_bet || 0) - Number(botPlayer.street_contribution || 0)),
+    pot: Number(liveHand?.pot_total || 0),
+    currentBet: Number(liveHand?.current_bet || 0),
     activeSeatCount: players.filter((player: any) => !player.folded).length,
   });
 
@@ -330,19 +391,19 @@ async function processBotAction({
   const decision = decideBotAction({
     personality: actingSeat.bot_personality || "TAG",
     holeCards: Array.isArray(botPlayer.hole_cards) ? botPlayer.hole_cards : [],
-    boardCards: Array.isArray(hand.board_cards) ? hand.board_cards : [],
-    pot: Number(hand.pot_total || 0),
-    currentBet: Number(hand.current_bet || 0),
+    boardCards: Array.isArray(liveHand?.board_cards) ? liveHand.board_cards : [],
+    pot: Number(liveHand?.pot_total || 0),
+    currentBet: Number(liveHand?.current_bet || 0),
     streetContribution: Number(botPlayer.street_contribution || 0),
     stackEnd: Number(botPlayer.stack_end || 0),
     bigBlind: Number(table?.big_blind || 2),
-    street: String(hand.state || "preflop"),
+    street: String(liveHand?.state || hand.state || "preflop"),
     seatNo: Number(botPlayer.seat_no || 0),
-    buttonSeat: Number(hand.button_seat || 0),
+    buttonSeat: Number(liveHand?.button_seat || 0),
     totalSeats: Number(table?.max_seats || 6),
     activeSeatCount: players.filter((player: any) => !player.folded).length,
     wasAggressor: didSeatAggressInCurrentHand(handState?.events || [], actingSeat.group_player_id),
-    opponentProfile: null
+    opponentProfile
   });
 
   await onlineClient.submitAction({

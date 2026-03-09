@@ -1,12 +1,327 @@
 import { describeSevenCardHand } from "./showdown.ts";
 
 export type BotPersonality = "TAG" | "LAG" | "Rock" | "Station";
+export type OpponentTag =
+  | "nit"
+  | "tag"
+  | "lag"
+  | "station"
+  | "trapper"
+  | "bluff-heavy"
+  | "river-overfolder";
+export type OpponentState =
+  | "tilting"
+  | "protecting_stack"
+  | "bullying"
+  | "sticky_after_showdown";
+export type OpponentProfileBucket = {
+  hands_observed?: number | string | null;
+  vpip_hands?: number | string | null;
+  pfr_hands?: number | string | null;
+  faced_bet_events?: number | string | null;
+  fold_to_bet_events?: number | string | null;
+  postflop_bet_events?: number | string | null;
+  postflop_call_events?: number | string | null;
+  river_faced_bet_events?: number | string | null;
+  river_fold_events?: number | string | null;
+  showdown_wins?: number | string | null;
+  showdown_losses?: number | string | null;
+  aggressive_showdown_losses?: number | string | null;
+  trap_showdown_wins?: number | string | null;
+  net_result?: number | string | null;
+  recent_aggression_ema?: number | string | null;
+  recent_call_ema?: number | string | null;
+  recent_fold_ema?: number | string | null;
+  consecutive_losses?: number | string | null;
+  last_showdown_result?: string | null;
+  last_showdown_at?: string | null;
+  actions_since_showdown?: number | string | null;
+};
+export type OpponentProfileInput = {
+  seatNo?: number | null;
+  playerName?: string | null;
+  stack?: number | null;
+  bigBlind?: number | null;
+  avgStackBb?: number | null;
+  overall?: OpponentProfileBucket | null;
+  session?: OpponentProfileBucket | null;
+};
 export type OpponentProfile = {
   vpip: number;
   pfr: number;
   aggression: number;
   foldToBet: number;
+  riverFoldToBet: number;
+  confidence: number;
+  tags: OpponentTag[];
+  states: OpponentState[];
+  playerName?: string | null;
+  seatNo?: number | null;
+  stackBb?: number | null;
+  avgStackBb?: number | null;
+  playersConsidered?: number;
 } | null;
+
+const STYLE_TAGS: OpponentTag[] = ["nit", "tag", "lag", "station"];
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function toNum(value: unknown, fallback = 0) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function rate(numerator: unknown, denominator: unknown, fallback: number) {
+  const denom = toNum(denominator, 0);
+  if (denom <= 0) return fallback;
+  return clamp(toNum(numerator, 0) / denom, 0, 1);
+}
+
+function weightedAverage(values: number[], weights: number[], fallback: number) {
+  let numerator = 0;
+  let denominator = 0;
+  for (let i = 0; i < values.length; i += 1) {
+    const weight = Math.max(0, Number(weights[i] || 0));
+    numerator += values[i] * weight;
+    denominator += weight;
+  }
+  if (denominator <= 0) return fallback;
+  return numerator / denominator;
+}
+
+function profileMetricsFromBucket(bucket?: OpponentProfileBucket | null) {
+  const handsObserved = toNum(bucket?.hands_observed, 0);
+  const facedBetEvents = toNum(bucket?.faced_bet_events, 0);
+  const foldToBetEvents = toNum(bucket?.fold_to_bet_events, 0);
+  const postflopBetEvents = toNum(bucket?.postflop_bet_events, 0);
+  const postflopCallEvents = toNum(bucket?.postflop_call_events, 0);
+  const riverFacedBetEvents = toNum(bucket?.river_faced_bet_events, 0);
+  const riverFoldEvents = toNum(bucket?.river_fold_events, 0);
+  const showdownWins = toNum(bucket?.showdown_wins, 0);
+  const showdownLosses = toNum(bucket?.showdown_losses, 0);
+  const aggressiveShowdownLosses = toNum(bucket?.aggressive_showdown_losses, 0);
+  const trapShowdownWins = toNum(bucket?.trap_showdown_wins, 0);
+
+  const vpip = rate(bucket?.vpip_hands, handsObserved, 0.28);
+  const pfr = rate(bucket?.pfr_hands, handsObserved, 0.16);
+  const foldToBet = rate(foldToBetEvents, facedBetEvents, 0.46);
+  const riverFoldToBet = rate(riverFoldEvents, riverFacedBetEvents, 0.46);
+  const aggression = postflopCallEvents > 0
+    ? postflopBetEvents / postflopCallEvents
+    : postflopBetEvents > 0 ? 3 : 1;
+  const aggressiveShowdownLossRate = rate(aggressiveShowdownLosses, showdownLosses, 0);
+  const trapShowdownWinRate = rate(trapShowdownWins, showdownWins, 0);
+
+  return {
+    handsObserved,
+    facedBetEvents,
+    postflopActions: postflopBetEvents + postflopCallEvents,
+    riverFacedBetEvents,
+    vpip,
+    pfr,
+    foldToBet,
+    riverFoldToBet,
+    aggression,
+    aggressiveShowdownLossRate,
+    trapShowdownWinRate,
+    netResult: toNum(bucket?.net_result, 0),
+    recentAggressionEma: clamp(toNum(bucket?.recent_aggression_ema, 0), 0, 1),
+    recentCallEma: clamp(toNum(bucket?.recent_call_ema, 0), 0, 1),
+    recentFoldEma: clamp(toNum(bucket?.recent_fold_ema, 0), 0, 1),
+    consecutiveLosses: Math.max(0, Math.floor(toNum(bucket?.consecutive_losses, 0))),
+    lastShowdownResult: String(bucket?.last_showdown_result || "").toLowerCase() || null,
+    actionsSinceShowdown: Math.max(0, Math.floor(toNum(bucket?.actions_since_showdown, 999))),
+  };
+}
+
+export function classifyOpponentProfile(input: OpponentProfileInput): OpponentProfile {
+  const overallMetrics = profileMetricsFromBucket(input?.overall);
+  const sessionMetrics = profileMetricsFromBucket(input?.session);
+  const overallWeight = clamp(overallMetrics.handsObserved, 0, 45) * 0.85;
+  const sessionWeight = clamp(sessionMetrics.handsObserved, 0, 18) * 1.35;
+
+  const vpip = weightedAverage(
+    [overallMetrics.vpip, sessionMetrics.vpip],
+    [overallWeight, sessionWeight],
+    0.28
+  );
+  const pfr = weightedAverage(
+    [overallMetrics.pfr, sessionMetrics.pfr],
+    [overallWeight, sessionWeight],
+    0.16
+  );
+  const aggression = weightedAverage(
+    [overallMetrics.aggression, sessionMetrics.aggression],
+    [Math.max(overallMetrics.postflopActions, 1), Math.max(sessionMetrics.postflopActions * 1.5, 1)],
+    1
+  );
+  const foldToBet = weightedAverage(
+    [overallMetrics.foldToBet, sessionMetrics.foldToBet],
+    [Math.max(overallMetrics.facedBetEvents, 1), Math.max(sessionMetrics.facedBetEvents * 1.5, 1)],
+    0.46
+  );
+  const riverFoldToBet = weightedAverage(
+    [overallMetrics.riverFoldToBet, sessionMetrics.riverFoldToBet],
+    [Math.max(overallMetrics.riverFacedBetEvents, 0.4), Math.max(sessionMetrics.riverFacedBetEvents * 1.6, 0.4)],
+    foldToBet
+  );
+
+  const confidence = clamp(
+    0.14
+      + clamp((overallMetrics.handsObserved * 0.6 + sessionMetrics.handsObserved * 1.3) / 26, 0, 1) * 0.56
+      + clamp((overallMetrics.facedBetEvents + sessionMetrics.facedBetEvents * 1.3) / 10, 0, 1) * 0.18
+      + clamp((overallMetrics.postflopActions + sessionMetrics.postflopActions) / 16, 0, 1) * 0.12,
+    0.14,
+    0.98
+  );
+
+  const tags: OpponentTag[] = [];
+  const styleThreshold = confidence >= 0.34;
+  if (styleThreshold) {
+    if (vpip <= 0.2 && pfr <= 0.13) tags.push("nit");
+    else if (vpip >= 0.37 && pfr < 0.18 && foldToBet <= 0.4) tags.push("station");
+    else if (vpip >= 0.34 && pfr >= 0.24 && aggression >= 1.3) tags.push("lag");
+    else if (vpip >= 0.2 && vpip <= 0.31 && pfr >= 0.15 && pfr <= 0.26 && aggression >= 0.95) tags.push("tag");
+  }
+
+  if (confidence >= 0.42 && weightedAverage(
+    [overallMetrics.trapShowdownWinRate, sessionMetrics.trapShowdownWinRate],
+    [Math.max(overallMetrics.handsObserved, 1), Math.max(sessionMetrics.handsObserved * 1.8, 1)],
+    0
+  ) >= 0.24 && aggression <= 1.02) {
+    tags.push("trapper");
+  }
+
+  if (confidence >= 0.36 && weightedAverage(
+    [overallMetrics.aggressiveShowdownLossRate, sessionMetrics.aggressiveShowdownLossRate],
+    [Math.max(overallMetrics.handsObserved, 1), Math.max(sessionMetrics.handsObserved * 1.7, 1)],
+    0
+  ) >= 0.38 && aggression >= 1.55) {
+    tags.push("bluff-heavy");
+  }
+
+  if (confidence >= 0.4 && riverFoldToBet >= 0.62) {
+    tags.push("river-overfolder");
+  }
+
+  const bigBlind = Math.max(1, toNum(input?.bigBlind, 2));
+  const stack = toNum(input?.stack, 0);
+  const stackBb = stack > 0 ? stack / bigBlind : null;
+  const avgStackBb = toNum(input?.avgStackBb, 0) > 0 ? toNum(input?.avgStackBb, 0) : null;
+  const states: OpponentState[] = [];
+
+  if (
+    sessionMetrics.consecutiveLosses >= 2
+    && sessionMetrics.netResult <= -(bigBlind * 8)
+    && sessionMetrics.recentAggressionEma >= 0.46
+  ) {
+    states.push("tilting");
+  }
+
+  if (stackBb !== null && stackBb <= 24 && sessionMetrics.recentFoldEma >= 0.34) {
+    states.push("protecting_stack");
+  }
+
+  if (
+    stackBb !== null
+    && avgStackBb !== null
+    && stackBb >= avgStackBb * 1.45
+    && sessionMetrics.recentAggressionEma >= 0.45
+  ) {
+    states.push("bullying");
+  }
+
+  if (
+    sessionMetrics.lastShowdownResult === "lost"
+    && sessionMetrics.actionsSinceShowdown <= 6
+    && sessionMetrics.recentCallEma >= 0.4
+  ) {
+    states.push("sticky_after_showdown");
+  }
+
+  return {
+    vpip,
+    pfr,
+    aggression,
+    foldToBet,
+    riverFoldToBet,
+    confidence,
+    tags,
+    states,
+    playerName: input?.playerName || null,
+    seatNo: input?.seatNo ?? null,
+    stackBb,
+    avgStackBb,
+    playersConsidered: 1,
+  };
+}
+
+export function combineOpponentProfiles(profiles: Array<OpponentProfile | null | undefined>): OpponentProfile {
+  const usable = (profiles || []).filter(Boolean) as Exclude<OpponentProfile, null>[];
+  if (!usable.length) return null;
+  if (usable.length === 1) return usable[0];
+
+  const weights = usable.map((profile) => clamp(profile.confidence || 0.4, 0.15, 1));
+  const totalWeight = weights.reduce((sum, weight) => sum + weight, 0) || 1;
+  const tagWeights = new Map<OpponentTag, number>();
+  const stateWeights = new Map<OpponentState, number>();
+
+  usable.forEach((profile, index) => {
+    const weight = weights[index];
+    for (const tag of profile.tags || []) {
+      tagWeights.set(tag, (tagWeights.get(tag) || 0) + weight);
+    }
+    for (const state of profile.states || []) {
+      stateWeights.set(state, (stateWeights.get(state) || 0) + weight);
+    }
+  });
+
+  let styleTag: OpponentTag | null = null;
+  let bestStyleWeight = 0;
+  for (const tag of STYLE_TAGS) {
+    const weight = tagWeights.get(tag) || 0;
+    if (weight > bestStyleWeight) {
+      bestStyleWeight = weight;
+      styleTag = tag;
+    }
+  }
+
+  const tags: OpponentTag[] = [];
+  if (styleTag && bestStyleWeight >= totalWeight * 0.34) tags.push(styleTag);
+  for (const [tag, weight] of tagWeights.entries()) {
+    if (STYLE_TAGS.includes(tag)) continue;
+    if (weight >= totalWeight * 0.28) tags.push(tag);
+  }
+
+  const states = Array.from(stateWeights.entries())
+    .filter(([, weight]) => weight >= totalWeight * 0.22)
+    .sort((a, b) => b[1] - a[1])
+    .map(([state]) => state);
+
+  return {
+    vpip: weightedAverage(usable.map((profile) => profile.vpip), weights, 0.28),
+    pfr: weightedAverage(usable.map((profile) => profile.pfr), weights, 0.16),
+    aggression: weightedAverage(usable.map((profile) => profile.aggression), weights, 1),
+    foldToBet: weightedAverage(usable.map((profile) => profile.foldToBet), weights, 0.46),
+    riverFoldToBet: weightedAverage(usable.map((profile) => profile.riverFoldToBet), weights, 0.46),
+    confidence: clamp(weightedAverage(usable.map((profile) => profile.confidence), weights, 0.45), 0.16, 0.98),
+    tags,
+    states,
+    stackBb: weightedAverage(
+      usable.map((profile) => profile.stackBb ?? 0),
+      usable.map((profile, index) => profile.stackBb == null ? 0 : weights[index]),
+      0
+    ) || null,
+    avgStackBb: weightedAverage(
+      usable.map((profile) => profile.avgStackBb ?? 0),
+      usable.map((profile, index) => profile.avgStackBb == null ? 0 : weights[index]),
+      0
+    ) || null,
+    playersConsidered: usable.length,
+  };
+}
 
 const RANK_VAL: Record<string, number> = {
   "2": 2,
@@ -173,32 +488,92 @@ function coinFlip(probability: number) {
 }
 
 function opponentAdjustments(opProfile: OpponentProfile) {
-  if (!opProfile) return { bluffMod: 0, foldMod: 0, betMod: 0 };
+  if (!opProfile) return { bluffMod: 0, foldMod: 0, betMod: 0, callMod: 0 };
 
   let bluffMod = 0;
   let foldMod = 0;
   let betMod = 0;
+  let callMod = 0;
+  const confidenceScale = clamp(opProfile.confidence || 0.45, 0.2, 1);
+  const hasTag = (tag: OpponentTag) => (opProfile.tags || []).includes(tag);
+  const hasState = (state: OpponentState) => (opProfile.states || []).includes(state);
 
   if (opProfile.vpip > 0.5) {
-    bluffMod -= 0.04;
-    betMod += 0.05;
+    bluffMod -= 0.04 * confidenceScale;
+    betMod += 0.05 * confidenceScale;
   } else if (opProfile.vpip < 0.25) {
-    bluffMod += 0.06;
-    foldMod -= 0.05;
+    bluffMod += 0.06 * confidenceScale;
+    foldMod -= 0.05 * confidenceScale;
   }
 
   if (opProfile.foldToBet > 0.6) {
-    bluffMod += 0.08;
+    bluffMod += 0.08 * confidenceScale;
   } else if (opProfile.foldToBet < 0.3) {
-    bluffMod -= 0.04;
-    betMod += 0.04;
+    bluffMod -= 0.04 * confidenceScale;
+    betMod += 0.04 * confidenceScale;
   }
 
   if (opProfile.aggression < 0.8) {
-    betMod += 0.03;
+    betMod += 0.03 * confidenceScale;
   }
 
-  return { bluffMod, foldMod, betMod };
+  if (hasTag("nit")) {
+    bluffMod += 0.06 * confidenceScale;
+    foldMod -= 0.04 * confidenceScale;
+  }
+  if (hasTag("tag")) {
+    bluffMod -= 0.01 * confidenceScale;
+    betMod += 0.02 * confidenceScale;
+  }
+  if (hasTag("lag")) {
+    bluffMod -= 0.06 * confidenceScale;
+    foldMod -= 0.06 * confidenceScale;
+    callMod += 0.08 * confidenceScale;
+  }
+  if (hasTag("station")) {
+    bluffMod -= 0.09 * confidenceScale;
+    betMod += 0.08 * confidenceScale;
+    callMod -= 0.05 * confidenceScale;
+  }
+  if (hasTag("trapper")) {
+    bluffMod -= 0.05 * confidenceScale;
+    foldMod += 0.02 * confidenceScale;
+  }
+  if (hasTag("bluff-heavy")) {
+    bluffMod -= 0.05 * confidenceScale;
+    foldMod -= 0.08 * confidenceScale;
+    callMod += 0.1 * confidenceScale;
+  }
+  if (hasTag("river-overfolder")) {
+    bluffMod += 0.07 * confidenceScale;
+  }
+
+  if (hasState("tilting")) {
+    bluffMod -= 0.05 * confidenceScale;
+    betMod += 0.08 * confidenceScale;
+    callMod += 0.05 * confidenceScale;
+  }
+  if (hasState("protecting_stack")) {
+    bluffMod += 0.05 * confidenceScale;
+    betMod += 0.03 * confidenceScale;
+  }
+  if (hasState("bullying")) {
+    bluffMod -= 0.04 * confidenceScale;
+    foldMod -= 0.04 * confidenceScale;
+    callMod += 0.06 * confidenceScale;
+  }
+  if (hasState("sticky_after_showdown")) {
+    bluffMod -= 0.06 * confidenceScale;
+    betMod += 0.05 * confidenceScale;
+    callMod -= 0.03 * confidenceScale;
+  }
+
+  return {
+    bluffMod: clamp(bluffMod, -0.18, 0.18),
+    foldMod: clamp(foldMod, -0.14, 0.14),
+    betMod: clamp(betMod, -0.16, 0.18),
+    callMod: clamp(callMod, -0.14, 0.16)
+  };
 }
 
 function positionMultiplier(seatNo: number, buttonSeat: number, totalSeats: number, activeSeatCount: number) {
@@ -329,11 +704,15 @@ export function decideBotAction({
     ? Math.max(0.1, profile.preflopFoldBelow + opAdj.foldMod)
     : Math.max(0.1, profile.postflopFoldBelow + opAdj.foldMod);
   const adjustedRaiseAbove = Math.max(0.3, profile.raiseAbove - opAdj.betMod);
+  const adjustedCallRate = clamp(profile.callRate + opAdj.callMod, 0.48, 0.98);
   const strongDraw = !isPreflop && drawStrength >= 0.12;
   const premiumMadeHand = !isPreflop && (madeClassRank || 0) >= 2;
 
   if (isFlop && wasAggressor && currentBet === 0 && toCall === 0) {
-    const cbetRate = Math.min(0.9, profile.cbetRate + (strongDraw ? 0.08 : 0) + (premiumMadeHand ? 0.06 : 0));
+    const cbetRate = Math.min(
+      0.92,
+      profile.cbetRate + (strongDraw ? 0.08 : 0) + (premiumMadeHand ? 0.06 : 0) + opAdj.bluffMod * 0.35 + opAdj.betMod * 0.2
+    );
     if (coinFlip(cbetRate)) {
       const cbetSize = Math.max(Math.round(pot * rand(0.4, 0.7)), bigBlind || 2);
       if (cbetSize < stack) {
@@ -393,7 +772,7 @@ export function decideBotAction({
 
   if (toCall > 0) {
     if (toCall > stack) {
-      return coinFlip(profile.callRate) ? { actionType: "all_in", amount: null as number | null } : { actionType: "fold", amount: null as number | null };
+      return coinFlip(adjustedCallRate) ? { actionType: "all_in", amount: null as number | null } : { actionType: "fold", amount: null as number | null };
     }
 
     const potOdds = toCall / Math.max(1, pot + toCall);
@@ -401,7 +780,7 @@ export function decideBotAction({
       return coinFlip(0.2) ? { actionType: "call", amount: null as number | null } : { actionType: "fold", amount: null as number | null };
     }
 
-    return coinFlip(profile.callRate) ? { actionType: "call", amount: null as number | null } : { actionType: "fold", amount: null as number | null };
+    return coinFlip(adjustedCallRate) ? { actionType: "call", amount: null as number | null } : { actionType: "fold", amount: null as number | null };
   }
 
   if (strongDraw && coinFlip(0.42)) {
