@@ -63,6 +63,42 @@ export type OpponentProfile = {
 } | null;
 
 const STYLE_TAGS: OpponentTag[] = ["nit", "tag", "lag", "station"];
+const READ_STYLE: Record<BotPersonality, {
+  bluffGain: number;
+  valueGain: number;
+  cautionGain: number;
+  callGain: number;
+  pressureGain: number;
+}> = {
+  TAG: {
+    bluffGain: 0.95,
+    valueGain: 1.05,
+    cautionGain: 1.0,
+    callGain: 0.95,
+    pressureGain: 1.0,
+  },
+  LAG: {
+    bluffGain: 1.35,
+    valueGain: 1.1,
+    cautionGain: 0.72,
+    callGain: 1.05,
+    pressureGain: 1.25,
+  },
+  Rock: {
+    bluffGain: 0.55,
+    valueGain: 0.95,
+    cautionGain: 1.35,
+    callGain: 0.8,
+    pressureGain: 0.7,
+  },
+  Station: {
+    bluffGain: 0.4,
+    valueGain: 0.82,
+    cautionGain: 0.88,
+    callGain: 1.35,
+    pressureGain: 0.6,
+  },
+};
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
@@ -487,7 +523,7 @@ function coinFlip(probability: number) {
   return Math.random() < probability;
 }
 
-function opponentAdjustments(opProfile: OpponentProfile) {
+function opponentAdjustments(opProfile: OpponentProfile, personality: BotPersonality) {
   if (!opProfile) return { bluffMod: 0, foldMod: 0, betMod: 0, callMod: 0 };
 
   let bluffMod = 0;
@@ -495,6 +531,7 @@ function opponentAdjustments(opProfile: OpponentProfile) {
   let betMod = 0;
   let callMod = 0;
   const confidenceScale = clamp(opProfile.confidence || 0.45, 0.2, 1);
+  const style = READ_STYLE[personality] || READ_STYLE.TAG;
   const hasTag = (tag: OpponentTag) => (opProfile.tags || []).includes(tag);
   const hasState = (state: OpponentState) => (opProfile.states || []).includes(state);
 
@@ -518,54 +555,70 @@ function opponentAdjustments(opProfile: OpponentProfile) {
   }
 
   if (hasTag("nit")) {
-    bluffMod += 0.06 * confidenceScale;
-    foldMod -= 0.04 * confidenceScale;
+    bluffMod += 0.06 * confidenceScale * style.bluffGain;
+    foldMod -= 0.04 * confidenceScale * style.pressureGain;
+    if (personality === "LAG") betMod += 0.03 * confidenceScale;
+    if (personality === "Rock") callMod -= 0.02 * confidenceScale;
   }
   if (hasTag("tag")) {
-    bluffMod -= 0.01 * confidenceScale;
-    betMod += 0.02 * confidenceScale;
+    bluffMod -= 0.01 * confidenceScale * style.cautionGain;
+    betMod += 0.02 * confidenceScale * style.valueGain;
   }
   if (hasTag("lag")) {
-    bluffMod -= 0.06 * confidenceScale;
-    foldMod -= 0.06 * confidenceScale;
-    callMod += 0.08 * confidenceScale;
+    bluffMod -= 0.06 * confidenceScale * style.cautionGain;
+    foldMod -= 0.06 * confidenceScale * style.callGain;
+    callMod += 0.08 * confidenceScale * style.callGain;
+    if (personality === "LAG") betMod += 0.04 * confidenceScale;
+    if (personality === "Rock") betMod -= 0.03 * confidenceScale;
   }
   if (hasTag("station")) {
-    bluffMod -= 0.09 * confidenceScale;
-    betMod += 0.08 * confidenceScale;
-    callMod -= 0.05 * confidenceScale;
+    bluffMod -= 0.09 * confidenceScale * (1.2 - style.bluffGain * 0.4);
+    betMod += 0.08 * confidenceScale * style.valueGain;
+    callMod -= 0.05 * confidenceScale * style.cautionGain;
+    if (personality === "LAG") betMod += 0.04 * confidenceScale;
+    if (personality === "Station") foldMod -= 0.02 * confidenceScale;
   }
   if (hasTag("trapper")) {
-    bluffMod -= 0.05 * confidenceScale;
-    foldMod += 0.02 * confidenceScale;
+    bluffMod -= 0.05 * confidenceScale * style.cautionGain;
+    foldMod += 0.02 * confidenceScale * style.cautionGain;
+    if (personality === "Rock") bluffMod -= 0.03 * confidenceScale;
+    if (personality === "LAG") callMod += 0.02 * confidenceScale;
   }
   if (hasTag("bluff-heavy")) {
-    bluffMod -= 0.05 * confidenceScale;
-    foldMod -= 0.08 * confidenceScale;
-    callMod += 0.1 * confidenceScale;
+    bluffMod -= 0.05 * confidenceScale * style.cautionGain;
+    foldMod -= 0.08 * confidenceScale * style.callGain;
+    callMod += 0.1 * confidenceScale * style.callGain;
+    if (personality === "LAG") betMod += 0.03 * confidenceScale;
+    if (personality === "Rock") callMod -= 0.03 * confidenceScale;
   }
   if (hasTag("river-overfolder")) {
-    bluffMod += 0.07 * confidenceScale;
+    bluffMod += 0.07 * confidenceScale * style.bluffGain;
+    if (personality === "LAG") betMod += 0.02 * confidenceScale;
   }
 
   if (hasState("tilting")) {
-    bluffMod -= 0.05 * confidenceScale;
-    betMod += 0.08 * confidenceScale;
-    callMod += 0.05 * confidenceScale;
+    bluffMod -= 0.05 * confidenceScale * style.cautionGain;
+    betMod += 0.08 * confidenceScale * style.valueGain;
+    callMod += 0.05 * confidenceScale * style.callGain;
+    if (personality === "Rock") foldMod += 0.03 * confidenceScale;
   }
   if (hasState("protecting_stack")) {
-    bluffMod += 0.05 * confidenceScale;
-    betMod += 0.03 * confidenceScale;
+    bluffMod += 0.05 * confidenceScale * style.pressureGain;
+    betMod += 0.03 * confidenceScale * style.pressureGain;
+    if (personality === "LAG") bluffMod += 0.03 * confidenceScale;
   }
   if (hasState("bullying")) {
-    bluffMod -= 0.04 * confidenceScale;
-    foldMod -= 0.04 * confidenceScale;
-    callMod += 0.06 * confidenceScale;
+    bluffMod -= 0.04 * confidenceScale * style.cautionGain;
+    foldMod -= 0.04 * confidenceScale * style.callGain;
+    callMod += 0.06 * confidenceScale * style.callGain;
+    if (personality === "Rock") betMod -= 0.02 * confidenceScale;
+    if (personality === "LAG") callMod += 0.03 * confidenceScale;
   }
   if (hasState("sticky_after_showdown")) {
-    bluffMod -= 0.06 * confidenceScale;
-    betMod += 0.05 * confidenceScale;
-    callMod -= 0.03 * confidenceScale;
+    bluffMod -= 0.06 * confidenceScale * style.cautionGain;
+    betMod += 0.05 * confidenceScale * style.valueGain;
+    callMod -= 0.03 * confidenceScale * style.cautionGain;
+    if (personality === "Station") callMod += 0.03 * confidenceScale;
   }
 
   return {
@@ -695,7 +748,7 @@ export function decideBotAction({
   const madeClassRank = isPreflop ? null : postflop.classRank;
 
   const posMult = positionMultiplier(seatNo || 0, buttonSeat || 0, totalSeats || 6, activeSeatCount || 2);
-  const opAdj = opponentAdjustments(opponentProfile || null);
+  const opAdj = opponentAdjustments(opponentProfile || null, personality);
   const noise = rand(-0.05, 0.05);
   const effectiveStrength = Math.min(1.0, Math.max(0.0, rawStrength * posMult + noise));
 
