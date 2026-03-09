@@ -1147,6 +1147,19 @@
         animation: turnPulse 2s ease-in-out infinite;
       }
 
+      .seat-node.voice-speaking {
+        border-color: rgba(125,214,255,0.28);
+        box-shadow: 0 0 0 2px rgba(96,175,255,0.18), 0 0 22px rgba(72,201,255,0.14);
+      }
+
+      .seat-node.voice-speaking .seat-avatar,
+      .my-hand-area.voice-speaking .my-hand-avatar {
+        box-shadow:
+          0 0 0 2px rgba(96,175,255,0.24),
+          0 0 18px rgba(72,201,255,0.26),
+          0 0 30px rgba(72,201,255,0.16);
+      }
+
       @keyframes turnPulse {
         0%, 100% { box-shadow: 0 0 0 2px rgba(74,222,128,0.3), 0 0 20px rgba(74,222,128,0.15); }
         50% { box-shadow: 0 0 0 3px rgba(74,222,128,0.5), 0 0 30px rgba(74,222,128,0.25); }
@@ -1834,10 +1847,19 @@
         100% { opacity: 1; transform: translateY(0); }
       }
 
-      .chat-fab {
+      .utility-fab-row {
         position: fixed;
         right: max(14px, calc(env(safe-area-inset-right) + 14px));
         bottom: calc(env(safe-area-inset-bottom) + 40px);
+        display: flex;
+        align-items: flex-end;
+        gap: 8px;
+        z-index: 62;
+      }
+
+      .voice-fab,
+      .chat-fab {
+        position: relative;
         min-width: 50px;
         height: 42px;
         padding: 0 13px;
@@ -1853,7 +1875,79 @@
         letter-spacing: 0.08em;
         text-transform: uppercase;
         box-shadow: 0 10px 20px rgba(0,0,0,0.28);
-        z-index: 62;
+        z-index: 1;
+      }
+
+      .voice-fab {
+        min-width: 42px;
+        width: 42px;
+        padding: 0;
+        justify-content: center;
+        display: inline-flex;
+        align-items: center;
+        color: rgba(219,243,255,0.92);
+      }
+
+      .voice-fab svg {
+        width: 17px;
+        height: 17px;
+        fill: currentColor;
+      }
+
+      .voice-fab:disabled {
+        opacity: 0.48;
+        cursor: not-allowed;
+      }
+
+      .voice-fab[data-state="connected"] {
+        border-color: rgba(90,224,186,0.28);
+        color: rgba(176,255,225,0.94);
+        box-shadow: 0 10px 22px rgba(0,0,0,0.28), 0 0 18px rgba(65,198,152,0.12);
+      }
+
+      .voice-fab[data-state="speaking"] {
+        border-color: rgba(240,208,120,0.38);
+        color: var(--gold-bright);
+        box-shadow: 0 12px 24px rgba(0,0,0,0.28), 0 0 22px rgba(240,208,120,0.18);
+        animation: voiceFabPulse 1.15s ease-in-out infinite;
+      }
+
+      .voice-fab[data-state="busy"] {
+        border-color: rgba(122,203,255,0.22);
+        color: rgba(165,223,255,0.92);
+      }
+
+      .voice-fab[data-state="locked"] {
+        border-color: rgba(248,113,113,0.22);
+        color: rgba(255,182,182,0.9);
+      }
+
+      .voice-fab-status {
+        position: absolute;
+        right: 5px;
+        bottom: 5px;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: rgba(255,255,255,0.24);
+        box-shadow: 0 0 0 2px rgba(6,10,15,0.55);
+      }
+
+      .voice-fab-status[data-state="connected"] {
+        background: #55e2a0;
+      }
+
+      .voice-fab-status[data-state="speaking"] {
+        background: var(--gold-bright);
+      }
+
+      .voice-fab-status[data-state="busy"] {
+        background: #7fd3ff;
+      }
+
+      @keyframes voiceFabPulse {
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(-1px); }
       }
 
       .chat-fab-badge {
@@ -2048,20 +2142,25 @@
       }
 
       @media (max-width: 768px) and (orientation: portrait) {
+        .utility-fab-row {
+          right: 8px;
+          bottom: calc(env(safe-area-inset-bottom) + 36px);
+        }
+
         .chat-panel {
           width: min(172px, calc(40vw));
           height: min(206px, calc(100vh - 412px));
           right: 8px;
           bottom: calc(env(safe-area-inset-bottom) + 74px);
         }
-
-        .chat-fab {
-          right: 8px;
-          bottom: calc(env(safe-area-inset-bottom) + 36px);
-        }
       }
 
       @media (orientation: landscape) and (max-height: 500px) {
+        .utility-fab-row {
+          right: 10px;
+          bottom: 28px;
+        }
+
         .chat-panel {
           width: min(166px, calc(22vw));
           height: min(180px, calc(100vh - 142px));
@@ -2069,13 +2168,18 @@
           bottom: 64px;
         }
 
+        .voice-fab,
         .chat-fab {
-          right: 10px;
-          bottom: 28px;
           min-width: 48px;
           height: 40px;
           padding: 0 12px;
           font-size: 11px;
+        }
+
+        .voice-fab {
+          min-width: 40px;
+          width: 40px;
+          padding: 0;
         }
       }
 
@@ -2089,6 +2193,10 @@
         background: transparent;
         position: relative;
         z-index: 5;
+      }
+
+      .my-hand-area.voice-speaking {
+        filter: drop-shadow(0 0 12px rgba(72,201,255,0.12));
       }
 
       .my-hand-area::before {
@@ -3795,10 +3903,19 @@
       </div>
     </section>
 
-    <button class="chat-fab hidden" id="chatFab" type="button" aria-label="Open chat" aria-expanded="false">
-      Chat
-      <span class="chat-fab-badge hidden" id="chatFabBadge">0</span>
-    </button>
+    <div class="utility-fab-row">
+      <button class="voice-fab hidden" id="voiceFab" type="button" aria-label="Voice chat" aria-pressed="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 15.25a3.76 3.76 0 0 0 3.75-3.75V7.75a3.75 3.75 0 0 0-7.5 0v3.75A3.76 3.76 0 0 0 12 15.25Zm6.25-3.75a.75.75 0 0 0-1.5 0 4.75 4.75 0 0 1-9.5 0 .75.75 0 0 0-1.5 0 6.2 6.2 0 0 0 5.5 6.17v2.08H9.5a.75.75 0 0 0 0 1.5h5a.75.75 0 0 0 0-1.5h-1.75v-2.08a6.2 6.2 0 0 0 5.5-6.17Z"/>
+        </svg>
+        <span class="voice-fab-status hidden" id="voiceFabDot"></span>
+      </button>
+
+      <button class="chat-fab hidden" id="chatFab" type="button" aria-label="Open chat" aria-expanded="false">
+        Chat
+        <span class="chat-fab-badge hidden" id="chatFabBadge">0</span>
+      </button>
+    </div>
 
     <div class="chat-panel hidden" id="chatPanel" aria-live="polite">
       <div class="chat-header">
@@ -3821,6 +3938,7 @@
 
     <div class="toast-container" id="toastContainer"></div>
 
-    <script type="module" src="./online/table_app.js?v=76"></script>
+    <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
+    <script type="module" src="./online/table_app.js?v=78"></script>
   </body>
 </html>

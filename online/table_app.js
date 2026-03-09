@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../config.js";
-import { createOnlinePokerClient } from "./client.js?v=76";
+import { createOnlinePokerClient } from "./client.js?v=78";
 import { describeSevenCardHand, resolveShowdownPayouts } from "./showdown.js";
 import { decide as botDecide, thinkTimeMs, randomPersonality, randomBotName, personalityLabel, OpponentTracker } from "./bot_engine.js";
 
@@ -20,6 +20,11 @@ const BOARD_REVEAL_FLIP_STAGGER_MS = 80;
 const POT_BUMP_MS = 520;
 const CHIP_PUSH_MS = 760;
 const CHIP_PUSH_STAGGER_MS = 48;
+const VOICE_FLOOR_TTL_SECS = 6;
+const VOICE_FLOOR_HEARTBEAT_MS = 2500;
+const VOICE_HOLD_DELAY_MS = 160;
+const VOICE_CLICK_SUPPRESS_MS = 420;
+const VOICE_BUSY_TOAST_MS = 2000;
 function getTurnClockSecs() { return state.config.turnTime || 25; }
 const REALTIME_DEBOUNCE_MS = 180;
 const RECONNECT_DEBOUNCE_MS = 900;
@@ -124,6 +129,8 @@ const el = {
   logToggle: document.getElementById("logToggle"),
   handLog: document.getElementById("handLog"),
   handLogInner: document.getElementById("handLogInner"),
+  voiceFab: document.getElementById("voiceFab"),
+  voiceFabDot: document.getElementById("voiceFabDot"),
   chatFab: document.getElementById("chatFab"),
   chatFabBadge: document.getElementById("chatFabBadge"),
   chatPanel: document.getElementById("chatPanel"),
@@ -191,6 +198,19 @@ const state = {
   lastAnnouncedActionSeq: 0,
   showdownRevealHandId: null,
   showdownRevealSeats: new Set(),
+  voiceCall: null,
+  voiceJoinPromise: null,
+  voiceConnected: false,
+  voiceJoining: false,
+  voiceSpeaking: false,
+  voiceBudgetLocked: false,
+  voiceUsageMinutes: 0,
+  voiceUsageLimit: 9000,
+  voiceFloorHeartbeatTimer: null,
+  voicePressTimer: null,
+  voiceHoldRequested: false,
+  voiceSuppressClickUntil: 0,
+  lastVoiceBusyToastAt: 0,
   chatOpen: false,
   chatUnread: 0,
   chatMessages: [],
@@ -256,6 +276,390 @@ function resetChatState() {
   state.chatMessages = [];
   state.chatMessageIds = new Set();
   if (el.chatInput) el.chatInput.value = "";
+}
+
+function resetVoiceState() {
+  state.voiceJoinPromise = null;
+  state.voiceConnected = false;
+  state.voiceJoining = false;
+  state.voiceSpeaking = false;
+  state.voiceBudgetLocked = false;
+  state.voiceUsageMinutes = 0;
+  state.voiceUsageLimit = 9000;
+  state.voiceHoldRequested = false;
+  state.voiceSuppressClickUntil = 0;
+  if (state.voicePressTimer) {
+    clearTimeout(state.voicePressTimer);
+    state.voicePressTimer = null;
+  }
+  if (state.voiceFloorHeartbeatTimer) {
+    clearInterval(state.voiceFloorHeartbeatTimer);
+    state.voiceFloorHeartbeatTimer = null;
+  }
+}
+
+function getServerVoiceState() {
+  const voice = state.tableState?.voice_state;
+  const rawSpeakerId = voice?.speaker_player_id || voice?.speakerPlayerId || null;
+  const rawSpeakerName = voice?.speaker_name || voice?.speakerName || "";
+  const expiresAt = voice?.floor_expires_at || voice?.floorExpiresAt || null;
+  const expiresMs = expiresAt ? Date.parse(expiresAt) : NaN;
+  const active = Boolean(
+    rawSpeakerId &&
+    (voice?.is_active === true || voice?.isActive === true || !Number.isFinite(expiresMs) || expiresMs > Date.now())
+  );
+  return {
+    speakerPlayerId: active ? rawSpeakerId : null,
+    speakerName: active ? String(rawSpeakerName || seatName(rawSpeakerId)) : "",
+    floorExpiresAt: active && Number.isFinite(expiresMs) ? expiresMs : null,
+    active,
+  };
+}
+
+function canUseVoice() {
+  const mySeat = getMySeat();
+  return Boolean(state.tableId && state.identity && mySeat && !seatLooksBot(mySeat));
+}
+
+function getVoiceUiState() {
+  const serverVoice = getServerVoiceState();
+  if (state.voiceSpeaking) return "speaking";
+  if (state.voiceJoining) return "joining";
+  if (state.voiceConnected) return serverVoice.active && serverVoice.speakerPlayerId && serverVoice.speakerPlayerId !== state.identity?.groupPlayerId
+    ? "busy"
+    : "connected";
+  if (state.voiceBudgetLocked) return "locked";
+  if (serverVoice.active && serverVoice.speakerPlayerId && serverVoice.speakerPlayerId !== state.identity?.groupPlayerId) return "busy";
+  if (!canUseVoice()) return "disabled";
+  return "idle";
+}
+
+function renderVoiceUi() {
+  const visible = Boolean(state.tableId && !el.tableView.classList.contains("hidden"));
+  const button = el.voiceFab;
+  if (!button) return;
+  button.classList.toggle("hidden", !visible);
+  if (!visible) return;
+
+  const serverVoice = getServerVoiceState();
+  const uiState = getVoiceUiState();
+  const disabled = uiState === "disabled" || uiState === "locked";
+  button.dataset.state = uiState;
+  button.disabled = disabled || state.voiceJoining;
+
+  let label = "Voice";
+  if (uiState === "speaking") label = "Speaking";
+  else if (uiState === "connected") label = "Voice connected";
+  else if (uiState === "joining") label = "Joining voice";
+  else if (uiState === "busy") label = serverVoice.speakerName ? `${serverVoice.speakerName} is talking` : "Voice busy";
+  else if (uiState === "locked") label = "Voice unavailable until next month";
+  else if (uiState === "disabled") label = "Take a seat to use voice";
+
+  button.setAttribute("aria-label", label);
+  button.title = label;
+  button.setAttribute("aria-pressed", state.voiceConnected ? "true" : "false");
+
+  if (el.voiceFabDot) {
+    const showDot = uiState === "connected" || uiState === "speaking" || uiState === "busy";
+    el.voiceFabDot.classList.toggle("hidden", !showDot);
+    el.voiceFabDot.dataset.state = uiState;
+  }
+}
+
+function ensureDailyIframe() {
+  const daily = window.DailyIframe;
+  if (!daily || typeof daily.createCallObject !== "function") {
+    throw new Error("Voice library failed to load.");
+  }
+  return daily;
+}
+
+async function ensureVoiceCallObject() {
+  if (state.voiceCall) return state.voiceCall;
+  const daily = ensureDailyIframe();
+  const call = daily.createCallObject({
+    strictMode: true,
+    allowMultipleCallInstances: false,
+  });
+
+  call.on("joined-meeting", () => {
+    state.voiceConnected = true;
+    state.voiceJoining = false;
+    renderVoiceUi();
+  });
+
+  call.on("left-meeting", () => {
+    state.voiceConnected = false;
+    state.voiceJoining = false;
+    state.voiceSpeaking = false;
+    if (state.voiceFloorHeartbeatTimer) {
+      clearInterval(state.voiceFloorHeartbeatTimer);
+      state.voiceFloorHeartbeatTimer = null;
+    }
+    renderVoiceUi();
+  });
+
+  call.on("error", (event) => {
+    state.voiceJoining = false;
+    state.voiceSpeaking = false;
+    renderVoiceUi();
+    toast(event?.errorMsg || "Voice failed", "error");
+  });
+
+  call.on("camera-error", (event) => {
+    toast(event?.errorMsg?.errorMsg || event?.errorMsg || "Microphone access failed", "error");
+  });
+
+  state.voiceCall = call;
+  return call;
+}
+
+async function ensureVoiceConnected() {
+  if (state.voiceConnected && state.voiceCall) return state.voiceCall;
+  if (state.voiceJoinPromise) return state.voiceJoinPromise;
+  if (!canUseVoice()) throw new Error("Take a seat to use voice.");
+  if (state.voiceBudgetLocked) throw new Error("Voice is unavailable until next month.");
+
+  const seatToken = getSeatToken();
+  if (!seatToken) throw new Error("Take a seat to use voice.");
+
+  state.voiceJoining = true;
+  renderVoiceUi();
+  state.voiceJoinPromise = (async () => {
+    const session = await online.createVoiceSession({
+      tableId: state.tableId,
+      actorGroupPlayerId: state.identity.groupPlayerId,
+      seatToken,
+    });
+
+    state.voiceUsageMinutes = Number(session?.usage_minutes || 0);
+    state.voiceUsageLimit = Number(session?.limit_minutes || 9000);
+
+    const call = await ensureVoiceCallObject();
+    await call.join({
+      url: session.room_url,
+      token: session.meeting_token,
+      userName: state.identity?.name || "Player",
+      audioSource: true,
+      videoSource: false,
+      startAudioOff: true,
+      startVideoOff: true,
+      subscribeToTracksAutomatically: true,
+      dailyConfig: { avoidEval: true },
+    });
+    state.voiceConnected = true;
+    return call;
+  })();
+
+  try {
+    return await state.voiceJoinPromise;
+  } catch (error) {
+    const code = error?.code || error?.details?.code || "";
+    if (String(code) === "voice_monthly_limit_reached" || /voice_monthly_limit_reached/i.test(String(error?.message || ""))) {
+      state.voiceBudgetLocked = true;
+    }
+    throw error;
+  } finally {
+    state.voiceJoinPromise = null;
+    state.voiceJoining = false;
+    renderVoiceUi();
+  }
+}
+
+function clearVoiceFloorHeartbeat() {
+  if (state.voiceFloorHeartbeatTimer) {
+    clearInterval(state.voiceFloorHeartbeatTimer);
+    state.voiceFloorHeartbeatTimer = null;
+  }
+}
+
+function startVoiceFloorHeartbeat() {
+  clearVoiceFloorHeartbeat();
+  state.voiceFloorHeartbeatTimer = setInterval(async () => {
+    if (!state.voiceSpeaking || !state.tableId || !state.identity) return;
+    try {
+      const payload = await online.refreshVoiceFloor({
+        tableId: state.tableId,
+        actorGroupPlayerId: state.identity.groupPlayerId,
+        seatToken: getSeatToken(),
+        ttlSecs: VOICE_FLOOR_TTL_SECS,
+      });
+      if (!payload?.granted) {
+        await stopPushToTalk({ skipRelease: true, silent: true });
+      }
+    } catch {
+      await stopPushToTalk({ skipRelease: true, silent: true });
+    }
+  }, VOICE_FLOOR_HEARTBEAT_MS);
+}
+
+async function disconnectVoice({ silent = false, destroy = false } = {}) {
+  state.voiceHoldRequested = false;
+  if (state.voicePressTimer) {
+    clearTimeout(state.voicePressTimer);
+    state.voicePressTimer = null;
+  }
+  if (state.voiceSpeaking) {
+    await stopPushToTalk({ silent: true });
+  } else {
+    clearVoiceFloorHeartbeat();
+  }
+  const call = state.voiceCall;
+  if (!call) {
+    state.voiceConnected = false;
+    state.voiceJoining = false;
+    renderVoiceUi();
+    return;
+  }
+  try {
+    if (state.voiceConnected) {
+      await call.leave();
+    }
+    if (destroy && typeof call.destroy === "function") {
+      await call.destroy();
+      state.voiceCall = null;
+    }
+  } catch {
+    if (destroy) state.voiceCall = null;
+  } finally {
+    state.voiceConnected = false;
+    state.voiceJoining = false;
+    state.voiceSpeaking = false;
+    clearVoiceFloorHeartbeat();
+    renderVoiceUi();
+    if (!silent) toast("Voice off", "success");
+  }
+}
+
+async function startPushToTalk() {
+  if (!state.voiceHoldRequested || state.voiceSpeaking) return;
+  if (!canUseVoice()) {
+    toast("Take a seat to use voice.", "error");
+    return;
+  }
+
+  const serverVoice = getServerVoiceState();
+  if (serverVoice.active && serverVoice.speakerPlayerId && serverVoice.speakerPlayerId !== state.identity?.groupPlayerId) {
+    if (Date.now() - state.lastVoiceBusyToastAt > VOICE_BUSY_TOAST_MS) {
+      state.lastVoiceBusyToastAt = Date.now();
+      toast(serverVoice.speakerName ? `${serverVoice.speakerName} is on the mic` : "Voice is busy right now.");
+    }
+    renderVoiceUi();
+    return;
+  }
+
+  try {
+    const call = await ensureVoiceConnected();
+    if (!state.voiceHoldRequested) return;
+
+    const seatToken = getSeatToken();
+    const payload = await online.claimVoiceFloor({
+      tableId: state.tableId,
+      actorGroupPlayerId: state.identity.groupPlayerId,
+      seatToken,
+      ttlSecs: VOICE_FLOOR_TTL_SECS,
+    });
+
+    if (!payload?.granted) {
+      if (Date.now() - state.lastVoiceBusyToastAt > VOICE_BUSY_TOAST_MS) {
+        state.lastVoiceBusyToastAt = Date.now();
+        toast(payload?.speaker_name ? `${payload.speaker_name} is on the mic` : "Voice is busy right now.");
+      }
+      renderVoiceUi();
+      return;
+    }
+
+    if (!state.voiceHoldRequested) {
+      await online.releaseVoiceFloor({
+        tableId: state.tableId,
+        actorGroupPlayerId: state.identity.groupPlayerId,
+        seatToken,
+      });
+      return;
+    }
+
+    call.setLocalAudio(true);
+    state.voiceSpeaking = true;
+    startVoiceFloorHeartbeat();
+    renderVoiceUi();
+  } catch (error) {
+    toast(error?.message || "Voice failed", "error");
+    renderVoiceUi();
+  }
+}
+
+async function stopPushToTalk({ skipRelease = false, silent = false } = {}) {
+  state.voiceHoldRequested = false;
+  clearVoiceFloorHeartbeat();
+  try {
+    state.voiceCall?.setLocalAudio(false);
+  } catch {
+    // Ignore local audio shutdown issues during teardown.
+  }
+
+  if (!skipRelease && state.tableId && state.identity && getSeatToken()) {
+    try {
+      await online.releaseVoiceFloor({
+        tableId: state.tableId,
+        actorGroupPlayerId: state.identity.groupPlayerId,
+        seatToken: getSeatToken(),
+      });
+    } catch {
+      // Ignore release failures; floor expiry is the backstop.
+    }
+  }
+
+  state.voiceSpeaking = false;
+  renderVoiceUi();
+  if (!silent) toast("Mic released");
+}
+
+function onVoicePointerDown(event) {
+  if (event.pointerType === "mouse" && event.button !== 0) return;
+  if (state.voicePressTimer) clearTimeout(state.voicePressTimer);
+  state.voiceHoldRequested = false;
+  state.voicePressTimer = setTimeout(() => {
+    state.voicePressTimer = null;
+    state.voiceHoldRequested = true;
+    state.voiceSuppressClickUntil = Date.now() + VOICE_CLICK_SUPPRESS_MS;
+    void startPushToTalk();
+  }, VOICE_HOLD_DELAY_MS);
+}
+
+function onVoicePointerEnd() {
+  if (state.voicePressTimer) {
+    clearTimeout(state.voicePressTimer);
+    state.voicePressTimer = null;
+    return;
+  }
+  if (!state.voiceHoldRequested && !state.voiceSpeaking) return;
+  state.voiceHoldRequested = false;
+  state.voiceSuppressClickUntil = Date.now() + VOICE_CLICK_SUPPRESS_MS;
+  void stopPushToTalk({ silent: true });
+}
+
+async function onVoiceFabClick(event) {
+  event.preventDefault();
+  if (Date.now() < state.voiceSuppressClickUntil) return;
+  if (!canUseVoice()) {
+    toast("Take a seat to use voice.", "error");
+    return;
+  }
+  if (state.voiceBudgetLocked) {
+    toast("Voice is unavailable until next month.", "error");
+    return;
+  }
+  if (state.voiceJoining) return;
+  try {
+    if (state.voiceConnected) {
+      await disconnectVoice();
+    } else {
+      await ensureVoiceConnected();
+      toast("Voice on", "success");
+    }
+  } catch (error) {
+    toast(error?.message || "Voice failed", "error");
+  }
 }
 
 function formatChatTime(value) {
@@ -1803,6 +2207,9 @@ async function joinExistingTable(tableId) {
 
 // ============ ENTER TABLE ============
 function enterTable(tableId) {
+  if (state.voiceConnected || state.voiceCall) {
+    void disconnectVoice({ silent: true, destroy: true });
+  }
   state.tableId = tableId;
   state.tableState = null;
   state.lastSyncAt = 0;
@@ -1812,6 +2219,7 @@ function enterTable(tableId) {
   prevActionSeat = null;
   resetActionAnnouncements();
   resetChatState();
+  resetVoiceState();
   const url = new URL(window.location.href);
   url.searchParams.set("table", tableId);
   url.searchParams.delete("mode");
@@ -1825,6 +2233,7 @@ function enterTable(tableId) {
   setTableViewportLock(true);
   syncLandscapeTopBar(true);
   setTableBooting(true, "Loading Table...");
+  renderVoiceUi();
   renderChatUi();
 
   loadBotSeats();
@@ -1870,6 +2279,7 @@ async function startRealtime(tableId) {
     .channel(`table:${tableId}`)
     .on("postgres_changes", { event: "*", schema: "public", table: "online_tables", filter: `id=eq.${tableId}` }, queueRtRefresh)
     .on("postgres_changes", { event: "*", schema: "public", table: "online_table_seats", filter: `table_id=eq.${tableId}` }, queueRtRefresh)
+    .on("postgres_changes", { event: "*", schema: "public", table: "online_table_voice_state", filter: `table_id=eq.${tableId}` }, queueRtRefresh)
     .on("postgres_changes", { event: "*", schema: "public", table: "online_hands", filter: `table_id=eq.${tableId}` }, queueRtRefresh)
     .on("postgres_changes", { event: "*", schema: "public", table: "online_hand_events", filter: `table_id=eq.${tableId}` }, queueRtRefresh);
 
@@ -1969,6 +2379,13 @@ async function loadTableState() {
     if (state.tableBooting) setTableBooting(false);
     if (Array.isArray(ts?.chat_messages)) {
       applyServerChatHistory(ts.chat_messages);
+    }
+    const voiceState = getServerVoiceState();
+    if (state.voiceSpeaking && voiceState.active && voiceState.speakerPlayerId && voiceState.speakerPlayerId !== state.identity?.groupPlayerId) {
+      void stopPushToTalk({ skipRelease: true, silent: true });
+    }
+    if ((state.voiceConnected || state.voiceJoining) && !canUseVoice()) {
+      void disconnectVoice({ silent: true, destroy: true });
     }
 
     const hand = getLatestHand();
@@ -2373,6 +2790,7 @@ function renderAll() {
   renderMyHand();
   renderActions();
   renderHandLog();
+  renderVoiceUi();
   renderChatUi();
   maybeLaunchPotPushFx();
   maybeLaunchDealFx();
@@ -2500,6 +2918,7 @@ function renderSeats() {
   const compactMobile = isCompactMobileLayout();
   const contestedShowdown = isContestedShowdown(hand, handPlayers);
   const showdownLeaderSeats = new Set(getShowdownLeaders(hand, handPlayers).map(({ player }) => player.seat_no));
+  const activeVoiceSpeakerId = getServerVoiceState().speakerPlayerId;
 
   const tableSeats = compactMobile && mySeat ? seats.filter(s => s.seat_no !== mySeat.seat_no) : seats;
   const tableTotal = tableSeats.length;
@@ -2567,6 +2986,7 @@ function renderSeats() {
       if (isBot) node.classList.add("bot-seat");
       if (isTurn) node.classList.add("active-turn");
       if (isFolded) node.classList.add("folded");
+      if (activeVoiceSpeakerId && pid === activeVoiceSpeakerId) node.classList.add("voice-speaking");
 
       const botInfo = getBotInfo(seat.seat_no);
       const displayName = botInfo ? botInfo.name : seatName(pid);
@@ -2795,11 +3215,16 @@ function renderMyHand() {
   const hand = getLatestHand();
   const hp = getMyHandPlayer();
   const mySeat = getMySeat();
-  if (!mySeat) return;
+  if (!mySeat) {
+    el.myHandArea?.classList.remove("voice-speaking");
+    return;
+  }
+  const activeVoiceSpeakerId = getServerVoiceState().speakerPlayerId;
 
   nameEl.textContent = state.identity?.name || "You";
   const displayStack = (hp && hp.stack_end != null) ? hp.stack_end : mySeat.chip_stack;
   stackEl.textContent = fmtShort(displayStack);
+  el.myHandArea?.classList.toggle("voice-speaking", Boolean(activeVoiceSpeakerId && mySeat.group_player_id === activeVoiceSpeakerId));
   applyAvatarTheme(el.myHandAvatar, {
     seed: `${state.identity?.groupPlayerId || mySeat.group_player_id || mySeat.seat_no}:${state.identity?.name || "You"}`,
     name: state.identity?.name || "You",
@@ -3239,6 +3664,12 @@ function bindEvents() {
     toggleChat();
   });
 
+  el.voiceFab?.addEventListener("pointerdown", onVoicePointerDown);
+  el.voiceFab?.addEventListener("pointerup", onVoicePointerEnd);
+  el.voiceFab?.addEventListener("pointercancel", onVoicePointerEnd);
+  el.voiceFab?.addEventListener("pointerleave", onVoicePointerEnd);
+  el.voiceFab?.addEventListener("click", onVoiceFabClick);
+
   el.chatClose?.addEventListener("click", () => {
     toggleChat(false);
   });
@@ -3309,6 +3740,7 @@ function bindEvents() {
     if (state.botActionTimer) clearTimeout(state.botActionTimer);
     if (state.realtimeChannel) supabase.removeChannel(state.realtimeChannel);
     if (state.chatChannel) supabase.removeChannel(state.chatChannel);
+    void disconnectVoice({ silent: true, destroy: true });
   });
 }
 

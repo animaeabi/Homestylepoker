@@ -1061,3 +1061,46 @@ Validation:
   - confirmed `sawBoardFx: true` during the flop reveal
   - measured roughly `3045ms` from hero preflop call to flop landing
   - visually confirmed slower pacing and board reveal without breaking the hand flow
+
+- 2026-03-08: Added seated-only Daily voice chat scaffolding:
+  - `/Users/abishek/Documents/poker-buyins/supabase/online_poker_schema.sql`
+    - added `online_table_voice_state`
+    - added `online_claim_voice_floor`, `online_refresh_voice_floor`, and `online_release_voice_floor`
+    - extended `online_get_table_state_viewer` to return `voice_state`
+  - `/Users/abishek/Documents/poker-buyins/supabase/functions/online-voice-session/index.ts`
+    - new Edge Function that validates seated human access
+    - checks current-month Daily usage before issuing voice access
+    - lazily creates a private Daily room per table and returns a meeting token
+  - `/Users/abishek/Documents/poker-buyins/online/client.js`
+    - added wrappers for voice floor RPCs and the new voice session Edge Function
+  - `/Users/abishek/Documents/poker-buyins/online/table_app.js`
+    - added mic button state handling
+    - added push-to-talk behavior with server-backed single-speaker lock + heartbeat expiry
+    - added Daily call-object join/leave handling
+    - added voice-speaker highlight on seat badges / hero badge
+  - `/Users/abishek/Documents/poker-buyins/online-table.html`
+    - added compact mic button beside chat
+    - added Daily browser SDK script
+    - bumped cache buster to `?v=78`
+
+Validation:
+- `node --check /Users/abishek/Documents/poker-buyins/online/table_app.js` (pass)
+- `node --check /Users/abishek/Documents/poker-buyins/online/client.js` (pass)
+- Browser sanity pass on local table `3ea64aa1-788d-46b7-aa6e-b24725f3feff`:
+  - mic button renders beside chat in live table UI
+  - click path currently shows a friendly deployment message because `online-voice-session` is not deployed yet
+
+Remaining external rollout steps:
+1) Apply `/Users/abishek/Documents/poker-buyins/supabase/online_poker_schema.sql` to the Supabase project.
+2) Deploy `/Users/abishek/Documents/poker-buyins/supabase/functions/online-voice-session/index.ts`.
+3) Once deployed, re-test voice join + push-to-talk on two seated devices/tabs.
+
+- 2026-03-08: Rolled the voice backend live to Supabase:
+  - linked CLI to project `xngwmtwrruvbrlxhekxp`
+  - created and pushed migration `/Users/abishek/Documents/poker-buyins/supabase/migrations/20260309034846_add_daily_voice_chat.sql`
+  - deployed Edge Function `online-voice-session`
+  - browser re-check confirmed the mic now reaches the deployed backend and transitions to `Voice connected`
+
+Remaining validation:
+1) Test two seated devices/tabs in the same table to confirm push-to-talk floor locking and audio handoff.
+2) Verify real browser mic permission behavior on mobile Safari/Chrome.

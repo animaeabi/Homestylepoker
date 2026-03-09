@@ -189,6 +189,75 @@ export function createOnlinePokerClient(supabase) {
       }
     },
 
+    claimVoiceFloor({
+      tableId,
+      actorGroupPlayerId,
+      seatToken,
+      ttlSecs = 6
+    }) {
+      return callRpc(supabase, "online_claim_voice_floor", {
+        p_table_id: tableId,
+        p_actor_group_player_id: actorGroupPlayerId,
+        p_seat_token: seatToken,
+        p_ttl_secs: ttlSecs
+      });
+    },
+
+    refreshVoiceFloor({
+      tableId,
+      actorGroupPlayerId,
+      seatToken,
+      ttlSecs = 6
+    }) {
+      return callRpc(supabase, "online_refresh_voice_floor", {
+        p_table_id: tableId,
+        p_actor_group_player_id: actorGroupPlayerId,
+        p_seat_token: seatToken,
+        p_ttl_secs: ttlSecs
+      });
+    },
+
+    releaseVoiceFloor({
+      tableId,
+      actorGroupPlayerId,
+      seatToken
+    }) {
+      return callRpc(supabase, "online_release_voice_floor", {
+        p_table_id: tableId,
+        p_actor_group_player_id: actorGroupPlayerId,
+        p_seat_token: seatToken
+      });
+    },
+
+    async createVoiceSession({
+      tableId,
+      actorGroupPlayerId,
+      seatToken
+    }) {
+      const { data, error } = await supabase.functions.invoke("online-voice-session", {
+        body: {
+          table_id: tableId,
+          actor_group_player_id: actorGroupPlayerId,
+          seat_token: seatToken
+        }
+      });
+      if (error) {
+        const normalized = normalizeError("createVoiceSession", error);
+        if (/Failed to send a request to the Edge Function/i.test(String(normalized.message || ""))) {
+          throw new Error("Voice service is not live yet. Deploy the online-voice-session Edge Function first.");
+        }
+        throw normalized;
+      }
+      if (data?.ok === false) {
+        const msg = data?.error || data?.message || "voice session failed";
+        const err = new Error(`[createVoiceSession] ${msg}`);
+        err.code = data?.code || null;
+        err.details = data || null;
+        throw err;
+      }
+      return data || null;
+    },
+
     writeSnapshot({ handId }) {
       return callRpc(supabase, "online_write_hand_snapshot", {
         p_hand_id: handId
