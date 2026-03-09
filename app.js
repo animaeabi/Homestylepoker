@@ -2418,6 +2418,10 @@ async function joinGameByCodeWithName(code, name) {
   return true;
 }
 
+function isOnlineSeatClaimRequiredError(error) {
+  return /player_already_seated_claim_required/i.test(String(error?.message || error || ""));
+}
+
 async function joinOnlineGameWithName(table, name) {
   if (!supabase || !table?.id) return false;
   const { data: identity, error: idErr } = await supabase.rpc("online_ensure_lobby_player", { p_name: name });
@@ -2430,10 +2434,25 @@ async function joinOnlineGameWithName(table, name) {
   }));
   localStorage.setItem("online_player_name", identity.name || name);
 
-  const { data: seat, error: seatErr } = await supabase.rpc("online_join_table", {
+  const existingSeatToken = localStorage.getItem(`online_seat_token:${table.id}:${identity.group_player_id}`);
+  if (existingSeatToken) {
+    closeJoinPlayerModal();
+    window.location.href = `online-table.html?table=${table.id}`;
+    return true;
+  }
+
+  let { data: seat, error: seatErr } = await supabase.rpc("online_join_table", {
     p_table_id: table.id,
     p_group_player_id: identity.group_player_id
   });
+  if (seatErr && isOnlineSeatClaimRequiredError(seatErr)) {
+    const claimed = await supabase.rpc("online_claim_table_seat", {
+      p_table_id: table.id,
+      p_group_player_id: identity.group_player_id
+    });
+    seat = claimed.data;
+    seatErr = claimed.error;
+  }
   if (seatErr) throw seatErr;
 
   if (seat?.seat_token) {
