@@ -2984,16 +2984,16 @@
 
         @supports (-webkit-touch-callout: none) {
           .utility-fab-row {
-            bottom: calc(env(safe-area-inset-bottom) + 26px);
+            bottom: calc(env(safe-area-inset-bottom) + 20px);
           }
 
           .my-hand-area,
           #tableView.landscape-actions-visible .my-hand-area {
-            bottom: calc(env(safe-area-inset-bottom) + 12px) !important;
+            bottom: calc(env(safe-area-inset-bottom) + 6px) !important;
           }
 
           .my-hand-area.no-hole-cards {
-            bottom: calc(env(safe-area-inset-bottom) + 18px) !important;
+            bottom: calc(env(safe-area-inset-bottom) + 12px) !important;
           }
 
           .my-hand-cards {
@@ -3003,14 +3003,14 @@
 
           .log-toggle {
             position: relative;
-            transform: translateY(8px);
+            transform: translateY(12px);
           }
         }
 
         .action-strip {
           position: absolute;
           left: 8px;
-          bottom: calc(env(safe-area-inset-bottom) + 62px);
+          bottom: calc(env(safe-area-inset-bottom) + 56px);
           z-index: 24;
           width: 118px;
           padding: 7px !important;
@@ -4019,6 +4019,6 @@
     <div class="voice-audio-rack" id="voiceAudioRack" aria-hidden="true"></div>
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
-    <script type="module" src="./online/table_app.js?v=101"></script>
+    <script type="module" src="./online/table_app.js?v=102"></script>
   </body>
 </html>
