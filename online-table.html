@@ -2603,11 +2603,8 @@
 
       /* ========== PORTRAIT MOBILE LAYOUT ========== */
       @media (max-width: 768px) and (orientation: portrait) {
-        :root {
-          --portrait-ui-reserve: 220px;
-        }
-
         #tableView {
+          --portrait-ui-reserve: 188px;
           background:
             radial-gradient(ellipse 90% 28% at 50% 87%, rgba(42,232,184,0.16) 0%, rgba(18,70,92,0.14) 28%, rgba(6,10,14,0) 74%),
             radial-gradient(ellipse 42% 12% at 50% 7%, rgba(123,247,255,0.17) 0%, rgba(123,247,255,0.05) 42%, transparent 78%),
@@ -2619,6 +2616,18 @@
             linear-gradient(180deg, #0d1118 0%, #06080d 44%, #020305 100%) !important;
           position: relative;
           overflow: hidden;
+        }
+
+        #tableView.landscape-actions-visible {
+          --portrait-ui-reserve: 198px;
+        }
+
+        #tableView.portrait-topbar-expanded {
+          --portrait-ui-reserve: 206px;
+        }
+
+        #tableView.portrait-topbar-expanded.landscape-actions-visible {
+          --portrait-ui-reserve: 214px;
         }
 
         .top-bar {
@@ -2678,10 +2687,10 @@
         .top-btn { padding: 6px 9px; font-size: 10px; }
         .top-bar-actions { flex-shrink: 0; gap: 6px; }
 
-        .table-area { padding: 0 4px 0 !important; flex: 1; min-height: 0 !important; align-items: flex-start !important; padding-top: 60px !important; }
+        .table-area { padding: 0 2px 0 !important; flex: 1; min-height: 0 !important; align-items: flex-start !important; padding-top: 56px !important; }
         #tableView.portrait-topbar-expanded .table-area { padding-top: 102px !important; }
         .table-surface {
-          width: min(92vw, calc((100dvh - var(--portrait-ui-reserve)) / 1.8)) !important;
+          width: min(96vw, calc((100dvh - var(--portrait-ui-reserve)) / 1.8)) !important;
           margin: 0 auto;
           aspect-ratio: 1 / 1.8 !important;
           max-height: calc(100dvh - var(--portrait-ui-reserve)) !important;

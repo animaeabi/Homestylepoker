@@ -218,6 +218,10 @@ Validation:
   - bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster to `?v=53`
 
 - 2026-03-08: Nudged compact opponent card stacks upward in `/Users/abishek/Documents/poker-buyins/online-table.html`:
+  - portrait-only table sizing now favors width more on real phones instead of over-shrinking from `100dvh`
+  - reduced the default portrait UI reserve and made it state-aware for hidden vs expanded top bar / action-open states
+  - widened the portrait table cap from `92vw` to `96vw` and tightened table-area side/top padding
+  - verified on a 430x932 portrait viewport that the table fills much more of the screen while still clearing hero seat, hand log, and utility buttons
   - raised the centered held-card stack in both portrait and landscape compact modes
   - bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster to `?v=54`
 

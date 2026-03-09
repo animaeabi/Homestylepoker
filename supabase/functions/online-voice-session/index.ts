@@ -181,7 +181,14 @@ async function ensureRoom(apiKey: string, dailyDomain: string, tableId: string) 
   } catch (error) {
     const status = Number((error as { status?: number })?.status || 0);
     const msg = String((error as Error)?.message || "");
-    const alreadyExists = status === 409 || /already exists|conflict/i.test(msg);
+    // Daily may return a generic invalid-request-error when a room name already exists.
+    // We can safely continue because the room URL is deterministic and token creation
+    // below will fail if the room truly does not exist.
+    const alreadyExists = (
+      status === 409 ||
+      /already exists|conflict|taken/i.test(msg) ||
+      (status === 400 && msg === "invalid-request-error")
+    );
     if (!alreadyExists) throw error;
   }
 
@@ -270,13 +277,18 @@ Deno.serve(async (req) => {
       }, 429);
     }
 
-    const room = await ensureRoom(dailyApiKey, dailyDomain, tableId);
+    const room = await ensureRoom(dailyApiKey, dailyDomain, tableId)
+      .catch((error) => {
+        throw new Error(`Daily room setup failed: ${String((error as Error)?.message || error)}`);
+      });
     const meetingToken = await createMeetingToken(
       dailyApiKey,
       room.roomName,
       String(player?.name || "Player").slice(0, 40),
       actorGroupPlayerId
-    );
+    ).catch((error) => {
+      throw new Error(`Daily token creation failed: ${String((error as Error)?.message || error)}`);
+    });
 
     return json({
       ok: true,
