@@ -738,22 +738,35 @@ function applyAvatarTheme(node, { seed = "", name = "", isBot = false } = {}) {
   node.setAttribute("aria-label", `${name || "Player"} avatar`);
 }
 
-function getStackCtaState({ hand = getLatestHand(), handPlayer = null, stack = 0, startingStack = 200 } = {}) {
+function getStackCtaState({
+  hand = getLatestHand(),
+  handPlayer = null,
+  stack = 0,
+  seatStack = null,
+  startingStack = 200,
+} = {}) {
   const currentStack = Number(stack || 0);
+  const actualSeatStack = seatStack == null ? currentStack : Number(seatStack || 0);
   const startStackValue = Math.max(0, Number(startingStack || 0));
   const handActive = Boolean(hand && !["settled", "canceled"].includes(hand.state));
   const activeAllIn = Boolean(handActive && handPlayer && !handPlayer.folded && handPlayer.all_in);
-  const busted = currentStack <= 0;
-  const low = currentStack <= startStackValue * 0.2;
+  const participatingThisHand = Boolean(
+    handActive &&
+    handPlayer &&
+    !handPlayer.folded &&
+    (Array.isArray(handPlayer.hole_cards) ? handPlayer.hole_cards.length >= 2 : true)
+  );
+  const busted = actualSeatStack <= 0;
+  const low = actualSeatStack <= startStackValue * 0.2;
 
   if (activeAllIn) {
     return { kind: "status", text: "All-in" };
   }
-  if (busted && !handActive) {
+  if (busted && !participatingThisHand) {
     return { kind: "action", text: "Buy In" };
   }
-  if (!handActive && low) {
-    return { kind: "action", text: busted ? "Buy In" : "Top Up" };
+  if (!handActive && low && !busted) {
+    return { kind: "action", text: "Top Up" };
   }
   return { kind: "none", text: "" };
 }
@@ -984,9 +997,11 @@ function getStreetRevealMeta(index, hand = getLatestHand()) {
   if (!anim || !hand || anim.handId !== hand.id || !anim.indices.includes(index)) return null;
   const elapsed = Date.now() - anim.startedAt;
   if (elapsed >= getStreetRevealTotalMs(anim)) return null;
+  const flipDelayMs = getStreetRevealFlipDelayMs(anim, index);
   return {
     landDelayMs: Math.max(0, getStreetRevealLandDelayMs(anim, index) - elapsed),
-    flipDelayMs: Math.max(0, getStreetRevealFlipDelayMs(anim, index) - elapsed),
+    flipDelayMs: Math.max(0, flipDelayMs - elapsed),
+    showUnderlay: elapsed >= (flipDelayMs + BOARD_REVEAL_FLIP_MS * 0.45),
   };
 }
 
@@ -2179,6 +2194,7 @@ function renderBoard() {
       const revealMeta = getStreetRevealMeta(i, hand);
       if (revealMeta) {
         card.classList.add("board-deal-target", "board-card-hidden");
+        if (revealMeta.showUnderlay) card.classList.add("board-card-settling");
         card.dataset.boardIndex = String(i);
       }
       el.boardCards.appendChild(card);
@@ -2486,9 +2502,16 @@ function renderSeats() {
       // Rebuy button below player's own seat
       if (isMe) {
         const tbl = getTable();
-        const stk = Number((hp && hp.stack_end != null) ? hp.stack_end : seat.chip_stack || 0);
+        const seatStk = Number(seat.chip_stack || 0);
+        const stk = Number((hp && hp.stack_end != null) ? hp.stack_end : seatStk || 0);
         const startStk = Number(tbl?.starting_stack || 200);
-        const cta = getStackCtaState({ hand, handPlayer: hp, stack: stk, startingStack: startStk });
+        const cta = getStackCtaState({
+          hand,
+          handPlayer: hp,
+          stack: stk,
+          seatStack: seatStk,
+          startingStack: startStk,
+        });
         if (cta.kind !== "none") {
           const rbBtn = document.createElement("button");
           rbBtn.type = "button";
@@ -2580,9 +2603,16 @@ function renderMyHand() {
   }
 
   const tbl = getTable();
+  const seatStk = Number(mySeat.chip_stack || 0);
   const stk = Number(displayStack || 0);
   const startStk = Number(tbl?.starting_stack || 200);
-  const cta = getStackCtaState({ hand, handPlayer: hp, stack: stk, startingStack: startStk });
+  const cta = getStackCtaState({
+    hand,
+    handPlayer: hp,
+    stack: stk,
+    seatStack: seatStk,
+    startingStack: startStk,
+  });
 
   rbBtn.textContent = cta.text;
   rbBtn.classList.toggle("seat-status-chip", cta.kind === "status");

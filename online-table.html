@@ -528,8 +528,9 @@
         opacity: 0;
         transform: translate(var(--from-x), var(--from-y)) scale(0.36) rotate(var(--from-rot, -14deg));
         transform-origin: center center;
-        animation: boardCardLand var(--flight-ms, 520ms) cubic-bezier(0.14, 0.84, 0.24, 1) both;
-        animation-delay: var(--delay-ms, 0ms);
+        animation:
+          boardCardLand var(--flight-ms, 520ms) cubic-bezier(0.14, 0.84, 0.24, 1) var(--delay-ms, 0ms) both,
+          boardCardGhostOut 180ms ease-out calc(var(--flip-delay-ms, 540ms) + 110ms) forwards;
         pointer-events: none;
         will-change: transform, opacity;
         z-index: 22;
@@ -561,7 +562,16 @@
       }
 
       .board-deal-target.board-card-hidden {
-        visibility: hidden;
+        opacity: 0;
+        transform: translateY(-1px) scale(0.992);
+        transition:
+          opacity 180ms ease,
+          transform 220ms cubic-bezier(0.2, 0.9, 0.2, 1);
+      }
+
+      .board-deal-target.board-card-hidden.board-card-settling {
+        opacity: 1;
+        transform: translateY(0) scale(1);
       }
 
       @keyframes boardCardLand {
@@ -577,9 +587,22 @@
           opacity: 1;
           transform: translate(var(--mid-x), var(--mid-y)) scale(0.94) rotate(var(--mid-rot, -4deg));
         }
+        90% {
+          opacity: 1;
+          transform: translate(var(--to-x), calc(var(--to-y) - 3px)) scale(1.01) rotate(var(--to-rot, 0deg));
+        }
         100% {
           opacity: 1;
           transform: translate(var(--to-x), var(--to-y)) scale(1) rotate(var(--to-rot, 0deg));
+        }
+      }
+
+      @keyframes boardCardGhostOut {
+        from {
+          opacity: 1;
+        }
+        to {
+          opacity: 0;
         }
       }
 
@@ -3529,6 +3552,6 @@
 
     <div class="toast-container" id="toastContainer"></div>
 
-    <script type="module" src="./online/table_app.js?v=69"></script>
+    <script type="module" src="./online/table_app.js?v=72"></script>
   </body>
 </html>

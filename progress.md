@@ -1021,6 +1021,23 @@ Update (QA end-to-end review pass):
   - moved the CSS animation trigger from generic `.showdown` to `.showdown.showdown-fresh`
   - bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster to `?v=69`
 
+- 2026-03-08: Tightened hero spectator CTA behavior in `/Users/abishek/Documents/poker-buyins/online/table_app.js`:
+  - `Buy In` now appears for a busted hero even while another hand is still active, as long as the hero is not currently all-in in that hand
+  - `Top Up` now keys off `seat.chip_stack` (actual bankroll) instead of temporary live-hand `stack_end`
+  - `Top Up` remains between-hands only, so it does not appear just because chips are committed during a live hand
+  - bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster to `?v=70`
+
+- 2026-03-08: Smoothed the board-card handoff in `/Users/abishek/Documents/poker-buyins/online/table_app.js` and `/Users/abishek/Documents/poker-buyins/online-table.html`:
+  - underlying board cards now fade in underneath the reveal FX before the overlay is removed
+  - board-flight cards now decelerate into a light hover/settle instead of ending with a pop-snap handoff
+  - bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster to `?v=71`
+
+- 2026-03-08: Tightened the board-card takeover timing in `/Users/abishek/Documents/poker-buyins/online/table_app.js` and `/Users/abishek/Documents/poker-buyins/online-table.html`:
+  - actual board cards now appear earlier during the flip
+  - flying reveal cards fade out during the flip instead of lingering offset after the flip
+  - intended effect is a hover-into-slot / place-in-board feel rather than an offset linger followed by a snap
+  - bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster to `?v=72`
+
 Validation:
 - `node --check /Users/abishek/Documents/poker-buyins/online/bot_engine.js` (pass)
 - `node --check /Users/abishek/Documents/poker-buyins/online/table_app.js` (pass)
