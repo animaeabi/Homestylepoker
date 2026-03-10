@@ -1319,3 +1319,9 @@ Update (showdown climax timing):
 - Delayed winner resolution presentation in `/Users/abishek/Documents/poker-buyins/online/table_app.js` so all-in runouts now follow a clean sequence: board runout finishes, short breath, then winner highlight / summary / payout FX.
 - Added a shared showdown result reveal gate so winning-card highlights on the board and hole cards do not appear while the final community cards are still animating in.
 - Bumped `/Users/abishek/Documents/poker-buyins/online-table.html` bundle to `v=133`.
+
+Update (hero-relative compact seat mapping):
+- Reworked compact/mobile seat assignment in `/Users/abishek/Documents/poker-buyins/online/table_app.js` so the hero still stays anchored in the hand area, but the remaining table seats are now ordered clockwise from the hero instead of filling visual slots by raw seat number.
+- Kept the existing hand-tuned portrait and landscape seat coordinates untouched; only the mapping from real seats to those slots changed.
+- Added a geometric clockwise slot-order helper so the larger 7–10 player compact layouts preserve a sensible sweep from hero-right, across the top, to hero-left.
+- Bumped `/Users/abishek/Documents/poker-buyins/online-table.html` bundle to `v=134`.

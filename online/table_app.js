@@ -2932,17 +2932,50 @@ const LANDSCAPE_SEATS = {
   9: [{ x: 36, y: 9 }, { x: 64, y: 9 }, { x: 12, y: 27 }, { x: 88, y: 27 }, { x: 6, y: 56 }, { x: 94, y: 56 }, { x: 20, y: 82 }, { x: 80, y: 82 }, { x: 86, y: 86 }],
 };
 
-function portraitSeatPosition(index, total) {
+function portraitSeatTemplate(total) {
   const clamped = Math.max(2, Math.min(10, total));
   const positions = PORTRAIT_SEATS[clamped] || PORTRAIT_SEATS[6];
+  return positions.slice(0, Math.max(1, total));
+}
+
+function landscapeSeatTemplate(total) {
+  const clamped = Math.max(1, Math.min(9, total));
+  const positions = LANDSCAPE_SEATS[clamped] || LANDSCAPE_SEATS[8];
+  return positions.slice(0, Math.max(1, total));
+}
+
+function compactSeatTemplate(total) {
+  return isLandscape() ? landscapeSeatTemplate(total) : portraitSeatTemplate(total);
+}
+
+function compactClockwiseSortKey(position) {
+  const angle = Math.atan2(position.y - 50, position.x - 50);
+  return (Math.PI / 2 - angle + Math.PI * 2) % (Math.PI * 2);
+}
+
+function compactSlotOrder(total) {
+  return compactSeatTemplate(total)
+    .map((position, index) => ({ index, sortKey: compactClockwiseSortKey(position) }))
+    .sort((a, b) => a.sortKey - b.sortKey || a.index - b.index)
+    .map(({ index }) => index);
+}
+
+function compactSeatsFromHeroPerspective(seats, mySeat) {
+  if (!mySeat) return seats.slice();
+  const myIdx = seats.findIndex((seat) => seat.seat_no === mySeat.seat_no);
+  if (myIdx < 0) return seats.slice();
+  return seats.slice(myIdx + 1).concat(seats.slice(0, myIdx));
+}
+
+function portraitSeatPosition(index, total) {
+  const positions = portraitSeatTemplate(total);
   const idx = Math.max(0, Math.min(index - 1, positions.length - 1));
   const p = positions[idx];
   return { x: `${p.x}%`, y: `${p.y}%` };
 }
 
 function landscapeSeatPosition(index, total) {
-  const clamped = Math.max(1, Math.min(9, total));
-  const positions = LANDSCAPE_SEATS[clamped] || LANDSCAPE_SEATS[8];
+  const positions = landscapeSeatTemplate(total);
   const idx = Math.max(0, Math.min(index - 1, positions.length - 1));
   const p = positions[idx];
   return { x: `${p.x}%`, y: `${p.y}%` };
@@ -4090,8 +4123,9 @@ function renderSeats() {
   const activeVoiceSpeakerId = getServerVoiceState().speakerPlayerId;
   const turnRemaining = hand && hand.action_seat ? getTurnClock(hand) : null;
 
-  const tableSeats = compactMobile && mySeat ? seats.filter(s => s.seat_no !== mySeat.seat_no) : seats;
+  const tableSeats = compactMobile && mySeat ? compactSeatsFromHeroPerspective(seats, mySeat) : seats;
   const tableTotal = tableSeats.length;
+  const compactVisualOrder = compactMobile && mySeat ? compactSlotOrder(tableTotal) : null;
 
   const bottomIdx = Math.floor(total / 2);
   let rotateOffset = 0;
@@ -4101,7 +4135,11 @@ function renderSeats() {
   }
 
   tableSeats.forEach((seat, idx) => {
-    const posIdx = compactMobile ? idx : ((seats.indexOf(seat) + rotateOffset) % total + total) % total;
+    const posIdx = compactVisualOrder
+      ? (compactVisualOrder[idx] ?? idx)
+      : compactMobile
+        ? idx
+        : ((seats.indexOf(seat) + rotateOffset) % total + total) % total;
     const posTotal = compactMobile ? tableTotal : total;
     const pos = seatPosition(posIdx + 1, posTotal);
     const hp = hpBySeat.get(seat.seat_no);
