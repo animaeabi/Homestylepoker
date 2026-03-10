@@ -17,7 +17,7 @@ const BOARD_REVEAL_LAND_MS = 520;
 const BOARD_REVEAL_FLIP_MS = 420;
 const BOARD_REVEAL_FLIP_STAGGER_MS = 80;
 const STREET_REVEAL_DEFER_MS = 90;
-const ROUND_TRANSITION_BREATH_MS = 220;
+const ROUND_TRANSITION_BREATH_MS = 320;
 const SHOWDOWN_RESULT_BREATH_MS = 460;
 const POT_BUMP_MS = 520;
 const CHIP_PUSH_MS = 760;
@@ -1754,7 +1754,12 @@ function setHeroPreaction(kind) {
     renderActions();
     return;
   }
-  state.heroPreaction = { kind, key };
+  const nextPreaction = { kind, key };
+  if (kind === "call_current") {
+    const { toCall } = getBetBounds(hand, hp);
+    nextPreaction.amount = Number(toCall || 0);
+  }
+  state.heroPreaction = nextPreaction;
   state.heroPreactionExecuting = false;
   renderActions();
 }
@@ -1771,8 +1776,11 @@ function syncHeroPreaction(hand = getLatestHand(), hp = getMyHandPlayer()) {
     clearHeroPreaction();
     return;
   }
-  if (state.heroPreaction.kind === "call_current" && toCall <= 0) {
-    clearHeroPreaction();
+  if (state.heroPreaction.kind === "call_current") {
+    const agreedAmount = Number(state.heroPreaction.amount || 0);
+    if (toCall <= 0 || Math.abs(toCall - agreedAmount) > 0.0001) {
+      clearHeroPreaction();
+    }
   }
 }
 

@@ -1325,3 +1325,10 @@ Update (hero-relative compact seat mapping):
 - Kept the existing hand-tuned portrait and landscape seat coordinates untouched; only the mapping from real seats to those slots changed.
 - Added a geometric clockwise slot-order helper so the larger 7–10 player compact layouts preserve a sensible sweep from hero-right, across the top, to hero-left.
 - Bumped `/Users/abishek/Documents/poker-buyins/online-table.html` bundle to `v=134`.
+
+Update (pre-action safety + bot preflop realism):
+- Reworked hero pre-actions in `/Users/abishek/Documents/poker-buyins/online/table_app.js` so the queued `Call $X` pre-action now remembers the agreed amount and automatically clears itself if opponents re-raise to a different number before the hero acts.
+- Kept `Call Any` as the explicit opt-in to keep following future raises, while leaving `Check/Fold` reactive to unopened vs bet-facing states.
+- Tuned `/Users/abishek/Documents/poker-buyins/supabase/functions/_shared/bot_engine.ts` to use more human preflop raise sizing and stricter jam conditions, so bots only shove preflop with short-stack or genuinely premium spots instead of routinely escalating to all-in.
+- Increased `ROUND_TRANSITION_BREATH_MS` slightly in `/Users/abishek/Documents/poker-buyins/online/table_app.js` so street changes read more clearly without slowing button responsiveness.
+- Bumped `/Users/abishek/Documents/poker-buyins/online-table.html` bundle to `v=135`.

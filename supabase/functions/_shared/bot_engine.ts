@@ -401,6 +401,73 @@ function preflopStrength(hole1?: string, hole2?: string) {
   return Math.min(1.0, Math.max(0.0, score));
 }
 
+function stackInBigBlinds(stack: number, bigBlind: number) {
+  return stack / Math.max(1, Number(bigBlind || 2));
+}
+
+function shouldJamPreflop({
+  rawStrength,
+  stackBb,
+  activeSeatCount,
+  personality,
+}: {
+  rawStrength: number;
+  stackBb: number;
+  activeSeatCount: number;
+  personality: BotPersonality;
+}) {
+  const headsUp = activeSeatCount <= 2;
+  if (stackBb <= 7.5) return rawStrength >= 0.62;
+  if (stackBb <= 11) return rawStrength >= (headsUp ? 0.68 : 0.74);
+  if (stackBb <= 15) return rawStrength >= (personality === "LAG" ? 0.8 : 0.84);
+  if (stackBb <= 20 && headsUp) return rawStrength >= 0.9;
+  return rawStrength >= 0.96 && stackBb <= 26;
+}
+
+function choosePreflopRaiseTarget({
+  currentBet,
+  toCall,
+  streetContribution,
+  bigBlind,
+  stack,
+  personality,
+  activeSeatCount,
+  effectiveStrength,
+}: {
+  currentBet: number;
+  toCall: number;
+  streetContribution: number;
+  bigBlind: number;
+  stack: number;
+  personality: BotPersonality;
+  activeSeatCount: number;
+  effectiveStrength: number;
+}) {
+  const blind = Math.max(1, Number(bigBlind || 2));
+  const totalCommitted = Number(streetContribution || 0) + Number(stack || 0);
+  const facingOpen = toCall <= blind * 1.05;
+  const raiseMultiplierBase = personality === "LAG" ? 3.4 : personality === "Rock" ? 2.55 : 2.9;
+
+  let target = 0;
+  if (facingOpen) {
+    const openBb = rand(
+      Math.max(2.2, raiseMultiplierBase - 0.35),
+      Math.min(4.2, raiseMultiplierBase + (effectiveStrength >= 0.82 ? 0.45 : 0.18))
+    );
+    target = blind * openBb;
+    if (activeSeatCount >= 5 && effectiveStrength < 0.82) target = Math.min(target, blind * 3.2);
+  } else if (currentBet <= blind * 6) {
+    const reRaiseMultiplier = personality === "LAG" ? rand(2.7, 3.35) : rand(2.45, 3.05);
+    target = currentBet * reRaiseMultiplier;
+  } else {
+    const lateReRaiseMultiplier = personality === "Rock" ? rand(2.0, 2.25) : rand(2.1, 2.5);
+    target = currentBet * lateReRaiseMultiplier;
+  }
+
+  const roundedTarget = Math.max(currentBet + blind, Math.round(target / blind) * blind);
+  return Math.min(roundedTarget, totalCommitted);
+}
+
 function toParsedCard(token?: string | null) {
   if (!token || token.length < 2) return null;
   const rank = RANK_VAL[token[0].toUpperCase()];
@@ -735,6 +802,7 @@ export function decideBotAction({
   const profile = PROFILES[personality] || PROFILES.TAG;
   const toCall = Math.max(0, (currentBet || 0) - (streetContribution || 0));
   const stack = stackEnd || 0;
+  const stackBb = stackInBigBlinds(stack, bigBlind || 2);
   const isPreflop = street === "preflop" || !boardCards || boardCards.length < 3;
   const isFlop = street === "flop";
   const postflop = isPreflop ? { strength: 0, drawStrength: 0, classRank: null } : analyzePostflopHand(holeCards, boardCards);
@@ -751,12 +819,21 @@ export function decideBotAction({
   const opAdj = opponentAdjustments(opponentProfile || null, personality);
   const noise = rand(-0.05, 0.05);
   const effectiveStrength = Math.min(1.0, Math.max(0.0, rawStrength * posMult + noise));
+  const jamPreflop = isPreflop && shouldJamPreflop({
+    rawStrength,
+    stackBb,
+    activeSeatCount: activeSeatCount || 2,
+    personality,
+  });
 
   const adjustedBluffRate = Math.max(0, Math.min(0.3, profile.bluffRate + opAdj.bluffMod));
   const adjustedFoldThreshold = isPreflop
     ? Math.max(0.1, profile.preflopFoldBelow + opAdj.foldMod)
     : Math.max(0.1, profile.postflopFoldBelow + opAdj.foldMod);
-  const adjustedRaiseAbove = Math.max(0.3, profile.raiseAbove - opAdj.betMod);
+  const adjustedRaiseAbove = Math.max(
+    0.3,
+    profile.raiseAbove - opAdj.betMod + (isPreflop && stackBb > 16 ? 0.06 : 0)
+  );
   const adjustedCallRate = clamp(profile.callRate + opAdj.callMod, 0.48, 0.98);
   const strongDraw = !isPreflop && drawStrength >= 0.12;
   const premiumMadeHand = !isPreflop && (madeClassRank || 0) >= 2;
@@ -807,8 +884,28 @@ export function decideBotAction({
   }
 
   if (effectiveStrength >= adjustedRaiseAbove) {
-    const sizeFrac = rand(profile.betSizeMin, profile.betSizeMax);
     if (currentBet > 0) {
+      if (isPreflop) {
+        const raiseTarget = choosePreflopRaiseTarget({
+          currentBet,
+          toCall,
+          streetContribution,
+          bigBlind,
+          stack,
+          personality,
+          activeSeatCount,
+          effectiveStrength,
+        });
+        if (raiseTarget >= (streetContribution || 0) + stack - 0.0001) {
+          if (jamPreflop) {
+            return { actionType: "all_in", amount: null as number | null };
+          }
+          return toCall > 0 ? { actionType: "call", amount: null as number | null } : { actionType: "check", amount: null as number | null };
+        }
+        return { actionType: "raise", amount: raiseTarget };
+      }
+
+      const sizeFrac = rand(profile.betSizeMin, profile.betSizeMax);
       const raiseSize = Math.max(Math.round(pot * sizeFrac), bigBlind || 2);
       const raiseTarget = (currentBet || 0) + raiseSize;
       if (raiseTarget > (streetContribution || 0) + stack) {
@@ -816,8 +913,13 @@ export function decideBotAction({
       }
       return { actionType: "raise", amount: raiseTarget };
     }
+
+    const sizeFrac = rand(profile.betSizeMin, profile.betSizeMax);
     const betSize = Math.max(Math.round(pot * sizeFrac), bigBlind || 2);
     if (betSize >= stack) {
+      if (isPreflop && !jamPreflop) {
+        return { actionType: "call", amount: null as number | null };
+      }
       return { actionType: "all_in", amount: null as number | null };
     }
     return { actionType: "bet", amount: betSize };
@@ -825,6 +927,9 @@ export function decideBotAction({
 
   if (toCall > 0) {
     if (toCall > stack) {
+      if (isPreflop && !jamPreflop) {
+        return { actionType: "fold", amount: null as number | null };
+      }
       return coinFlip(adjustedCallRate) ? { actionType: "all_in", amount: null as number | null } : { actionType: "fold", amount: null as number | null };
     }
 
