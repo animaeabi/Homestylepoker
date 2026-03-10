@@ -1332,3 +1332,8 @@ Update (pre-action safety + bot preflop realism):
 - Tuned `/Users/abishek/Documents/poker-buyins/supabase/functions/_shared/bot_engine.ts` to use more human preflop raise sizing and stricter jam conditions, so bots only shove preflop with short-stack or genuinely premium spots instead of routinely escalating to all-in.
 - Increased `ROUND_TRANSITION_BREATH_MS` slightly in `/Users/abishek/Documents/poker-buyins/online/table_app.js` so street changes read more clearly without slowing button responsiveness.
 - Bumped `/Users/abishek/Documents/poker-buyins/online-table.html` bundle to `v=135`.
+
+Update (simplify waiting pre-actions):
+- Removed the redundant standalone `Check` choice from the hero waiting rail in `/Users/abishek/Documents/poker-buyins/online/table_app.js`.
+- The waiting rail now shows `Check/Fold` plus `Call Any`, and only reveals the middle `Call $X` button once there is an actual bet to call.
+- Bumped `/Users/abishek/Documents/poker-buyins/online-table.html` bundle to `v=136`.

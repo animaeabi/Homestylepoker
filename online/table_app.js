@@ -1822,6 +1822,7 @@ function syncHeroPreactionUi({ hand, hp, myTurn, actionLocked }) {
     el.foldBtn?.classList.remove("active");
     el.callBtn?.classList.remove("active");
     el.betRaiseBtn?.classList.remove("active");
+    el.callBtn?.classList.remove("hidden");
     if (el.callBtn) {
       el.callBtn.disabled = false;
       el.callBtn.setAttribute("aria-disabled", "false");
@@ -1837,6 +1838,7 @@ function syncHeroPreactionUi({ hand, hp, myTurn, actionLocked }) {
   el.foldBtn?.classList.toggle("active", isSelected("check_fold"));
   el.callBtn?.classList.toggle("active", isSelected(secondaryKind));
   el.betRaiseBtn?.classList.toggle("active", isSelected("call_any"));
+  el.callBtn?.classList.toggle("hidden", toCall <= 0);
   if (el.callBtn) {
     el.callBtn.disabled = false;
     el.callBtn.setAttribute("aria-disabled", "false");
@@ -4668,7 +4670,7 @@ function renderActions() {
     el.allInBtn.classList.add("hidden");
     const { toCall } = getBetBounds(hand, hp);
     el.foldBtn.textContent = toCall > 0 ? "Fold" : "Check/Fold";
-    el.callBtn.textContent = toCall > 0 ? `Call ${fmtShort(toCall)}` : "Check";
+    el.callBtn.textContent = `Call ${fmtShort(toCall)}`;
     el.betRaiseBtn.textContent = "Call Any";
   } else {
     state.landscapeRaisePanelOpen = false;
@@ -4681,6 +4683,7 @@ function renderActions() {
     el.foldBtn.classList.remove("active");
     el.callBtn.classList.remove("active");
     el.betRaiseBtn.classList.remove("active");
+    el.callBtn.classList.remove("hidden");
     el.callBtn.disabled = false;
     el.callBtn.setAttribute("aria-disabled", "false");
   }
