@@ -221,6 +221,8 @@ const state = {
   lastVictoryPopupKey: null,
   showdownResultReveal: null,
   deferredStreetRevealTimer: null,
+  streetActionLabelHold: null,
+  streetActionLabelHoldTimer: null,
   settlementFxTimer: null,
   showdownRevealHandId: null,
   showdownRevealSeats: new Set(),
@@ -1413,6 +1415,58 @@ function findLatestSeatActionForStreet(seatNo, street, hand = getLatestHand()) {
   return null;
 }
 
+function clearStreetActionLabelHold({ keepState = false } = {}) {
+  if (state.streetActionLabelHoldTimer) {
+    clearTimeout(state.streetActionLabelHoldTimer);
+    state.streetActionLabelHoldTimer = null;
+  }
+  if (!keepState) state.streetActionLabelHold = null;
+}
+
+function holdStreetActionLabels({ handId, fromStreet, toStreet, durationMs }) {
+  clearStreetActionLabelHold();
+  const holdMs = Math.max(0, Number(durationMs || 0));
+  if (!handId || !fromStreet || !toStreet || !holdMs) return;
+  state.streetActionLabelHold = {
+    handId,
+    fromStreet,
+    toStreet,
+    until: Date.now() + holdMs,
+  };
+  state.streetActionLabelHoldTimer = setTimeout(() => {
+    state.streetActionLabelHoldTimer = null;
+    const latestHand = getLatestHand();
+    if (latestHand && latestHand.id === handId) {
+      state.streetActionLabelHold = null;
+      renderAll();
+    } else {
+      clearStreetActionLabelHold();
+    }
+  }, holdMs);
+}
+
+function getDisplayedActionStreet(hand = getLatestHand()) {
+  if (!hand) return "";
+  const hold = state.streetActionLabelHold;
+  if (
+    hold &&
+    hold.handId === hand.id &&
+    hold.toStreet === hand.state &&
+    Date.now() < Number(hold.until || 0)
+  ) {
+    return hold.fromStreet;
+  }
+  return hand.state || "";
+}
+
+function isBoardStreet(stateName) {
+  return ["flop", "turn", "river"].includes(String(stateName || ""));
+}
+
+function isBettingStreet(stateName) {
+  return ["preflop", "flop", "turn", "river"].includes(String(stateName || ""));
+}
+
 function getOptimisticSeatActionLabel(seatNo, hand = getLatestHand()) {
   const optimistic = state.optimisticSeatAction;
   if (!optimistic || !hand || !seatNo) return "";
@@ -1469,7 +1523,7 @@ function getSeatContributionLabel({
 }) {
   const optimisticLabel = getOptimisticSeatActionLabel(seat?.seat_no, hand);
   if (optimisticLabel) return optimisticLabel;
-  const street = hand?.state;
+  const street = getDisplayedActionStreet(hand);
   const latestAction = findLatestSeatActionForStreet(seat?.seat_no, street, hand);
   const actionType = latestAction?.payload?.action_type || "";
   if (actionType === "check") return "Check";
@@ -3521,6 +3575,28 @@ async function loadTableState() {
     });
     clearTimeout(state.deferredStreetRevealTimer);
     state.deferredStreetRevealTimer = null;
+    clearStreetActionLabelHold();
+    const shouldHoldClosingStreetLabels = Boolean(
+      announcementState?.hasNewActions &&
+      hand &&
+      oldHand &&
+      hand.id === oldHand.id &&
+      oldHand.state !== hand.state &&
+      (
+        (isBettingStreet(oldHand.state) && isBoardStreet(hand.state)) ||
+        (oldHand.state === "river" && ["showdown", "settled"].includes(String(hand.state || "")))
+      )
+    );
+    if (shouldHoldClosingStreetLabels && oldHand && hand) {
+      holdStreetActionLabels({
+        handId: hand.id,
+        fromStreet: oldHand.state,
+        toStreet: hand.state,
+        durationMs: isBoardStreet(hand.state)
+          ? (roundTransitionBreathMs + STREET_REVEAL_DEFER_MS)
+          : ROUND_TRANSITION_BREATH_MS,
+      });
+    }
     maybeStartStreetRevealAnimation(
       oldHand,
       hand,
