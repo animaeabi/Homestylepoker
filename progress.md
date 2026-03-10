@@ -1253,3 +1253,8 @@ Update (showdown pacing + seat contribution labels):
 - Delayed backend auto-deal eligibility by an extra 2 seconds in `/Users/abishek/Documents/poker-buyins/supabase/online_poker_schema.sql` and migration `/Users/abishek/Documents/poker-buyins/supabase/migrations/20260310021500_delay_auto_deal_for_showdown_presentation.sql` so the board reveal / payout / victory presentation can complete before the next hand starts.
 - Added a settled-hand presentation guard in `/Users/abishek/Documents/poker-buyins/online/table_app.js` so the manual `Deal` button stays hidden until street-reveal FX, payout FX, victory popup, and win overlays are all done.
 - Upgraded persistent felt contribution chips to action-aware labels (`Bet $X`, `Call $X`, `Raise $X`, `All-in $X`) instead of amount-only pills.
+
+Update (persistent checks + pot-anchored winner message):
+- Persistent seat labels in `/Users/abishek/Documents/poker-buyins/online/table_app.js` now keep `Check` visible for the current street instead of only showing a transient popup.
+- Winner popup no longer auto-hides after a short timer; it stays visible until the hand actually rolls forward, and manual `Deal` now waits until the configured next-hand timeout has elapsed.
+- Repositioned the blurred winner popup in `/Users/abishek/Documents/poker-buyins/online-table.html` to sit above the pot display instead of near the top rail.

@@ -1333,8 +1333,6 @@ function isShowdownPresentationActive(hand = getLatestHand()) {
     || state.settlementFxTimer
     || (state.potPushAnimation?.handId === handId)
     || state.victoryPopupTimer
-    || state.victoryPopupHideTimer
-    || state.victoryPopup?.visible
     || hasActiveWinOverlays()
   );
 }
@@ -1412,12 +1410,13 @@ function getSeatContributionLabel({
   handPlayer,
   hand = getLatestHand(),
 }) {
-  const contribution = Number(handPlayer?.street_contribution || 0);
-  if (!(contribution > 0)) return "";
-
   const street = hand?.state;
   const latestAction = findLatestSeatActionForStreet(seat?.seat_no, street, hand);
   const actionType = latestAction?.payload?.action_type || "";
+  if (actionType === "check") return "Check";
+
+  const contribution = Number(handPlayer?.street_contribution || 0);
+  if (!(contribution > 0)) return "";
   const contributionText = fmtShort(contribution);
 
   switch (actionType) {
@@ -1439,6 +1438,13 @@ function getSeatContributionLabel({
   }
 
   return contributionText;
+}
+
+function getNextHandEligibleAtMs(hand = getLatestHand()) {
+  if (!hand || !["settled", "canceled"].includes(hand.state)) return 0;
+  const endedAtMs = Date.parse(hand.ended_at || "");
+  if (!Number.isFinite(endedAtMs)) return Date.now() + getShowdownTimeMs() + 2000;
+  return endedAtMs + getShowdownTimeMs() + 2000;
 }
 
 function decimalPlaces(v) {
@@ -1850,7 +1856,6 @@ function syncVictoryPopup({ oldHand, hand, hadPriorTableState = false, shouldDel
         deferred: shouldDelayStreetReveal
       });
   const showDelayMs = Math.max(220, effectiveRevealDelayMs + 180);
-  const hangMs = Math.max(2200, Math.min(3400, getShowdownTimeMs() - 400));
   const handId = hand.id;
 
   state.victoryPopupTimer = setTimeout(() => {
@@ -1861,12 +1866,6 @@ function syncVictoryPopup({ oldHand, hand, hadPriorTableState = false, shouldDel
       visible: true
     };
     renderVictoryPopup();
-    state.victoryPopupHideTimer = setTimeout(() => {
-      if (state.victoryPopup?.key === payload.key) {
-        state.victoryPopup = null;
-        renderVictoryPopup();
-      }
-    }, hangMs);
   }, showDelayMs);
 }
 
@@ -4302,10 +4301,11 @@ function renderActions() {
   const myTurn = hand && isActionStreet(hand.state) && token && hp && !hp.folded && !hp.all_in && hand.action_seat === hp.seat_no && !actionLocked;
   const noActiveHand = !hand || ["settled","canceled"].includes(hand.state);
   const presentationActive = isShowdownPresentationActive(hand);
+  const nextHandEligible = Date.now() >= getNextHandEligibleAtMs(hand);
   el.tableView.classList.toggle("landscape-actions-visible", Boolean(myTurn));
   el.tableView.classList.toggle("landscape-vertical-actions", compactActions);
 
-  if (isHost && noActiveHand && !presentationActive) {
+  if (isHost && noActiveHand && !presentationActive && nextHandEligible) {
     el.startHandBtn.classList.remove("hidden");
     el.startHandBtn.disabled = false;
     el.startHandBtn.textContent = "Deal";
@@ -4700,8 +4700,13 @@ function bindEvents() {
   });
 
   el.startHandBtn.addEventListener("click", () => {
-    if (isShowdownPresentationActive(getLatestHand())) {
+    const hand = getLatestHand();
+    if (isShowdownPresentationActive(hand)) {
       toast("Waiting for the hand to finish...", "error");
+      return;
+    }
+    if (Date.now() < getNextHandEligibleAtMs(hand)) {
+      toast("Showdown still settling...", "error");
       return;
     }
     withAction("Start hand", async () => {
