@@ -1663,7 +1663,9 @@ begin
   into v_target_bet
   from online_hand_players
   where hand_id = p_hand_id
-    and not folded;
+    and not folded
+    and not all_in
+    and coalesce(stack_end, 0) > 0;
 
   select count(*)
   into v_unsettled_count

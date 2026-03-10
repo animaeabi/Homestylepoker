@@ -303,6 +303,14 @@ function toNumber(value: unknown, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+function countActionablePlayers(players: any[]) {
+  return (players || []).filter((player: any) =>
+    !player?.folded &&
+    !player?.all_in &&
+    toNumber(player?.stack_end, 0) > 0
+  ).length;
+}
+
 function buildOpponentRead({
   profileRow,
   handPlayer,
@@ -418,6 +426,21 @@ async function processBotAction({
   const postActionState = await onlineClient.getHandState({ handId: hand.id, sinceSeq: null });
   let currentState = postActionState?.hand?.state || hand.state;
   let settled = false;
+
+  if (
+    decision.actionType === "check" &&
+    currentState === String(liveHand?.state || hand.state) &&
+    Number(postActionState?.hand?.action_seat || 0) === Number(botPlayer.seat_no || 0) &&
+    Number(postActionState?.hand?.current_bet || 0) <= 0 &&
+    countActionablePlayers(postActionState?.players || []) <= 1
+  ) {
+    const advancedState = await onlineClient.advanceHand({
+      handId: hand.id,
+      actorGroupPlayerId,
+      reason: "allin_progress"
+    });
+    currentState = advancedState?.state || currentState;
+  }
 
   if (currentState === "showdown") {
     await settleShowdownFromState({
@@ -556,6 +579,20 @@ async function processHandForRuntime({
 
         const postCheckState = await onlineClient.getHandState({ handId, sinceSeq: null });
         currentState = postCheckState?.hand?.state || currentState;
+
+        if (
+          currentState === String(currentHand?.state || hand.state) &&
+          Number(postCheckState?.hand?.action_seat || 0) === Number(actionSeat) &&
+          Number(postCheckState?.hand?.current_bet || 0) <= 0 &&
+          countActionablePlayers(postCheckState?.players || []) <= 1
+        ) {
+          const advancedState = await onlineClient.advanceHand({
+            handId,
+            actorGroupPlayerId,
+            reason: "allin_progress"
+          });
+          currentState = advancedState?.state || currentState;
+        }
 
         if (currentState === "showdown") {
           await settleShowdownFromState({
