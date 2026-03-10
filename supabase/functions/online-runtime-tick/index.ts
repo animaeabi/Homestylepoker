@@ -523,6 +523,17 @@ async function processHandForRuntime({
       });
     }
 
+    if (elapsedSecs < turnTimeoutSecs) {
+      return {
+        handId,
+        state: currentState,
+        advanced,
+        settled,
+        skipped: true,
+        reason: "awaiting_actor_action"
+      };
+    }
+
     if (actingSeat?.auto_check_when_available) {
       const handState = await onlineClient.getHandState({ handId, sinceSeq: null });
       const currentHand = handState?.hand || hand;
@@ -565,17 +576,6 @@ async function processHandForRuntime({
           skipped: false
         };
       }
-    }
-
-    if (elapsedSecs < turnTimeoutSecs) {
-      return {
-        handId,
-        state: currentState,
-        advanced,
-        settled,
-        skipped: true,
-        reason: "awaiting_actor_action"
-      };
     }
 
     if (!actingSeat?.group_player_id || !actingSeat?.seat_token) {
