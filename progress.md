@@ -1297,3 +1297,25 @@ Validation:
 - `node --check /Users/abishek/Documents/poker-buyins/online/table_app.js` (pass)
 - `node --check /Users/abishek/Documents/poker-buyins/online/showdown.js` (pass)
 - `node /Users/abishek/Documents/poker-buyins/online/showdown.test.js` (pass)
+
+Update (reactive hero pre-actions + pacing pass):
+- Reworked the waiting-state hero rail in `/Users/abishek/Documents/poker-buyins/online/table_app.js` so it now reacts to live action instead of showing static pre-actions:
+  - top slot becomes `Check/Fold` when unopened and auto-switches to `Fold` once a bet appears
+  - middle slot becomes `Check` when unopened and dynamically turns into `Call $X` once there is money to call
+  - bottom slot remains `Call Any`
+- Added a separate `call_current` pre-action mode so the dynamic middle button can auto-execute correctly on turn and river without behaving like `Call Any`.
+- Added a small round-transition breathing-room hold before street changes / showdown presentation so the table doesn’t rush immediately into the next phase after the final action of a betting round.
+- Lowered the hero action chip in `/Users/abishek/Documents/poker-buyins/online-table.html` so it sits closer to the hero cards.
+- Bumped `/Users/abishek/Documents/poker-buyins/online-table.html` bundle to `v=131`.
+
+Update (speed polish):
+- Tightened the table feel in `/Users/abishek/Documents/poker-buyins/online/table_app.js` by reducing deal/reveal timing constants, shortening the between-street hold, and increasing the fallback poll cadence so stale clients recover faster.
+- Added optimistic hero action feedback so the hero’s action chip updates immediately on submit while the server-confirmed state catches up.
+- Triggered a best-effort runtime nudge immediately after manual hero actions so bot turns / all-in progression start sooner instead of waiting for the next backend cadence.
+- Added instant `Dealing...` feedback on the manual Deal button.
+- Bumped `/Users/abishek/Documents/poker-buyins/online-table.html` bundle to `v=132`.
+
+Update (showdown climax timing):
+- Delayed winner resolution presentation in `/Users/abishek/Documents/poker-buyins/online/table_app.js` so all-in runouts now follow a clean sequence: board runout finishes, short breath, then winner highlight / summary / payout FX.
+- Added a shared showdown result reveal gate so winning-card highlights on the board and hole cards do not appear while the final community cards are still animating in.
+- Bumped `/Users/abishek/Documents/poker-buyins/online-table.html` bundle to `v=133`.

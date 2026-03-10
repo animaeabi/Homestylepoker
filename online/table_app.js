@@ -7,16 +7,18 @@ import { randomPersonality, randomBotName, personalityLabel, OpponentTracker } f
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const online = createOnlinePokerClient(supabase);
 
-const POLL_MS = 1800;
-const DEAL_STAGGER_MS = 205;
-const DEAL_ANIMATION_MS = 700;
-const DEAL_REVEAL_MS = 260;
-const DEAL_REVEAL_OFFSET_MS = 120;
+const POLL_MS = 1000;
+const DEAL_STAGGER_MS = 145;
+const DEAL_ANIMATION_MS = 560;
+const DEAL_REVEAL_MS = 220;
+const DEAL_REVEAL_OFFSET_MS = 95;
 const BOARD_REVEAL_STAGGER_MS = 120;
 const BOARD_REVEAL_LAND_MS = 520;
 const BOARD_REVEAL_FLIP_MS = 420;
 const BOARD_REVEAL_FLIP_STAGGER_MS = 80;
-const STREET_REVEAL_DEFER_MS = 180;
+const STREET_REVEAL_DEFER_MS = 90;
+const ROUND_TRANSITION_BREATH_MS = 220;
+const SHOWDOWN_RESULT_BREATH_MS = 460;
 const POT_BUMP_MS = 520;
 const CHIP_PUSH_MS = 760;
 const CHIP_PUSH_STAGGER_MS = 48;
@@ -166,6 +168,7 @@ const state = {
   loading: false,
   tableBooting: false,
   pendingAction: false,
+  optimisticSeatAction: null,
   pollTimer: null,
   turnTimer: null,
   realtimeChannel: null,
@@ -214,6 +217,7 @@ const state = {
   victoryPopupTimer: null,
   victoryPopupHideTimer: null,
   lastVictoryPopupKey: null,
+  showdownResultReveal: null,
   deferredStreetRevealTimer: null,
   settlementFxTimer: null,
   showdownRevealHandId: null,
@@ -1407,11 +1411,62 @@ function findLatestSeatActionForStreet(seatNo, street, hand = getLatestHand()) {
   return null;
 }
 
+function getOptimisticSeatActionLabel(seatNo, hand = getLatestHand()) {
+  const optimistic = state.optimisticSeatAction;
+  if (!optimistic || !hand || !seatNo) return "";
+  if (optimistic.handId !== hand.id) return "";
+  if (optimistic.street !== hand.state) return "";
+  if (Number(optimistic.seatNo || 0) !== Number(seatNo || 0)) return "";
+  return optimistic.label || "";
+}
+
+function buildOptimisticSeatAction(payload, hand = getLatestHand(), hp = getMyHandPlayer()) {
+  if (!payload || !hand || !hp) return null;
+  const seatNo = Number(hp.seat_no || 0);
+  if (!seatNo) return null;
+
+  const currentContribution = Number(hp.street_contribution || 0);
+  const currentBet = Number(hand.current_bet || 0);
+  const stackEnd = Number(hp.stack_end || 0);
+  const toCall = Math.max(0, currentBet - currentContribution);
+  let label = "";
+
+  switch (payload.actionType) {
+    case "check":
+      label = "Check";
+      break;
+    case "call":
+      label = `Call ${fmtShort(currentContribution + toCall)}`;
+      break;
+    case "bet":
+      label = `Bet ${fmtShort(Number(payload.amount || 0))}`;
+      break;
+    case "raise":
+      label = `Raise ${fmtShort(Number(payload.amount || 0))}`;
+      break;
+    case "all_in":
+      label = `All-in ${fmtShort(currentContribution + stackEnd)}`;
+      break;
+    default:
+      break;
+  }
+
+  if (!label) return null;
+  return {
+    handId: hand.id,
+    street: hand.state,
+    seatNo,
+    label,
+  };
+}
+
 function getSeatContributionLabel({
   seat,
   handPlayer,
   hand = getLatestHand(),
 }) {
+  const optimisticLabel = getOptimisticSeatActionLabel(seat?.seat_no, hand);
+  if (optimisticLabel) return optimisticLabel;
   const street = hand?.state;
   const latestAction = findLatestSeatActionForStreet(seat?.seat_no, street, hand);
   const actionType = latestAction?.payload?.action_type || "";
@@ -1714,6 +1769,10 @@ function syncHeroPreaction(hand = getLatestHand(), hp = getMyHandPlayer()) {
   const { toCall } = getBetBounds(hand, hp);
   if (state.heroPreaction.kind === "check" && toCall > 0) {
     clearHeroPreaction();
+    return;
+  }
+  if (state.heroPreaction.kind === "call_current" && toCall <= 0) {
+    clearHeroPreaction();
   }
 }
 
@@ -1725,8 +1784,10 @@ function resolveHeroPreaction(hand = getLatestHand(), hp = getMyHandPlayer()) {
       return { label: toCall > 0 ? "Fold" : "Check", actionType: toCall > 0 ? "fold" : "check" };
     case "check":
       return toCall === 0 ? { label: "Check", actionType: "check" } : null;
+    case "call_current":
+      return toCall > 0 ? { label: `Call ${fmtShort(toCall)}`, actionType: "call" } : null;
     case "call_any":
-      return { label: toCall > 0 ? "Call" : "Check", actionType: toCall > 0 ? "call" : "check" };
+      return { label: toCall > 0 ? `Call ${fmtShort(toCall)}` : "Check", actionType: toCall > 0 ? "call" : "check" };
     default:
       return null;
   }
@@ -1763,13 +1824,14 @@ function syncHeroPreactionUi({ hand, hp, myTurn, actionLocked }) {
   const { toCall } = getBetBounds(hand, hp);
   const currentKey = getHeroPreactionKey(hand);
   const isSelected = (kind) => state.heroPreaction?.kind === kind && state.heroPreaction?.key === currentKey;
+  const secondaryKind = toCall > 0 ? "call_current" : "check";
 
   el.foldBtn?.classList.toggle("active", isSelected("check_fold"));
-  el.callBtn?.classList.toggle("active", isSelected("check"));
+  el.callBtn?.classList.toggle("active", isSelected(secondaryKind));
   el.betRaiseBtn?.classList.toggle("active", isSelected("call_any"));
   if (el.callBtn) {
-    el.callBtn.disabled = toCall > 0;
-    el.callBtn.setAttribute("aria-disabled", toCall > 0 ? "true" : "false");
+    el.callBtn.disabled = false;
+    el.callBtn.setAttribute("aria-disabled", "false");
   }
   return true;
 }
@@ -1911,6 +1973,7 @@ function clearVictoryPopup({ preserveKey = false } = {}) {
   state.victoryPopupTimer = null;
   state.victoryPopupHideTimer = null;
   state.victoryPopup = null;
+  state.showdownResultReveal = null;
   if (!preserveKey) state.lastVictoryPopupKey = null;
 }
 
@@ -1963,6 +2026,16 @@ function buildVictoryPopupPayload(hand = getLatestHand(), players = getHandPlaye
   };
 }
 
+function isShowdownResultReady(hand = getLatestHand()) {
+  if (!hand || !["showdown", "settled"].includes(hand.state)) return false;
+  if (state.deferredStreetRevealTimer) return false;
+  if (state.streetRevealAnimation?.handId === hand.id) return false;
+
+  const reveal = state.showdownResultReveal;
+  if (!reveal || reveal.handId !== hand.id) return true;
+  return Date.now() >= Number(reveal.readyAt || 0);
+}
+
 function renderVictoryPopup() {
   if (!el.victoryPopup || !el.victoryPopupTitle || !el.victoryPopupDetail) return;
   const popup = state.victoryPopup;
@@ -2000,10 +2073,15 @@ function syncVictoryPopup({ oldHand, hand, hadPriorTableState = false, shouldDel
     : getStreetRevealDelayForTransition(oldHand, hand, {
         deferred: shouldDelayStreetReveal
       });
-  const showDelayMs = Math.max(220, effectiveRevealDelayMs + 180);
+  const showDelayMs = Math.max(SHOWDOWN_RESULT_BREATH_MS, effectiveRevealDelayMs + SHOWDOWN_RESULT_BREATH_MS);
   const handId = hand.id;
+  state.showdownResultReveal = {
+    handId,
+    readyAt: Date.now() + showDelayMs,
+  };
 
   state.victoryPopupTimer = setTimeout(() => {
+    state.victoryPopupTimer = null;
     const latestHand = getLatestHand();
     if (!latestHand || latestHand.id !== handId || latestHand.state !== "settled") return;
     state.victoryPopup = {
@@ -2011,6 +2089,7 @@ function syncVictoryPopup({ oldHand, hand, hadPriorTableState = false, shouldDel
       visible: true
     };
     renderVictoryPopup();
+    renderAll();
   }, showDelayMs);
 }
 
@@ -3316,8 +3395,20 @@ async function loadTableState() {
       viewerSeatToken: getSeatToken() || null,
     });
     const oldHand = getLatestHand();
-    const oldPotTotal = Number(oldHand?.pot_total || 0);
     state.tableState = ts;
+    const hand = getLatestHand();
+    const optimistic = state.optimisticSeatAction;
+    if (
+      optimistic && (
+        !hand ||
+        hand.id !== optimistic.handId ||
+        hand.state !== optimistic.street ||
+        Boolean(findLatestSeatActionForStreet(optimistic.seatNo, optimistic.street, hand))
+      )
+    ) {
+      state.optimisticSeatAction = null;
+    }
+    const oldPotTotal = Number(oldHand?.pot_total || 0);
     syncTableRuntimeConfig(ts?.table || null);
     const mySeat = getMySeat();
     state.playerPrefs.autoCheckWhenAvailable = Boolean(mySeat?.auto_check_when_available);
@@ -3336,8 +3427,6 @@ async function loadTableState() {
     if ((state.voiceConnected || state.voiceJoining) && !canUseVoice()) {
       void disconnectVoice({ silent: true, destroy: true });
     }
-
-    const hand = getLatestHand();
     syncShowdownRevealState(hand);
     const newPotTotal = Number(hand?.pot_total || 0);
     if (!oldHand || hand?.id !== oldHand.id) {
@@ -3359,6 +3448,7 @@ async function loadTableState() {
       hand.id === oldHand.id &&
       hand.state !== oldHand.state
     );
+    const roundTransitionBreathMs = shouldDelayStreetReveal ? ROUND_TRANSITION_BREATH_MS : 0;
     const streetRevealDelayMs = getStreetRevealDelayForTransition(oldHand, hand, {
       deferred: shouldDelayStreetReveal
     });
@@ -3368,18 +3458,18 @@ async function loadTableState() {
       oldHand,
       hand,
       hadPriorTableState,
-      shouldDelayStreetReveal ? STREET_REVEAL_DEFER_MS : 0
+      roundTransitionBreathMs + (shouldDelayStreetReveal ? STREET_REVEAL_DEFER_MS : 0)
     );
     syncVictoryPopup({
       oldHand,
       hand,
       hadPriorTableState,
       shouldDelayStreetReveal,
-      revealDelayMs: streetRevealDelayMs
+      revealDelayMs: roundTransitionBreathMs + streetRevealDelayMs
     });
     if (hand && oldHand) {
       if (oldHand.state !== "settled" && hand.state === "settled") {
-        handleSettlementFx(hand, { revealDelayMs: streetRevealDelayMs });
+        handleSettlementFx(hand, { revealDelayMs: roundTransitionBreathMs + streetRevealDelayMs });
       }
       if (hand.action_seat && hand.action_seat !== prevActionSeat) {
         const myHp = getMyHandPlayer();
@@ -3450,10 +3540,11 @@ function handleSettlementFx(hand, { revealDelayMs = 0 } = {}) {
     renderAll();
   };
 
+  const showDelayMs = Math.max(SHOWDOWN_RESULT_BREATH_MS, Number(revealDelayMs || 0) + SHOWDOWN_RESULT_BREATH_MS);
   state.settlementFxTimer = setTimeout(() => {
     state.settlementFxTimer = null;
     launch();
-  }, Math.max(0, Number(revealDelayMs || 0) + 80));
+  }, showDelayMs);
 }
 
 // ============ OPPONENT TRACKING ============
@@ -3894,6 +3985,7 @@ function renderBoard() {
   const players = getHandPlayers();
   const board = Array.isArray(hand?.board_cards) ? hand.board_cards : [];
   const contestedShowdown = isContestedShowdown(hand, players);
+  const resultRevealReady = isShowdownResultReady(hand);
   const showdownHighlightData = getShowdownHighlightData(hand, players);
   const payoutActive = Boolean(state.potPushAnimation?.handId === hand?.id && state.potPushAnimation?.launched);
   const clearedPot = Boolean(hand?.id && state.clearedPotHandId === hand.id);
@@ -3936,7 +4028,7 @@ function renderBoard() {
     if (board[i]) {
       const card = makeCardEl(board[i], false);
       const boardToken = normCard(board[i]);
-      if (contestedShowdown && showdownHighlightData.boardHighlights.size) {
+      if (contestedShowdown && resultRevealReady && showdownHighlightData.boardHighlights.size) {
         if (boardToken && showdownHighlightData.boardHighlights.has(boardToken)) {
           card.classList.add("showdown-winning-card", "showdown-winning-board-card");
         } else {
@@ -3992,6 +4084,7 @@ function renderSeats() {
   const portrait = isPortraitMobile();
   const compactMobile = isCompactMobileLayout();
   const contestedShowdown = isContestedShowdown(hand, handPlayers);
+  const resultRevealReady = isShowdownResultReady(hand);
   const showdownHighlightData = getShowdownHighlightData(hand, handPlayers);
   const showdownLeaderSeats = showdownHighlightData.leaderSeats;
   const activeVoiceSpeakerId = getServerVoiceState().speakerPlayerId;
@@ -4180,7 +4273,9 @@ function renderSeats() {
             const anchor = py <= 10 ? "top" : (px < 50 ? "left" : "right");
             cards.classList.add(`compact-opponent--${anchor}`);
           }
-          const winningHoleCards = showdownHighlightData.holeHighlightsBySeat.get(seat.seat_no) || new Set();
+          const winningHoleCards = resultRevealReady
+            ? (showdownHighlightData.holeHighlightsBySeat.get(seat.seat_no) || new Set())
+            : new Set();
           const firstCard = makeCardEl(holeCards[0] || null, !hasHoleCards || !reveal, false);
           const secondCard = makeCardEl(holeCards[1] || null, !hasHoleCards || !reveal, false);
           if (isShowdown && reveal && winningHoleCards.has(normCard(holeCards[0]))) firstCard.classList.add("showdown-winning-card");
@@ -4194,7 +4289,9 @@ function renderSeats() {
           cards.className = "seat-cards-row";
           if (isShowdown && reveal && !isMe) cards.classList.add("showdown");
           if (animateShowdownReveal) cards.classList.add("showdown-fresh");
-          const winningHoleCards = showdownHighlightData.holeHighlightsBySeat.get(seat.seat_no) || new Set();
+          const winningHoleCards = resultRevealReady
+            ? (showdownHighlightData.holeHighlightsBySeat.get(seat.seat_no) || new Set())
+            : new Set();
           if (isMe && reveal) {
             const firstCard = makeCardEl(holeCards[0] || null, false, false, true);
             const secondCard = makeCardEl(holeCards[1] || null, false, false, true);
@@ -4296,6 +4393,7 @@ function renderMyHand() {
   const hand = getLatestHand();
   const hp = getMyHandPlayer();
   const mySeat = getMySeat();
+  const resultRevealReady = isShowdownResultReady(hand);
   const showdownHighlightData = getShowdownHighlightData(hand, getHandPlayers());
   if (!mySeat) {
     el.myHandArea?.classList.remove("folded");
@@ -4354,7 +4452,9 @@ function renderMyHand() {
     const useMyHandTargets = isPortraitMobile();
     const firstCard = makeCardEl(visibleHoleCards[0], false, false, false);
     const secondCard = makeCardEl(visibleHoleCards[1], false, false, false);
-    const winningHoleCards = showdownHighlightData.holeHighlightsBySeat.get(mySeat.seat_no) || new Set();
+    const winningHoleCards = resultRevealReady
+      ? (showdownHighlightData.holeHighlightsBySeat.get(mySeat.seat_no) || new Set())
+      : new Set();
     if (winningHoleCards.has(normCard(visibleHoleCards[0]))) firstCard.classList.add("showdown-winning-card");
     if (winningHoleCards.has(normCard(visibleHoleCards[1]))) secondCard.classList.add("showdown-winning-card");
     el.myHandCards.appendChild(useMyHandTargets ? markDealCardTarget(firstCard, mySeat.seat_no, 1, hand, -9) : firstCard);
@@ -4520,8 +4620,9 @@ function renderActions() {
     el.presetRow.classList.add("hidden");
     el.landscapeRaisePanelOpen = false;
     el.allInBtn.classList.add("hidden");
-    el.foldBtn.textContent = "Check/Fold";
-    el.callBtn.textContent = "Check";
+    const { toCall } = getBetBounds(hand, hp);
+    el.foldBtn.textContent = toCall > 0 ? "Fold" : "Check/Fold";
+    el.callBtn.textContent = toCall > 0 ? `Call ${fmtShort(toCall)}` : "Check";
     el.betRaiseBtn.textContent = "Call Any";
   } else {
     state.landscapeRaisePanelOpen = false;
@@ -4850,28 +4951,38 @@ function buildActionPayload(actionType) {
   };
 }
 
-async function doAction(actionType) {
-  const payload = buildActionPayload(actionType);
+async function doAction(actionType, payload = null) {
+  payload = payload || buildActionPayload(actionType);
   await online.submitAction(payload);
 }
 
 async function submitTurnAction(label, actionType) {
   if (state.loading || state.pendingAction) return;
+  const hand = getLatestHand();
+  const hp = getMyHandPlayer();
+  const payload = buildActionPayload(actionType);
   clearHeroPreaction();
+  state.optimisticSeatAction = buildOptimisticSeatAction(payload, hand, hp);
   state.pendingAction = true;
   state.landscapeRaisePanelOpen = false;
+  renderSeats();
+  renderMyHand();
   renderActions();
   state.loading = true;
   try {
-    await doAction(actionType);
+    await doAction(actionType, payload);
+    void nudgeRuntimeAfterAction();
     await loadTableState();
     if (shouldNudgeRuntimeAfterAction()) {
       await nudgeRuntimeAfterAction();
       await loadTableState();
     }
   } catch (err) {
+    state.optimisticSeatAction = null;
     state.pendingAction = false;
     state.heroPreactionExecuting = false;
+    renderSeats();
+    renderMyHand();
     renderActions();
     toast(err.message || `${label} failed`, "error");
   } finally {
@@ -4899,8 +5010,8 @@ function bindEvents() {
     const actionLocked = state.pendingAction;
     const myTurn = Boolean(hand && isActionStreet(hand.state) && getSeatToken() && hp && !hp.folded && !hp.all_in && hand.action_seat === hp.seat_no && !actionLocked);
     if (syncHeroPreactionUi({ hand, hp, myTurn, actionLocked })) {
-      if (el.callBtn.disabled) return;
-      setHeroPreaction("check");
+      const { toCall } = getBetBounds(hand, hp);
+      setHeroPreaction(toCall > 0 ? "call_current" : "check");
       return;
     }
     const toCall = Math.max(0, Number(hand?.current_bet || 0) - Number(hp?.street_contribution || 0));
@@ -4938,6 +5049,8 @@ function bindEvents() {
       toast("Showdown still settling...", "error");
       return;
     }
+    el.startHandBtn.disabled = true;
+    el.startHandBtn.textContent = "Dealing...";
     withAction("Start hand", async () => {
       await online.startHand({
         tableId: state.tableId,
@@ -4945,8 +5058,8 @@ function bindEvents() {
         hostSeatToken: getSeatToken(),
       });
       sounds.deal();
+    });
   });
-});
 
   el.copyLinkBtn.addEventListener("click", async () => {
     const url = new URL(window.location.href);
