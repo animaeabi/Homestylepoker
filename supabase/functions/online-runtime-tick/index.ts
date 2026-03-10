@@ -77,7 +77,7 @@ function createOnlineRpcClient() {
     async getActiveSeatByNumber({ tableId, seatNo }: { tableId: string; seatNo: number }) {
       const { data, error } = await client
         .from("online_table_seats")
-        .select("id, group_player_id, seat_token, is_bot, bot_personality, bot_rebuy_count, chip_stack")
+        .select("id, group_player_id, seat_token, is_bot, bot_personality, bot_rebuy_count, chip_stack, auto_check_when_available")
         .eq("table_id", tableId)
         .eq("seat_no", seatNo)
         .is("left_at", null)
@@ -521,6 +521,50 @@ async function processHandForRuntime({
         actorGroupPlayerId,
         settleNote
       });
+    }
+
+    if (actingSeat?.auto_check_when_available) {
+      const handState = await onlineClient.getHandState({ handId, sinceSeq: null });
+      const currentHand = handState?.hand || hand;
+      const actingPlayer = Array.isArray(handState?.players)
+        ? handState.players.find((player: any) => Number(player.seat_no) === Number(actionSeat))
+        : null;
+      const toCall = Math.max(
+        0,
+        Number(currentHand?.current_bet || 0) - Number(actingPlayer?.street_contribution || 0)
+      );
+
+      if (toCall <= 0 && actingSeat.group_player_id && actingSeat.seat_token) {
+        await onlineClient.submitAction({
+          handId,
+          actorGroupPlayerId: actingSeat.group_player_id,
+          actionType: "check",
+          seatToken: actingSeat.seat_token,
+          clientActionId: `runtime_auto_check:${handId}:${Date.now()}`
+        });
+
+        const postCheckState = await onlineClient.getHandState({ handId, sinceSeq: null });
+        currentState = postCheckState?.hand?.state || currentState;
+
+        if (currentState === "showdown") {
+          await settleShowdownFromState({
+            onlineClient,
+            handId,
+            actorGroupPlayerId,
+            note: settleNote
+          });
+          settled = true;
+          currentState = "settled";
+        }
+
+        return {
+          handId,
+          state: currentState,
+          advanced,
+          settled,
+          skipped: false
+        };
+      }
     }
 
     if (elapsedSecs < turnTimeoutSecs) {

@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../config.js";
-import { createOnlinePokerClient } from "./client.js?v=114";
+import { createOnlinePokerClient } from "./client.js?v=115";
 import { describeSevenCardHand, resolveShowdownPayouts } from "./showdown.js";
 import { randomPersonality, randomBotName, personalityLabel, OpponentTracker } from "./bot_engine.js";
 
@@ -177,6 +177,10 @@ const state = {
     soundOn: true,
     showLog: true,
   },
+  playerPrefs: {
+    autoCheckWhenAvailable: false,
+    saving: false,
+  },
   opponentTracker: new OpponentTracker(),
   lastTrackedEventSeq: 0,
   equityCacheKey: "",
@@ -196,6 +200,7 @@ const state = {
   actionAnnouncementNextTimer: null,
   lastAnnouncedActionHandId: null,
   lastAnnouncedActionSeq: 0,
+  deferredStreetRevealTimer: null,
   showdownRevealHandId: null,
   showdownRevealSeats: new Set(),
   voiceCall: null,
@@ -1283,16 +1288,24 @@ function flushActionAnnouncementQueue() {
   el.actionAnnouncementText.textContent = next.detail;
   el.actionAnnouncement.classList.add("visible");
   playActionAnnouncementSound(next.sound);
-  state.actionAnnouncementHideTimer = setTimeout(hideActionAnnouncement, 950);
+  state.actionAnnouncementHideTimer = setTimeout(hideActionAnnouncement, 1100);
   state.actionAnnouncementNextTimer = setTimeout(() => {
     state.actionAnnouncementNextTimer = null;
     flushActionAnnouncementQueue();
-  }, 1100);
+  }, 1260);
 }
 
-function queueActionAnnouncement(ev) {
+function queueActionAnnouncement(ev, { replace = false } = {}) {
   const copy = getActionCopy(ev);
   if (!copy.detail) return;
+  if (replace) {
+    state.actionAnnouncementQueue = [];
+    clearTimeout(state.actionAnnouncementHideTimer);
+    clearTimeout(state.actionAnnouncementNextTimer);
+    state.actionAnnouncementHideTimer = null;
+    state.actionAnnouncementNextTimer = null;
+    hideActionAnnouncement();
+  }
   state.actionAnnouncementQueue.push(copy);
   if (!state.actionAnnouncementNextTimer) flushActionAnnouncementQueue();
 }
@@ -1308,13 +1321,13 @@ function syncActionAnnouncements({ hadPriorTableState = false, oldHandId = null 
   if (!handId) {
     state.lastAnnouncedActionHandId = null;
     state.lastAnnouncedActionSeq = 0;
-    return;
+    return { hasNewActions: false, latestAction: null };
   }
 
   if (!hadPriorTableState) {
     state.lastAnnouncedActionHandId = handId;
     state.lastAnnouncedActionSeq = latestActionSeq;
-    return;
+    return { hasNewActions: false, latestAction: null };
   }
 
   if (state.lastAnnouncedActionHandId !== handId || oldHandId !== handId) {
@@ -1328,11 +1341,13 @@ function syncActionAnnouncements({ hadPriorTableState = false, oldHandId = null 
 
   if (!newActions.length) {
     state.lastAnnouncedActionSeq = latestActionSeq;
-    return;
+    return { hasNewActions: false, latestAction: null };
   }
 
   state.lastAnnouncedActionSeq = Number(newActions[newActions.length - 1].seq || state.lastAnnouncedActionSeq || 0);
-  newActions.forEach(queueActionAnnouncement);
+  const latestAction = newActions[newActions.length - 1];
+  queueActionAnnouncement(latestAction, { replace: true });
+  return { hasNewActions: true, latestAction };
 }
 
 function decimalPlaces(v) {
@@ -2794,6 +2809,9 @@ async function loadTableState() {
     const oldPotTotal = Number(oldHand?.pot_total || 0);
     state.tableState = ts;
     syncTableRuntimeConfig(ts?.table || null);
+    const mySeat = getMySeat();
+    state.playerPrefs.autoCheckWhenAvailable = Boolean(mySeat?.auto_check_when_available);
+    syncPlayerPreferenceControls();
     syncBotSeatsWithTable();
     state.lastSyncAt = Date.now();
     state.pendingAction = false;
@@ -2822,9 +2840,30 @@ async function loadTableState() {
     } else if (newPotTotal > oldPotTotal + 0.001) {
       state.potVisual.pulseUntil = Date.now() + POT_BUMP_MS;
     }
-    syncActionAnnouncements({ hadPriorTableState, oldHandId: oldHand?.id || null });
+    const announcementState = syncActionAnnouncements({ hadPriorTableState, oldHandId: oldHand?.id || null });
     maybeStartDealAnimation(oldHand, hand, hadPriorTableState);
-    maybeStartStreetRevealAnimation(oldHand, hand, hadPriorTableState);
+    clearTimeout(state.deferredStreetRevealTimer);
+    state.deferredStreetRevealTimer = null;
+    const shouldDelayStreetReveal = Boolean(
+      announcementState?.hasNewActions &&
+      hand &&
+      oldHand &&
+      hand.id === oldHand.id &&
+      hand.state !== oldHand.state
+    );
+    if (shouldDelayStreetReveal) {
+      const revealHandId = hand.id;
+      const revealState = hand.state;
+      state.deferredStreetRevealTimer = setTimeout(() => {
+        state.deferredStreetRevealTimer = null;
+        const latestHand = getLatestHand();
+        if (!latestHand || latestHand.id !== revealHandId || latestHand.state !== revealState) return;
+        maybeStartStreetRevealAnimation(oldHand, latestHand, true);
+        renderAll();
+      }, 650);
+    } else {
+      maybeStartStreetRevealAnimation(oldHand, hand, hadPriorTableState);
+    }
     if (hand && oldHand) {
       if (oldHand.state !== "settled" && hand.state === "settled") {
         handleSettlement(hand);
@@ -2933,6 +2972,7 @@ function openConfigPanel() {
   if (el.cfgSB) el.cfgSB.disabled = !isHost;
   if (el.cfgBB) el.cfgBB.disabled = !isHost;
   if (el.cfgSaveGame) el.cfgSaveGame.style.display = isHost ? "" : "none";
+  syncPlayerPreferenceControls();
   renderConfigPlayers();
 
   el.configOverlay.classList.remove("hidden");
@@ -2945,6 +2985,58 @@ function closeConfigPanel() {
 function setToggle(activeId, inactiveId) {
   document.getElementById(activeId)?.classList.add("active");
   document.getElementById(inactiveId)?.classList.remove("active");
+}
+
+function syncPlayerPreferenceControls() {
+  const autoCheckOn = document.getElementById("cfgAutoCheckOn");
+  const autoCheckOff = document.getElementById("cfgAutoCheckOff");
+  if (!autoCheckOn || !autoCheckOff) return;
+  const canUpdatePrefs = Boolean(getMySeat() && getSeatToken() && state.identity?.groupPlayerId);
+  setToggle(
+    state.playerPrefs.autoCheckWhenAvailable ? "cfgAutoCheckOn" : "cfgAutoCheckOff",
+    state.playerPrefs.autoCheckWhenAvailable ? "cfgAutoCheckOff" : "cfgAutoCheckOn"
+  );
+  const disabled = !canUpdatePrefs || state.playerPrefs.saving;
+  autoCheckOn.disabled = disabled;
+  autoCheckOff.disabled = disabled;
+}
+
+async function setAutoCheckPreference(enabled) {
+  const token = getSeatToken();
+  const mySeat = getMySeat();
+  const actorGroupPlayerId = state.identity?.groupPlayerId;
+  if (!token || !mySeat || !actorGroupPlayerId) {
+    toast("Join a seat to set auto-check.", "error");
+    syncPlayerPreferenceControls();
+    return;
+  }
+  const nextValue = Boolean(enabled);
+  if (state.playerPrefs.saving || state.playerPrefs.autoCheckWhenAvailable === nextValue) {
+    syncPlayerPreferenceControls();
+    return;
+  }
+
+  const prevValue = state.playerPrefs.autoCheckWhenAvailable;
+  state.playerPrefs.autoCheckWhenAvailable = nextValue;
+  state.playerPrefs.saving = true;
+  syncPlayerPreferenceControls();
+
+  try {
+    await online.updatePlayerPreferences({
+      tableId: state.tableId,
+      actorGroupPlayerId,
+      seatToken: token,
+      autoCheckWhenAvailable: nextValue,
+    });
+    toast(nextValue ? "Auto-check enabled." : "Auto-check disabled.", "success");
+    await loadTableState();
+  } catch (err) {
+    state.playerPrefs.autoCheckWhenAvailable = prevValue;
+    toast(err.message || "Could not update auto-check.", "error");
+  } finally {
+    state.playerPrefs.saving = false;
+    syncPlayerPreferenceControls();
+  }
 }
 
 // ============ SHOWDOWN HELPERS ============
@@ -3640,6 +3732,7 @@ function renderMyHand() {
   const hp = getMyHandPlayer();
   const mySeat = getMySeat();
   if (!mySeat) {
+    el.myHandArea?.classList.remove("folded");
     el.myHandArea?.classList.remove("voice-speaking");
     el.myHandArea?.classList.remove("active-turn");
     if (el.myHandAvatar) delete el.myHandAvatar.dataset.seat;
@@ -3650,8 +3743,9 @@ function renderMyHand() {
   nameEl.textContent = state.identity?.name || "You";
   const displayStack = (hp && hp.stack_end != null) ? hp.stack_end : mySeat.chip_stack;
   stackEl.textContent = fmtShort(displayStack);
+  el.myHandArea?.classList.toggle("folded", Boolean(hp?.folded));
   el.myHandArea?.classList.toggle("voice-speaking", Boolean(activeVoiceSpeakerId && mySeat.group_player_id === activeVoiceSpeakerId));
-  el.myHandArea?.classList.toggle("active-turn", Boolean(hand?.action_seat && hand.action_seat === mySeat.seat_no));
+  el.myHandArea?.classList.toggle("active-turn", Boolean(hand?.action_seat && hand.action_seat === mySeat.seat_no && !hp?.folded));
   applyAvatarTheme(el.myHandAvatar, {
     seed: `${state.identity?.groupPlayerId || mySeat.group_player_id || mySeat.seat_no}:${state.identity?.name || "You"}`,
     name: state.identity?.name || "You",
@@ -4121,6 +4215,13 @@ function bindEvents() {
     state.config.showLog = false;
     el.logToggle.classList.add("hidden");
     setHandLogOpen(false);
+  });
+
+  document.getElementById("cfgAutoCheckOn").addEventListener("click", () => {
+    void setAutoCheckPreference(true);
+  });
+  document.getElementById("cfgAutoCheckOff").addEventListener("click", () => {
+    void setAutoCheckPreference(false);
   });
 
   // Save game config (blinds, turn time)

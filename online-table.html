@@ -1231,6 +1231,16 @@
       }
 
       .seat-node.folded { opacity: 0.45; }
+      .my-hand-area.folded {
+        opacity: 0.52;
+        filter: grayscale(0.55);
+      }
+      .my-hand-area.folded .my-hand-nameplate {
+        opacity: 0.76;
+      }
+      .my-hand-area.folded .my-hand-cards .card {
+        filter: grayscale(0.5) brightness(0.88);
+      }
 
       .seat-node.empty {
         width: 90px;
@@ -4149,6 +4159,14 @@
                 <button class="config-toggle-opt" id="cfgLogOff" type="button">Hide</button>
               </div>
             </div>
+
+            <div class="config-toggle-row">
+              <span>Auto-check if Available</span>
+              <div class="config-toggle-group">
+                <button class="config-toggle-opt" id="cfgAutoCheckOn" type="button">On</button>
+                <button class="config-toggle-opt active" id="cfgAutoCheckOff" type="button">Off</button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -4257,6 +4275,6 @@
     <div class="voice-audio-rack" id="voiceAudioRack" aria-hidden="true"></div>
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
-    <script type="module" src="./online/table_app.js?v=114"></script>
+    <script type="module" src="./online/table_app.js?v=115"></script>
   </body>
 </html>
