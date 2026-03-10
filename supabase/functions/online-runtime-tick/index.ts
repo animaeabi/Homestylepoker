@@ -102,7 +102,7 @@ function createOnlineRpcClient() {
     async getTableById({ tableId }: { tableId: string }) {
       const { data, error } = await client
         .from("online_tables")
-        .select("id, big_blind, max_seats")
+        .select("id, big_blind, max_seats, decision_time_secs")
         .eq("id", tableId)
         .maybeSingle();
       if (error) throw normalizeSupabaseError("[getTableById]", error);
@@ -348,6 +348,8 @@ async function processBotAction({
 }) {
   const handState = await onlineClient.getHandState({ handId: hand.id, sinceSeq: null });
   const liveHand = handState?.hand || hand;
+  let currentState = liveHand?.state || hand.state;
+  let settled = false;
   const table = await onlineClient.getTableById({ tableId: hand.table_id });
   const profileRows = await onlineClient.getBotOpponentProfiles({ tableId: hand.table_id });
   const players = Array.isArray(handState?.players) ? handState.players : [];
@@ -383,49 +385,108 @@ async function processBotAction({
     .filter(Boolean);
   const opponentProfile = combineOpponentProfiles(activeHumanReads);
 
-  const elapsedMs = hand.last_action_at ? (Date.now() - Date.parse(hand.last_action_at)) : Number.MAX_SAFE_INTEGER;
+  const lastActionAt = liveHand?.last_action_at || hand.last_action_at || null;
+  const elapsedMs = lastActionAt ? (Date.now() - Date.parse(lastActionAt)) : Number.MAX_SAFE_INTEGER;
+  const turnTimeoutMs = Math.max(
+    10,
+    Number(table?.decision_time_secs || hand.decision_time_secs || DEFAULT_TURN_TIMEOUT_SECS)
+  ) * 1000;
+  const toCall = Math.max(0, Number(liveHand?.current_bet || 0) - Number(botPlayer.street_contribution || 0));
   const thinkMs = botThinkTimeMs({
     street: liveHand?.state || hand.state,
-    toCall: Math.max(0, Number(liveHand?.current_bet || 0) - Number(botPlayer.street_contribution || 0)),
+    toCall,
     pot: Number(liveHand?.pot_total || 0),
     currentBet: Number(liveHand?.current_bet || 0),
     activeSeatCount: players.filter((player: any) => !player.folded).length,
   });
+  const shouldForceTimeoutAction = elapsedMs >= turnTimeoutMs;
 
-  if (elapsedMs < thinkMs) {
+  if (!shouldForceTimeoutAction && elapsedMs < thinkMs) {
     return { handId: hand.id, state: hand.state, advanced: 0, settled: false, skipped: true, reason: "awaiting_bot_think" };
   }
 
-  const decision = decideBotAction({
-    personality: actingSeat.bot_personality || "TAG",
-    holeCards: Array.isArray(botPlayer.hole_cards) ? botPlayer.hole_cards : [],
-    boardCards: Array.isArray(liveHand?.board_cards) ? liveHand.board_cards : [],
-    pot: Number(liveHand?.pot_total || 0),
-    currentBet: Number(liveHand?.current_bet || 0),
-    streetContribution: Number(botPlayer.street_contribution || 0),
-    stackEnd: Number(botPlayer.stack_end || 0),
-    bigBlind: Number(table?.big_blind || 2),
-    street: String(liveHand?.state || hand.state || "preflop"),
-    seatNo: Number(botPlayer.seat_no || 0),
-    buttonSeat: Number(liveHand?.button_seat || 0),
-    totalSeats: Number(table?.max_seats || 6),
-    activeSeatCount: players.filter((player: any) => !player.folded).length,
-    wasAggressor: didSeatAggressInCurrentHand(handState?.events || [], actingSeat.group_player_id),
-    opponentProfile
-  });
+  if (!actingSeat?.group_player_id || !actingSeat?.seat_token) {
+    if (toCall <= 0 && countActionablePlayers(players) <= 1) {
+      const advancedState = await onlineClient.advanceHand({
+        handId: hand.id,
+        actorGroupPlayerId,
+        reason: "allin_progress"
+      });
+      currentState = advancedState?.state || currentState;
+      if (currentState === "showdown") {
+        await settleShowdownFromState({
+          onlineClient,
+          handId: hand.id,
+          actorGroupPlayerId,
+          note: settleNote
+        });
+        settled = true;
+        currentState = "settled";
+      }
+      return { handId: hand.id, state: currentState, advanced: 0, settled, skipped: false };
+    }
+    return { handId: hand.id, state: hand.state, advanced: 0, settled: false, skipped: true, reason: "bot_actor_missing_seat_token" };
+  }
 
-  await onlineClient.submitAction({
-    handId: hand.id,
-    actorGroupPlayerId: actingSeat.group_player_id,
-    actionType: decision.actionType,
-    amount: decision.amount,
-    seatToken: actingSeat.seat_token,
-    clientActionId: `runtime_bot_action:${hand.id}:${actingSeat.id}:${Date.now()}`
-  });
+  const timeoutFallbackDecision = {
+    actionType: toCall > 0 ? "fold" : "check",
+    amount: null as number | null,
+  };
+  let decision = timeoutFallbackDecision;
+
+  if (!shouldForceTimeoutAction) {
+    try {
+      decision = decideBotAction({
+        personality: actingSeat.bot_personality || "TAG",
+        holeCards: Array.isArray(botPlayer.hole_cards) ? botPlayer.hole_cards : [],
+        boardCards: Array.isArray(liveHand?.board_cards) ? liveHand.board_cards : [],
+        pot: Number(liveHand?.pot_total || 0),
+        currentBet: Number(liveHand?.current_bet || 0),
+        streetContribution: Number(botPlayer.street_contribution || 0),
+        stackEnd: Number(botPlayer.stack_end || 0),
+        bigBlind: Number(table?.big_blind || 2),
+        street: String(liveHand?.state || hand.state || "preflop"),
+        seatNo: Number(botPlayer.seat_no || 0),
+        buttonSeat: Number(liveHand?.button_seat || 0),
+        totalSeats: Number(table?.max_seats || 6),
+        activeSeatCount: players.filter((player: any) => !player.folded).length,
+        wasAggressor: didSeatAggressInCurrentHand(handState?.events || [], actingSeat.group_player_id),
+        opponentProfile
+      });
+    } catch (_error) {
+      decision = timeoutFallbackDecision;
+    }
+  }
+
+  try {
+    await onlineClient.submitAction({
+      handId: hand.id,
+      actorGroupPlayerId: actingSeat.group_player_id,
+      actionType: decision.actionType,
+      amount: decision.amount,
+      seatToken: actingSeat.seat_token,
+      clientActionId: `${shouldForceTimeoutAction ? "runtime_bot_timeout" : "runtime_bot_action"}:${hand.id}:${actingSeat.id}:${Date.now()}`
+    });
+  } catch (error) {
+    const alreadyUsingFallback =
+      decision.actionType === timeoutFallbackDecision.actionType &&
+      decision.amount == null;
+    if (alreadyUsingFallback) {
+      throw error;
+    }
+    decision = timeoutFallbackDecision;
+    await onlineClient.submitAction({
+      handId: hand.id,
+      actorGroupPlayerId: actingSeat.group_player_id,
+      actionType: decision.actionType,
+      amount: decision.amount,
+      seatToken: actingSeat.seat_token,
+      clientActionId: `runtime_bot_timeout:${hand.id}:${actingSeat.id}:${Date.now()}`
+    });
+  }
 
   const postActionState = await onlineClient.getHandState({ handId: hand.id, sinceSeq: null });
-  let currentState = postActionState?.hand?.state || hand.state;
-  let settled = false;
+  currentState = postActionState?.hand?.state || hand.state;
 
   if (
     decision.actionType === "check" &&
