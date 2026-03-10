@@ -1440,6 +1440,15 @@ function getSeatContributionLabel({
   return contributionText;
 }
 
+function getSeatContributionAnchor(pos, { hero = false } = {}) {
+  if (hero) return "seat-bet--hero";
+  const px = Number.parseFloat(pos?.x);
+  const py = Number.parseFloat(pos?.y);
+  if (Number.isFinite(py) && py <= 12) return "seat-bet--bottom-chin";
+  if (Number.isFinite(px) && px < 50) return "seat-bet--right-chin";
+  return "seat-bet--left-chin";
+}
+
 function getNextHandEligibleAtMs(hand = getLatestHand()) {
   if (!hand || !["settled", "canceled"].includes(hand.state)) return 0;
   const endedAtMs = Date.parse(hand.ended_at || "");
@@ -4045,14 +4054,6 @@ function renderSeats() {
         }
       }
 
-      const currentAnnouncement = state.actionAnnouncementCurrent;
-      if (currentAnnouncement?.seatNo === seat.seat_no && !isMe) {
-        const actionPopup = buildActionPopup(currentAnnouncement, {
-          anchor: getActionPopupAnchor(pos),
-        });
-        if (actionPopup) node.appendChild(actionPopup);
-      }
-
       if (showEquity && !isFolded) {
         const eq = equityMap.get(seat.seat_no);
         if (Number.isFinite(eq)) {
@@ -4078,21 +4079,11 @@ function renderSeats() {
         hand,
       });
 
-      if (hp && !isFolded && contributionLabel) {
+      if (hp && contributionLabel) {
         const betEl = document.createElement("div");
-        betEl.className = "seat-bet";
+        betEl.className = `seat-bet ${getSeatContributionAnchor(pos)}`;
         betEl.textContent = contributionLabel;
-        const px = parseFloat(pos.x);
-        const py = parseFloat(pos.y);
-        // Position bet chip toward center of table from seat
-        const cx = 50, cy = 50;
-        const dx = (cx - px) * 0.35;
-        const dy = (cy - py) * 0.35;
-        betEl.style.left = `${px + dx}%`;
-        betEl.style.top = `${py + dy}%`;
-        betEl.style.transform = "translate(-50%, -50%)";
-        betEl.style.position = "absolute";
-        el.seatsLayer.appendChild(betEl);
+        node.appendChild(betEl);
       }
 
       // Rebuy button below player's own seat
@@ -4139,7 +4130,7 @@ function renderMyHand() {
   if (!el.myHandCards || !nameEl) return;
   el.myHandCards.innerHTML = "";
   if (badgesEl) badgesEl.innerHTML = "";
-  el.myHandArea?.querySelector(".hero-action-popup")?.remove();
+  el.myHandArea?.querySelector(".seat-bet--hero")?.remove();
   el.myHandArea?.classList.add("no-hole-cards");
 
   const hand = getLatestHand();
@@ -4206,9 +4197,16 @@ function renderMyHand() {
     el.myHandCards.appendChild(useMyHandTargets ? markDealCardTarget(secondCard, mySeat.seat_no, 2, hand, 8) : secondCard);
   }
 
-  if (state.actionAnnouncementCurrent?.seatNo === mySeat.seat_no) {
-    const actionPopup = buildActionPopup(state.actionAnnouncementCurrent, { hero: true });
-    if (actionPopup) el.myHandArea?.appendChild(actionPopup);
+  const heroContributionLabel = getSeatContributionLabel({
+    seat: mySeat,
+    handPlayer: hp,
+    hand,
+  });
+  if (heroContributionLabel) {
+    const heroBet = document.createElement("div");
+    heroBet.className = `seat-bet ${getSeatContributionAnchor(null, { hero: true })}`;
+    heroBet.textContent = heroContributionLabel;
+    el.myHandNameplate?.appendChild(heroBet);
   }
 
   // Rebuy button in my-hand area -- create once, show/hide

@@ -1258,3 +1258,12 @@ Update (persistent checks + pot-anchored winner message):
 - Persistent seat labels in `/Users/abishek/Documents/poker-buyins/online/table_app.js` now keep `Check` visible for the current street instead of only showing a transient popup.
 - Winner popup no longer auto-hides after a short timer; it stays visible until the hand actually rolls forward, and manual `Deal` now waits until the configured next-hand timeout has elapsed.
 - Repositioned the blurred winner popup in `/Users/abishek/Documents/poker-buyins/online-table.html` to sit above the pot display instead of near the top rail.
+
+Update (seat-anchored action labels):
+- Removed transient seat/hero action popups from the render path in `/Users/abishek/Documents/poker-buyins/online/table_app.js`.
+- Persistent action labels now attach directly to the player badge area instead of floating toward the table center:
+  - left seats -> right chin
+  - right seats -> left chin
+  - top seat -> bottom chin
+  - hero -> top of the hero label
+- Adjusted `/Users/abishek/Documents/poker-buyins/online-table.html` styling for the new anchored chip look and bumped the bundle to `v=124`.

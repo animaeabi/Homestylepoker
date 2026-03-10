@@ -1593,11 +1593,40 @@
         font-size: 11px;
         font-weight: 700;
         color: var(--gold-bright);
-        background: rgba(0,0,0,0.6);
-        padding: 2px 8px;
+        background: rgba(0,0,0,0.72);
+        padding: 3px 8px;
         border-radius: 999px;
         white-space: nowrap;
-        z-index: 8;
+        border: 1px solid rgba(212,175,85,0.16);
+        box-shadow: 0 8px 18px rgba(0,0,0,0.2);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        pointer-events: none;
+        z-index: 18;
+      }
+
+      .seat-bet--right-chin {
+        left: calc(100% - 8px);
+        top: calc(100% - 14px);
+        transform: translateY(-50%);
+      }
+
+      .seat-bet--left-chin {
+        right: calc(100% - 8px);
+        top: calc(100% - 14px);
+        transform: translateY(-50%);
+      }
+
+      .seat-bet--bottom-chin {
+        left: 50%;
+        top: calc(100% - 8px);
+        transform: translateX(-50%);
+      }
+
+      .seat-bet--hero {
+        left: 50%;
+        bottom: calc(100% + 6px);
+        transform: translateX(-50%);
       }
 
       .seat-empty-label {
@@ -2549,6 +2578,8 @@
         padding: 4px 10px; border: 1.5px solid rgba(180,140,60,0.45); border-radius: 10px;
         background: linear-gradient(180deg, rgba(22,18,10,0.92), rgba(14,12,8,0.96));
         box-shadow: 0 3px 12px rgba(0,0,0,0.4); min-width: 70px;
+        position: relative;
+        overflow: visible;
       }
 
       .my-hand-avatar {
@@ -4464,6 +4495,6 @@
     <div class="voice-audio-rack" id="voiceAudioRack" aria-hidden="true"></div>
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
-    <script type="module" src="./online/table_app.js?v=123"></script>
+    <script type="module" src="./online/table_app.js?v=124"></script>
   </body>
 </html>
