@@ -209,6 +209,7 @@ const state = {
   victoryPopupHideTimer: null,
   lastVictoryPopupKey: null,
   deferredStreetRevealTimer: null,
+  settlementFxTimer: null,
   showdownRevealHandId: null,
   showdownRevealSeats: new Set(),
   voiceCall: null,
@@ -1655,6 +1656,16 @@ function clearVictoryPopup({ preserveKey = false } = {}) {
   if (!preserveKey) state.lastVictoryPopupKey = null;
 }
 
+function clearPendingSettlementFx() {
+  if (state.settlementFxTimer) clearTimeout(state.settlementFxTimer);
+  state.settlementFxTimer = null;
+}
+
+function getNetResultAmount(player) {
+  if (!player) return 0;
+  return Number(player.result_amount || 0) - Number(player.committed || 0);
+}
+
 function buildVictoryPopupPayload(hand = getLatestHand(), players = getHandPlayers()) {
   if (!hand || hand.state !== "settled") return null;
 
@@ -1693,7 +1704,7 @@ function renderVictoryPopup() {
   el.victoryPopup.classList.toggle("visible", Boolean(popup?.visible));
 }
 
-function syncVictoryPopup({ oldHand, hand, hadPriorTableState = false, shouldDelayStreetReveal = false }) {
+function syncVictoryPopup({ oldHand, hand, hadPriorTableState = false, shouldDelayStreetReveal = false, revealDelayMs = null }) {
   if (!hand) {
     clearVictoryPopup();
     return;
@@ -1717,10 +1728,12 @@ function syncVictoryPopup({ oldHand, hand, hadPriorTableState = false, shouldDel
   clearVictoryPopup({ preserveKey: true });
   state.lastVictoryPopupKey = payload.key;
 
-  const revealDelayMs = getStreetRevealDelayForTransition(oldHand, hand, {
-    deferred: shouldDelayStreetReveal
-  });
-  const showDelayMs = Math.max(140, revealDelayMs + 120);
+  const effectiveRevealDelayMs = Number.isFinite(Number(revealDelayMs))
+    ? Math.max(0, Number(revealDelayMs))
+    : getStreetRevealDelayForTransition(oldHand, hand, {
+        deferred: shouldDelayStreetReveal
+      });
+  const showDelayMs = Math.max(220, effectiveRevealDelayMs + 180);
   const hangMs = Math.max(2200, Math.min(3400, getShowdownTimeMs() - 400));
   const handId = hand.id;
 
@@ -2990,6 +3003,9 @@ async function loadTableState() {
       hand.id === oldHand.id &&
       hand.state !== oldHand.state
     );
+    const streetRevealDelayMs = getStreetRevealDelayForTransition(oldHand, hand, {
+      deferred: shouldDelayStreetReveal
+    });
     clearTimeout(state.deferredStreetRevealTimer);
     state.deferredStreetRevealTimer = null;
     maybeStartStreetRevealAnimation(
@@ -3002,11 +3018,12 @@ async function loadTableState() {
       oldHand,
       hand,
       hadPriorTableState,
-      shouldDelayStreetReveal
+      shouldDelayStreetReveal,
+      revealDelayMs: streetRevealDelayMs
     });
     if (hand && oldHand) {
       if (oldHand.state !== "settled" && hand.state === "settled") {
-        handleSettlement(hand);
+        handleSettlementFx(hand, { revealDelayMs: streetRevealDelayMs });
       }
       if (hand.action_seat && hand.action_seat !== prevActionSeat) {
         const myHp = getMyHandPlayer();
@@ -3038,22 +3055,49 @@ async function loadTableState() {
 function getShowdownTimeMs() { return state.config.showdownTime || 5000; }
 
 function handleSettlement(hand) {
-  const showdownLeaderSeats = new Set(getShowdownLeaders(hand).map(({ player }) => player.seat_no));
-  const winners = getHandPlayers().filter(p => Number(p.result_amount || 0) > 0);
-  for (const w of winners) {
-    state.winOverlays.set(w.seat_no, {
-      amount: w.result_amount,
-      until: Date.now() + getShowdownTimeMs(),
-      isShowdownLeader: showdownLeaderSeats.size ? showdownLeaderSeats.has(w.seat_no) : true,
-    });
-  }
-  state.potPushAnimation = winners.length ? {
-    handId: hand.id,
-    winners: winners.map((w) => ({ seatNo: w.seat_no, amount: Number(w.result_amount || 0) })),
-    launched: false,
-    cleanupTimer: null,
-  } : null;
-  if (winners.length > 0) sounds.win();
+  handleSettlementFx(hand, { revealDelayMs: 0 });
+}
+
+function handleSettlementFx(hand, { revealDelayMs = 0 } = {}) {
+  clearPendingSettlementFx();
+  if (!hand || hand.state !== "settled") return;
+
+  const handId = hand.id;
+  const players = getHandPlayers();
+  const showdownLeaderSeats = new Set(getShowdownLeaders(hand, players).map(({ player }) => player.seat_no));
+  const payoutRecipients = players.filter((player) => Number(player.result_amount || 0) > 0);
+  const netWinners = players
+    .map((player) => ({ player, net: getNetResultAmount(player) }))
+    .filter(({ net }) => net > 0.001);
+
+  const launch = () => {
+    const latestHand = getLatestHand();
+    if (!latestHand || latestHand.id !== handId || latestHand.state !== "settled") return;
+
+    const overlayUntil = Date.now() + getShowdownTimeMs();
+    for (const { player, net } of netWinners) {
+      state.winOverlays.set(player.seat_no, {
+        amount: net,
+        until: overlayUntil,
+        isShowdownLeader: showdownLeaderSeats.size ? showdownLeaderSeats.has(player.seat_no) || net > 0.001 : true,
+      });
+    }
+
+    state.potPushAnimation = payoutRecipients.length ? {
+      handId,
+      winners: payoutRecipients.map((player) => ({ seatNo: player.seat_no, amount: Number(player.result_amount || 0) })),
+      launched: false,
+      cleanupTimer: null,
+    } : null;
+
+    if (netWinners.length > 0 || payoutRecipients.length > 0) sounds.win();
+    renderAll();
+  };
+
+  state.settlementFxTimer = setTimeout(() => {
+    state.settlementFxTimer = null;
+    launch();
+  }, Math.max(0, Number(revealDelayMs || 0) + 80));
 }
 
 // ============ OPPONENT TRACKING ============

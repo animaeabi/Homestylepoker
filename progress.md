@@ -118,6 +118,15 @@ Update (mobile online table polish pass):
      - Added actor/spectator emphasis classes for action controls and amount field.
 - Mobile layout cleanup in `/online-table.html`:
   - Reduced seat panel/card sizes, hid verbose seat footer/showdown rows on mobile, compacted center chips and board cards.
+
+Update (showdown payout UX pass):
+- Adjusted `/Users/abishek/Documents/poker-buyins/online/table_app.js` so settlement seat tags show net winnings (`result_amount - committed`) instead of gross payout returns, preventing false positive tags for players who only received their own chips back from side-pot resolution.
+- Delayed settlement FX (win overlays, pot push, victory popup) until pending street reveal animation finishes, so turn/river board cards are visually dealt and flipped before chips/results appear.
+- Bumped `/Users/abishek/Documents/poker-buyins/online-table.html` bundle to `v=118`.
+
+Validation:
+- `node --check /Users/abishek/Documents/poker-buyins/online/table_app.js` (pass)
+- Local Playwright smoke capture against `http://127.0.0.1:8000/online-table.html?table=be265f73-02dc-4c0b-89b2-462d7e8d9a6e` completed; latest screenshot: `/Users/abishek/Documents/poker-buyins/output/web-game-fix/shot-0.png`
   - Aims to prevent overlap and keep table readable on portrait screens.
 
 Validation:
@@ -1221,4 +1230,3 @@ Update (action latency + board reveal timing pass):
 - After a player action, the client now nudges `online-runtime-tick` immediately when backend follow-up work is pending (bot turn / all-in progress / showdown), then reloads state again for a snappier hand flow.
 - Fixed street-reveal sequencing so board cards stay hidden during the deferred action-beat and only appear through the deal/flip animation, instead of showing face-up first and then reanimating.
 - Bumped `/Users/abishek/Documents/poker-buyins/online-table.html` bundle to `v=117`.
-
