@@ -78,6 +78,20 @@ Update (frontend test harness pass):
 
 Update (online table behavior pass):
 - Updated `/Users/abishek/Documents/poker-buyins/online/table_app.js` to improve PokerNow-like runtime behavior:
+  
+Update (timer + player management pass):
+- Moved the active turn countdown fully into the avatar ring in `/Users/abishek/Documents/poker-buyins/online-table.html` and `/Users/abishek/Documents/poker-buyins/online/table_app.js`.
+- Added overtime pulse once a player’s timer reaches 0; warning tick sound now only plays for the acting player.
+- Added a `Players` section to the online settings panel showing seated players only, with host-only controls to remove stuck players and transfer host rights.
+- Added RPC wrappers in `/Users/abishek/Documents/poker-buyins/online/client.js`.
+- Added backend RPCs and migration for host-managed seat removal / host transfer:
+  - `/Users/abishek/Documents/poker-buyins/supabase/online_poker_schema.sql`
+  - `/Users/abishek/Documents/poker-buyins/supabase/migrations/20260309190500_add_host_player_management.sql`
+- Applied the migration with `supabase db push`.
+
+Notes:
+- Deliberately did not implement “any player can kick any player” or a seat double-tap eject shortcut because that is too easy to abuse on a live table.
+- Recommended next step if needed: add a host-only quick seat action shortcut on occupied seats, reusing the same host-authorized RPCs.
   - Auto-starts a new hand when latest hand is settled/canceled and 2+ seats are occupied (with cooldown guard), so table defaults to live turn-by-turn play instead of sitting on settled snapshot.
   - Added live all-in equity estimation (Monte Carlo/exact depending on unknown board cards) using `resolveShowdownPayouts` from `showdown.js`; seat % now represents live equity in all-in phases, not settled payout share.
   - Added seat occupant fallback from hand player mapping when seat mapping lags, to avoid false `SIT` labels.
@@ -204,6 +218,26 @@ Validation:
 - 2026-03-08: Restored compact opponent card visibility in `/Users/abishek/Documents/poker-buyins/online-table.html`:
   - compact breakpoints now hide only non-compact seat card rows
   - `.seat-cards-row.compact-opponent` is explicitly shown in portrait and landscape compact modes
+
+- 2026-03-09: Improved online turn flow and player convenience in:
+  - `/Users/abishek/Documents/poker-buyins/online/table_app.js`
+  - `/Users/abishek/Documents/poker-buyins/online-table.html`
+  - `/Users/abishek/Documents/poker-buyins/online/client.js`
+  - `/Users/abishek/Documents/poker-buyins/supabase/online_poker_schema.sql`
+  - `/Users/abishek/Documents/poker-buyins/supabase/functions/online-runtime-tick/index.ts`
+  - `/Users/abishek/Documents/poker-buyins/supabase/migrations/20260309234500_add_auto_check_preference.sql`
+- Added seat-level `auto_check_when_available` preference with player-facing toggle in Preferences.
+- Runtime tick now auto-checks for opted-in human players when `to_call = 0`, so the feature still works even if their browser is backgrounded.
+- Hero seat now grays out when the player times out/folds, matching the table-seat folded treatment.
+- Action announcements now prioritize the newest action and delay street reveals slightly longer so the last action is visible before the next street animation takes over.
+
+Validation:
+- `node --check /Users/abishek/Documents/poker-buyins/online/table_app.js` (pass)
+- `node --check /Users/abishek/Documents/poker-buyins/online/client.js` (pass)
+- `supabase db push` (applied `20260309234500_add_auto_check_preference.sql`)
+- `supabase functions deploy online-runtime-tick` (pass)
+- Browser smoke check: Preferences panel shows the new auto-check toggle and updates successfully.
+- Direct backend smoke check: in a 2-player table, BB with auto-check enabled auto-checked from the edge runtime after SB called, advancing hand from preflop to flop.
   - bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster to `?v=51`
 
 - 2026-03-08: Made compact opponent card placement directional in `/Users/abishek/Documents/poker-buyins/online/table_app.js` and `/Users/abishek/Documents/poker-buyins/online-table.html`:
@@ -218,6 +252,17 @@ Validation:
   - bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache buster to `?v=53`
 
 - 2026-03-08: Nudged compact opponent card stacks upward in `/Users/abishek/Documents/poker-buyins/online-table.html`:
+ - 2026-03-09: iPhone portrait hero-anchor adjustment in `/Users/abishek/Documents/poker-buyins/online-table.html`:
+   - added Safari/iOS-specific portrait overrides so the hero stack sits closer to the bottom rail instead of floating inside the felt
+   - lifted the portrait mic/chat floating buttons on iPhone so they stay above the browser toolbar / hand-log area
+   - local smoke check via `$WEB_GAME_CLIENT` completed without new JS/runtime errors; screenshot artifacts landed under `/Users/abishek/Documents/poker-buyins/output/web-game`
+ - 2026-03-09: join-time microphone permission prompt in `/Users/abishek/Documents/poker-buyins/online/table_app.js`:
+   - manual Create/Join success now makes a best-effort `getUserMedia({ audio: true })` request so voice permission is asked before the player taps the mic
+   - stream is stopped immediately after grant, so Daily voice does not auto-connect and should not consume minutes
+   - intentionally skipped for passive auto-reentry because iOS/browser gesture requirements are unreliable there
+ - 2026-03-09: iPhone chat keyboard viewport stabilization in `/Users/abishek/Documents/poker-buyins/online/table_app.js`:
+   - while the chat textarea is focused, the app freezes `--app-vh` at the pre-keyboard height so the table no longer shrinks when the iOS keyboard opens
+   - blur restores normal viewport syncing after the keyboard dismisses
 
 - 2026-03-08: Retuned portrait iPhone table scaling in `/Users/abishek/Documents/poker-buyins/online-table.html` and `/Users/abishek/Documents/poker-buyins/online/table_app.js`:
   - added viewport CSS vars sourced from `window.visualViewport` / screen metrics
@@ -1152,3 +1197,28 @@ Remaining external rollout steps:
 Remaining validation:
 1) Test two seated devices/tabs in the same table to confirm push-to-talk floor locking and audio handoff.
 2) Verify real browser mic permission behavior on mobile Safari/Chrome.
+
+- 2026-03-09: Converted hand log into a floating top-pane window in /Users/abishek/Documents/poker-buyins/online-table.html and /Users/abishek/Documents/poker-buyins/online/table_app.js:
+  - log toggle now opens a narrow floating pane from the top controls instead of the bottom drawer
+  - added explicit burn entries before flop/turn/river in the rendered hand log using existing street_dealt payloads
+  - street log lines now show the newly revealed cards for each street rather than repeating the full board
+  - bumped /Users/abishek/Documents/poker-buyins/online-table.html cache buster to ?v=104
+
+- 2026-03-09: Replaced separate seat timer circles with avatar-ring countdown styling in /Users/abishek/Documents/poker-buyins/online-table.html and /Users/abishek/Documents/poker-buyins/online/table_app.js:
+  - removed SVG timer rings from seat render path
+  - active turn countdown now animates directly on seat and hero avatar rings using the existing gold/orange ring
+  - danger tick sound now only plays for the acting player
+  - bumped /Users/abishek/Documents/poker-buyins/online-table.html cache buster to ?v=111
+
+Update (victory reveal polish pass):
+- Removed table-surface win reason banner and replaced it with a small blurred victory popup outside the felt in `/Users/abishek/Documents/poker-buyins/online-table.html`.
+- Added delayed popup scheduling in `/Users/abishek/Documents/poker-buyins/online/table_app.js` so result messaging waits for any deferred street reveal + board flip timing before appearing.
+- Popup now shows winner/split summary plus hand type (or everyone folded) and hangs briefly before auto-hiding.
+
+
+Update (action latency + board reveal timing pass):
+- Reduced intentional client-side action-banner delay in `/Users/abishek/Documents/poker-buyins/online/table_app.js` so actions clear faster.
+- After a player action, the client now nudges `online-runtime-tick` immediately when backend follow-up work is pending (bot turn / all-in progress / showdown), then reloads state again for a snappier hand flow.
+- Fixed street-reveal sequencing so board cards stay hidden during the deferred action-beat and only appear through the deal/flip animation, instead of showing face-up first and then reanimating.
+- Bumped `/Users/abishek/Documents/poker-buyins/online-table.html` bundle to `v=117`.
+

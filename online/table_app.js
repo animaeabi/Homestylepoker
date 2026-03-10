@@ -16,6 +16,7 @@ const BOARD_REVEAL_STAGGER_MS = 120;
 const BOARD_REVEAL_LAND_MS = 520;
 const BOARD_REVEAL_FLIP_MS = 420;
 const BOARD_REVEAL_FLIP_STAGGER_MS = 80;
+const STREET_REVEAL_DEFER_MS = 180;
 const POT_BUMP_MS = 520;
 const CHIP_PUSH_MS = 760;
 const CHIP_PUSH_STAGGER_MS = 48;
@@ -1295,11 +1296,11 @@ function flushActionAnnouncementQueue() {
   el.actionAnnouncementText.textContent = next.detail;
   el.actionAnnouncement.classList.add("visible");
   playActionAnnouncementSound(next.sound);
-  state.actionAnnouncementHideTimer = setTimeout(hideActionAnnouncement, 1100);
+  state.actionAnnouncementHideTimer = setTimeout(hideActionAnnouncement, 760);
   state.actionAnnouncementNextTimer = setTimeout(() => {
     state.actionAnnouncementNextTimer = null;
     flushActionAnnouncementQueue();
-  }, 1260);
+  }, 880);
 }
 
 function queueActionAnnouncement(ev, { replace = false } = {}) {
@@ -2035,7 +2036,7 @@ function getStreetRevealLandDelayMs(anim, index) {
   if (!anim) return null;
   const revealIndex = anim.indices.indexOf(index);
   if (revealIndex < 0) return null;
-  return revealIndex * BOARD_REVEAL_STAGGER_MS;
+  return Number(anim.startDelayMs || 0) + revealIndex * BOARD_REVEAL_STAGGER_MS;
 }
 
 function getStreetRevealFlipDelayMs(anim, index) {
@@ -2066,7 +2067,7 @@ function getStreetRevealDelayForTransition(oldHand, hand, { deferred = false } =
     if (newBoard[i] && oldBoard[i] !== newBoard[i]) indices.push(i);
   }
   if (!indices.length) return 0;
-  return (deferred ? 650 : 0) + getStreetRevealTotalMs({ indices });
+  return (deferred ? STREET_REVEAL_DEFER_MS : 0) + getStreetRevealTotalMs({ indices });
 }
 
 function clearStreetRevealFx({ keepState = false } = {}) {
@@ -2079,7 +2080,7 @@ function clearStreetRevealFx({ keepState = false } = {}) {
   if (!keepState) state.streetRevealAnimation = null;
 }
 
-function maybeStartStreetRevealAnimation(oldHand, hand, hadPriorTableState = false) {
+function maybeStartStreetRevealAnimation(oldHand, hand, hadPriorTableState = false, startDelayMs = 0) {
   if (!hand) return;
 
   const oldBoard = Array.isArray(oldHand?.board_cards) ? oldHand.board_cards : [];
@@ -2107,6 +2108,7 @@ function maybeStartStreetRevealAnimation(oldHand, hand, hadPriorTableState = fal
     board: [...newBoard],
     indices,
     startedAt: Date.now(),
+    startDelayMs: Math.max(0, Number(startDelayMs || 0)),
     launched: false,
     cleanupTimer: null,
     soundTimers: [],
@@ -2385,6 +2387,31 @@ function renderPotChips(potTotal, bigBlind, handId) {
   el.potStackArt.style.setProperty("--stack-scale", scale.toFixed(2));
   state.potVisual.handId = handId || null;
   state.potVisual.chipCount = chipCount;
+}
+
+function seatIsBotForRuntime(seatNo) {
+  const seat = getSeats().find((candidate) => Number(candidate.seat_no) === Number(seatNo || 0));
+  return Boolean(seat && seatLooksBot(seat));
+}
+
+function shouldNudgeRuntimeAfterAction(hand = getLatestHand()) {
+  if (!hand) return false;
+  if (["allin_progress", "showdown"].includes(String(hand.state || ""))) return true;
+  return Boolean(hand.action_seat && seatIsBotForRuntime(hand.action_seat));
+}
+
+async function nudgeRuntimeAfterAction() {
+  if (!state.tableId) return;
+  try {
+    await online.runtimeTick({
+      tableId: state.tableId,
+      limit: 1,
+      maxAdvancePerHand: 3,
+      actorGroupPlayerId: state.identity?.groupPlayerId || null,
+    });
+  } catch (err) {
+    console.warn("[runtimeTick after action]", err);
+  }
 }
 
 function getSeatTargetElement(seatNo) {
@@ -2956,8 +2983,6 @@ async function loadTableState() {
     }
     const announcementState = syncActionAnnouncements({ hadPriorTableState, oldHandId: oldHand?.id || null });
     maybeStartDealAnimation(oldHand, hand, hadPriorTableState);
-    clearTimeout(state.deferredStreetRevealTimer);
-    state.deferredStreetRevealTimer = null;
     const shouldDelayStreetReveal = Boolean(
       announcementState?.hasNewActions &&
       hand &&
@@ -2965,19 +2990,14 @@ async function loadTableState() {
       hand.id === oldHand.id &&
       hand.state !== oldHand.state
     );
-    if (shouldDelayStreetReveal) {
-      const revealHandId = hand.id;
-      const revealState = hand.state;
-      state.deferredStreetRevealTimer = setTimeout(() => {
-        state.deferredStreetRevealTimer = null;
-        const latestHand = getLatestHand();
-        if (!latestHand || latestHand.id !== revealHandId || latestHand.state !== revealState) return;
-        maybeStartStreetRevealAnimation(oldHand, latestHand, true);
-        renderAll();
-      }, 650);
-    } else {
-      maybeStartStreetRevealAnimation(oldHand, hand, hadPriorTableState);
-    }
+    clearTimeout(state.deferredStreetRevealTimer);
+    state.deferredStreetRevealTimer = null;
+    maybeStartStreetRevealAnimation(
+      oldHand,
+      hand,
+      hadPriorTableState,
+      shouldDelayStreetReveal ? STREET_REVEAL_DEFER_MS : 0
+    );
     syncVictoryPopup({
       oldHand,
       hand,
@@ -3507,15 +3527,21 @@ function renderBoard() {
 
   el.boardCards.innerHTML = "";
   for (let i = 0; i < 5; i++) {
+    const revealMeta = getStreetRevealMeta(i, hand);
     if (board[i]) {
       const card = makeCardEl(board[i], false);
-      const revealMeta = getStreetRevealMeta(i, hand);
       if (revealMeta) {
         card.classList.add("board-deal-target", "board-card-hidden");
         if (revealMeta.showUnderlay) card.classList.add("board-card-settling");
         card.dataset.boardIndex = String(i);
       }
       el.boardCards.appendChild(card);
+    } else if (revealMeta) {
+      const hidden = document.createElement("div");
+      hidden.className = "card card-empty board-deal-target board-card-hidden";
+      hidden.dataset.boardIndex = String(i);
+      if (revealMeta.showUnderlay) hidden.classList.add("board-card-settling");
+      el.boardCards.appendChild(hidden);
     } else {
       const empty = document.createElement("div");
       empty.className = "card card-empty";
@@ -4170,6 +4196,10 @@ async function submitTurnAction(label, actionType) {
   try {
     await doAction(actionType);
     await loadTableState();
+    if (shouldNudgeRuntimeAfterAction()) {
+      await nudgeRuntimeAfterAction();
+      await loadTableState();
+    }
   } catch (err) {
     state.pendingAction = false;
     renderActions();
