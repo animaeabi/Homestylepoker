@@ -100,6 +100,9 @@ const el = {
   streetLabel: document.getElementById("streetLabel"),
   boardCards: document.getElementById("boardCards"),
   winReason: document.getElementById("winReason"),
+  victoryPopup: document.getElementById("victoryPopup"),
+  victoryPopupTitle: document.getElementById("victoryPopupTitle"),
+  victoryPopupDetail: document.getElementById("victoryPopupDetail"),
   startHandBtn: document.getElementById("startHandBtn"),
   actionStrip: document.getElementById("actionStrip"),
   presetRow: document.getElementById("presetRow"),
@@ -200,6 +203,10 @@ const state = {
   actionAnnouncementNextTimer: null,
   lastAnnouncedActionHandId: null,
   lastAnnouncedActionSeq: 0,
+  victoryPopup: null,
+  victoryPopupTimer: null,
+  victoryPopupHideTimer: null,
+  lastVictoryPopupKey: null,
   deferredStreetRevealTimer: null,
   showdownRevealHandId: null,
   showdownRevealSeats: new Set(),
@@ -1638,6 +1645,101 @@ function isContestedShowdown(hand = getLatestHand(), players = getHandPlayers())
   );
 }
 
+function clearVictoryPopup({ preserveKey = false } = {}) {
+  if (state.victoryPopupTimer) clearTimeout(state.victoryPopupTimer);
+  if (state.victoryPopupHideTimer) clearTimeout(state.victoryPopupHideTimer);
+  state.victoryPopupTimer = null;
+  state.victoryPopupHideTimer = null;
+  state.victoryPopup = null;
+  if (!preserveKey) state.lastVictoryPopupKey = null;
+}
+
+function buildVictoryPopupPayload(hand = getLatestHand(), players = getHandPlayers()) {
+  if (!hand || hand.state !== "settled") return null;
+
+  const uncontestedWinner = getUncontestedWinner(hand, players);
+  if (uncontestedWinner) {
+    return {
+      key: `${hand.id}:fold`,
+      title: `${seatName(uncontestedWinner.group_player_id)} wins the pot`,
+      detail: "Everyone folded"
+    };
+  }
+
+  const showdownLeaders = getShowdownLeaders(hand, players);
+  if (!showdownLeaders.length) return null;
+  const label = showdownLeaders[0].desc?.label || "the showdown";
+  if (showdownLeaders.length === 1) {
+    return {
+      key: `${hand.id}:showdown:${label}`,
+      title: `${seatName(showdownLeaders[0].player.group_player_id)} wins`,
+      detail: `with ${label}`
+    };
+  }
+
+  return {
+    key: `${hand.id}:split:${label}`,
+    title: `${showdownLeaders.map(({ player }) => seatName(player.group_player_id)).join(" & ")} split`,
+    detail: `with ${label}`
+  };
+}
+
+function renderVictoryPopup() {
+  if (!el.victoryPopup || !el.victoryPopupTitle || !el.victoryPopupDetail) return;
+  const popup = state.victoryPopup;
+  el.victoryPopupTitle.textContent = popup?.title || "";
+  el.victoryPopupDetail.textContent = popup?.detail || "";
+  el.victoryPopup.classList.toggle("visible", Boolean(popup?.visible));
+}
+
+function syncVictoryPopup({ oldHand, hand, hadPriorTableState = false, shouldDelayStreetReveal = false }) {
+  if (!hand) {
+    clearVictoryPopup();
+    return;
+  }
+
+  if (!oldHand || hand.id !== oldHand.id) {
+    clearVictoryPopup();
+    return;
+  }
+
+  if (hand.state !== "settled") {
+    if (oldHand.state === "settled") clearVictoryPopup();
+    return;
+  }
+
+  if (!hadPriorTableState || oldHand.state === "settled") return;
+
+  const payload = buildVictoryPopupPayload(hand, getHandPlayers());
+  if (!payload || payload.key === state.lastVictoryPopupKey) return;
+
+  clearVictoryPopup({ preserveKey: true });
+  state.lastVictoryPopupKey = payload.key;
+
+  const revealDelayMs = getStreetRevealDelayForTransition(oldHand, hand, {
+    deferred: shouldDelayStreetReveal
+  });
+  const showDelayMs = Math.max(140, revealDelayMs + 120);
+  const hangMs = Math.max(2200, Math.min(3400, getShowdownTimeMs() - 400));
+  const handId = hand.id;
+
+  state.victoryPopupTimer = setTimeout(() => {
+    const latestHand = getLatestHand();
+    if (!latestHand || latestHand.id !== handId || latestHand.state !== "settled") return;
+    state.victoryPopup = {
+      ...payload,
+      visible: true
+    };
+    renderVictoryPopup();
+    state.victoryPopupHideTimer = setTimeout(() => {
+      if (state.victoryPopup?.key === payload.key) {
+        state.victoryPopup = null;
+        renderVictoryPopup();
+      }
+    }, hangMs);
+  }, showDelayMs);
+}
+
 function seatName(groupPlayerId) {
   if (!groupPlayerId) return "Empty";
   const seats = getSeats();
@@ -1953,6 +2055,18 @@ function getStreetRevealTotalMs(anim) {
   const lastIndex = anim.indices[anim.indices.length - 1];
   const flipDelayMs = getStreetRevealFlipDelayMs(anim, lastIndex);
   return (flipDelayMs || 0) + BOARD_REVEAL_FLIP_MS + 180;
+}
+
+function getStreetRevealDelayForTransition(oldHand, hand, { deferred = false } = {}) {
+  if (!oldHand || !hand || oldHand.id !== hand.id) return 0;
+  const oldBoard = Array.isArray(oldHand?.board_cards) ? oldHand.board_cards : [];
+  const newBoard = Array.isArray(hand?.board_cards) ? hand.board_cards : [];
+  const indices = [];
+  for (let i = 0; i < newBoard.length; i += 1) {
+    if (newBoard[i] && oldBoard[i] !== newBoard[i]) indices.push(i);
+  }
+  if (!indices.length) return 0;
+  return (deferred ? 650 : 0) + getStreetRevealTotalMs({ indices });
 }
 
 function clearStreetRevealFx({ keepState = false } = {}) {
@@ -2864,6 +2978,12 @@ async function loadTableState() {
     } else {
       maybeStartStreetRevealAnimation(oldHand, hand, hadPriorTableState);
     }
+    syncVictoryPopup({
+      oldHand,
+      hand,
+      hadPriorTableState,
+      shouldDelayStreetReveal
+    });
     if (hand && oldHand) {
       if (oldHand.state !== "settled" && hand.state === "settled") {
         handleSettlement(hand);
@@ -3236,6 +3356,7 @@ function renderAll() {
   renderConfigPlayers();
   renderVoiceUi();
   renderChatUi();
+  renderVictoryPopup();
   maybeLaunchPotPushFx();
   maybeLaunchDealFx();
   maybeLaunchStreetRevealFx();
@@ -3352,8 +3473,6 @@ function renderBoard() {
   const hand = getLatestHand();
   const players = getHandPlayers();
   const board = Array.isArray(hand?.board_cards) ? hand.board_cards : [];
-  const showdownLeaders = getShowdownLeaders(hand, players);
-  const uncontestedWinner = getUncontestedWinner(hand, players);
   const contestedShowdown = isContestedShowdown(hand, players);
   const payoutActive = Boolean(state.potPushAnimation?.handId === hand?.id && state.potPushAnimation?.launched);
   const clearedPot = Boolean(hand?.id && state.clearedPotHandId === hand.id);
@@ -3406,25 +3525,8 @@ function renderBoard() {
 
   const winReasonEl = el.winReason;
   if (winReasonEl) {
-    if (uncontestedWinner) {
-      winReasonEl.textContent = `${seatName(uncontestedWinner.group_player_id)} wins the pot`;
-    } else if (contestedShowdown) {
-      if (showdownLeaders.length > 0) {
-        const label = showdownLeaders[0].desc?.label || "";
-        if (showdownLeaders.length === 1) {
-          const winnerName = seatName(showdownLeaders[0].player.group_player_id);
-          winReasonEl.textContent = label ? `${winnerName} wins with ${label}` : `${winnerName} wins`;
-        } else {
-          const winnerNames = showdownLeaders.map(({ player }) => seatName(player.group_player_id)).join(" & ");
-          winReasonEl.textContent = label ? `${winnerNames} split with ${label}` : `${winnerNames} split the pot`;
-        }
-      } else {
-        winReasonEl.textContent = "";
-      }
-    } else {
-      winReasonEl.textContent = "";
-    }
-    winReasonEl.classList.toggle("has-result", Boolean(winReasonEl.textContent));
+    winReasonEl.textContent = "";
+    winReasonEl.classList.remove("has-result");
   }
 }
 
