@@ -1538,6 +1538,17 @@ function getBetStep() {
   return places > 0 ? Number((1 / (10 ** Math.min(places, 2))).toFixed(Math.min(places, 2))) : 1;
 }
 
+function canCreateNewAggression(hand = getLatestHand(), hp = getMyHandPlayer(), players = getHandPlayers()) {
+  if (!hand || !hp) return true;
+  const heroSeatNo = Number(hp.seat_no || 0);
+  return players.some((player) =>
+    Number(player?.seat_no || 0) !== heroSeatNo
+    && !player?.folded
+    && !player?.all_in
+    && Number(player?.stack_end || 0) > 0
+  );
+}
+
 function roundToStep(value, step = 1) {
   const safeStep = Math.max(0.01, Number(step || 1));
   const decimals = decimalPlaces(safeStep);
@@ -1546,6 +1557,7 @@ function roundToStep(value, step = 1) {
 
 function getBetBounds(hand = getLatestHand(), hp = getMyHandPlayer()) {
   const toCall = Math.max(0, Number(hand?.current_bet || 0) - Number(hp?.street_contribution || 0));
+  const canAggress = canCreateNewAggression(hand, hp);
   const isRaise = Number(hand?.current_bet || 0) > 0;
   const minRaw = isRaise
     ? Number(hand?.current_bet || 0) + Math.max(Number(hand?.min_raise || 0), Number(getTable()?.big_blind || 2))
@@ -1553,8 +1565,8 @@ function getBetBounds(hand = getLatestHand(), hp = getMyHandPlayer()) {
   const maxRaw = Number(hp?.stack_end || 0) + Number(hp?.street_contribution || 0);
   const step = getBetStep();
   const maxBet = roundToStep(maxRaw, step);
-  const minBet = roundToStep(Math.min(minRaw, maxBet), step);
-  return { toCall, isRaise, minBet, maxBet, step };
+  const minBet = roundToStep(Math.min(canAggress ? minRaw : maxBet, maxBet), step);
+  return { toCall, isRaise, minBet, maxBet, step, canAggress };
 }
 
 function normalizeBetAmount(value, minBet, maxBet, step = 1) {
@@ -4654,7 +4666,6 @@ function renderActions() {
 
   if (myTurn) {
     el.actionStrip.classList.remove("hidden");
-    el.allInBtn.classList.remove("hidden");
     el.foldBtn.textContent = "Fold";
     el.callBtn.textContent = "Check";
     el.betRaiseBtn.textContent = "Bet";
@@ -4664,12 +4675,17 @@ function renderActions() {
     el.callBtn.disabled = false;
     el.callBtn.setAttribute("aria-disabled", "false");
 
-    const { toCall } = getBetBounds(hand, hp);
+    const { toCall, canAggress } = getBetBounds(hand, hp);
     const raiseActionType = Number(hand.current_bet || 0) > 0 ? "raise" : "bet";
     el.callBtn.textContent = toCall > 0 ? `Call ${fmtShort(toCall)}` : "Check";
     el.betRaiseBtn.textContent = raiseActionType === "raise" ? "Raise" : "Bet";
     el.allInBtn.textContent = `All-in`;
-    if (compactActions) {
+    el.betRaiseBtn.classList.toggle("hidden", !canAggress);
+    el.allInBtn.classList.toggle("hidden", !canAggress);
+    if (!canAggress) {
+      state.landscapeRaisePanelOpen = false;
+      el.presetRow.classList.add("hidden");
+    } else if (compactActions) {
       el.presetRow.classList.toggle("hidden", !state.landscapeRaisePanelOpen);
     } else {
       el.presetRow.classList.remove("hidden");
@@ -4692,6 +4708,7 @@ function renderActions() {
     el.callBtn.textContent = "Check";
     el.betRaiseBtn.textContent = "Bet";
     el.allInBtn.classList.remove("hidden");
+    el.betRaiseBtn.classList.remove("hidden");
     el.foldBtn.classList.remove("active");
     el.callBtn.classList.remove("active");
     el.betRaiseBtn.classList.remove("active");
@@ -5082,9 +5099,14 @@ function bindEvents() {
     const hand = getLatestHand();
     const hp = getMyHandPlayer();
     const actionLocked = state.pendingAction;
+    const { canAggress } = getBetBounds(hand, hp);
     const myTurn = Boolean(hand && isActionStreet(hand.state) && getSeatToken() && hp && !hp.folded && !hp.all_in && hand.action_seat === hp.seat_no && !actionLocked);
     if (syncHeroPreactionUi({ hand, hp, myTurn, actionLocked })) {
       setHeroPreaction("call_any");
+      return;
+    }
+    if (!canAggress) {
+      toast("No further betting is possible in this pot.", "error");
       return;
     }
     const actionType = Number(hand?.current_bet || 0) > 0 ? "raise" : "bet";
@@ -5097,6 +5119,13 @@ function bindEvents() {
     submitTurnAction(actionType, actionType);
   });
   el.allInBtn.addEventListener("click", () => {
+    const hand = getLatestHand();
+    const hp = getMyHandPlayer();
+    const { canAggress } = getBetBounds(hand, hp);
+    if (!canAggress) {
+      toast("No further betting is possible in this pot.", "error");
+      return;
+    }
     submitTurnAction("All-in", "all_in");
   });
 
