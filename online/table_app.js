@@ -4206,7 +4206,7 @@ function renderMyHand() {
     const heroBet = document.createElement("div");
     heroBet.className = `seat-bet ${getSeatContributionAnchor(null, { hero: true })}`;
     heroBet.textContent = heroContributionLabel;
-    el.myHandNameplate?.appendChild(heroBet);
+    el.myHandArea?.appendChild(heroBet);
   }
 
   // Rebuy button in my-hand area -- create once, show/hide
