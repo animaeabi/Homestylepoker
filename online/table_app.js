@@ -1,7 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../config.js";
-import { createOnlinePokerClient } from "./client.js?v=120";
-import { computeSidePots, describeSevenCardHand, resolveShowdownPayouts } from "./showdown.js?v=120";
+import { createOnlinePokerClient } from "./client.js?v=121";
+import { computeSidePots, describeSevenCardHand, resolveShowdownPayouts } from "./showdown.js?v=121";
 import { randomPersonality, randomBotName, personalityLabel, OpponentTracker } from "./bot_engine.js";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -1702,6 +1702,15 @@ function clearPendingSettlementFx() {
   state.settlementFxTimer = null;
 }
 
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
 function getNetResultAmount(player) {
   if (!player) return 0;
   return Number(player.result_amount || 0) - Number(player.committed || 0);
@@ -1811,6 +1820,14 @@ function seatNoForGroupPlayer(groupPlayerId) {
   if (!groupPlayerId) return null;
   const seat = getSeats().find((item) => item.group_player_id === groupPlayerId && !item.left_at);
   return seat?.seat_no ?? null;
+}
+
+function playerNameBySeat(seatNo) {
+  const handPlayer = getHandPlayers().find((player) => Number(player?.seat_no || 0) === Number(seatNo || 0));
+  if (handPlayer?.group_player_id) return seatName(handPlayer.group_player_id);
+  const seat = getSeats().find((item) => Number(item?.seat_no || 0) === Number(seatNo || 0) && !item.left_at);
+  if (seat?.group_player_id) return seatName(seat.group_player_id);
+  return `Seat ${seatNo || "?"}`;
 }
 
 function getActionPopupAnchor(pos = {}) {
@@ -3679,22 +3696,6 @@ function renderBoard() {
     )
   );
 
-  const sidePotLabels = (() => {
-    if (!allInMode || payoutActive || clearedPot) return [];
-    const pots = computeSidePots(
-      players.map((player) => ({
-        seatNo: Number(player.seat_no || 0),
-        committed: Number(player.committed || 0),
-        folded: !!player.folded,
-      }))
-    ).filter((pot) => Number(pot.amount || 0) > 0.001);
-    if (pots.length <= 1) return [];
-    return pots.map((pot, index) => ({
-      label: index === 0 ? "Main" : index === 1 ? "Side" : `Side ${index}`,
-      amount: Number(pot.amount || 0),
-    }));
-  })();
-
   if (el.potAmount) el.potAmount.textContent = fmtShort(potTotal);
   renderPotChips(potTotal, bigBlind, hand?.id || null);
   if (el.potDisplay) {
@@ -3710,13 +3711,7 @@ function renderBoard() {
   }
   if (el.potBreakdown) {
     el.potBreakdown.innerHTML = "";
-    el.potBreakdown.classList.toggle("visible", sidePotLabels.length > 0);
-    for (const item of sidePotLabels) {
-      const badge = document.createElement("span");
-      badge.className = "pot-breakdown-pill";
-      badge.textContent = `${item.label} ${fmtShort(item.amount)}`;
-      el.potBreakdown.appendChild(badge);
-    }
+    el.potBreakdown.classList.remove("visible");
   }
   if (el.tableSurface) {
     el.tableSurface.classList.toggle("all-in-mode", allInMode);
@@ -4305,13 +4300,34 @@ function accumulateHandLog() {
           },
         });
       }
-      state.handLogEntries.push({ type: "event", ev });
+      if (ev.event_type === "pot_awarded") {
+        const detailEntries = buildPotAwardLogEntries(ev, hand, getHandPlayers());
+        if (detailEntries.length) {
+          state.handLogEntries.push(...detailEntries);
+        } else {
+          state.handLogEntries.push({ type: "event", ev });
+        }
+      } else if (ev.event_type === "hand_settled") {
+        const detailEntries = buildHandSettledLogEntries(ev, hand, getHandPlayers());
+        if (detailEntries.length) {
+          state.handLogEntries.push(...detailEntries);
+        } else {
+          state.handLogEntries.push({ type: "event", ev });
+        }
+      } else {
+        state.handLogEntries.push({ type: "event", ev });
+      }
     }
   }
 }
 
 function renderHandLog() {
   accumulateHandLog();
+  const prevScrollHeight = el.handLogInner.scrollHeight;
+  const prevScrollTop = el.handLogInner.scrollTop;
+  const prevClientHeight = el.handLogInner.clientHeight;
+  const bottomOffset = Math.max(0, prevScrollHeight - prevScrollTop - prevClientHeight);
+  const stickToBottom = bottomOffset <= 28;
   el.handLogInner.innerHTML = "";
 
   if (!state.handLogEntries.length) {
@@ -4325,6 +4341,11 @@ function renderHandLog() {
       sep.className = "log-separator";
       sep.textContent = `— Hand #${entry.handNo} —`;
       el.handLogInner.appendChild(sep);
+    } else if (entry.type === "note") {
+      const div = document.createElement("div");
+      div.className = `log-entry${entry.variant ? ` log-entry-${entry.variant}` : ""}`;
+      div.innerHTML = entry.html;
+      el.handLogInner.appendChild(div);
     } else {
       const div = document.createElement("div");
       div.className = `log-entry${entry.ev?.event_type === "burn_notice" ? " log-entry-burn" : ""}`;
@@ -4333,11 +4354,15 @@ function renderHandLog() {
     }
   });
 
-  el.handLogInner.scrollTop = el.handLogInner.scrollHeight;
+  if (stickToBottom) {
+    el.handLogInner.scrollTop = el.handLogInner.scrollHeight;
+  } else {
+    el.handLogInner.scrollTop = Math.max(0, el.handLogInner.scrollHeight - prevClientHeight - bottomOffset);
+  }
 }
 
 function describeEvent(ev) {
-  const actor = ev.actor_group_player_id ? seatName(ev.actor_group_player_id) : "System";
+  const actor = ev.actor_group_player_id ? escapeHtml(seatName(ev.actor_group_player_id)) : "System";
   const p = ev.payload || {};
   switch (ev.event_type) {
     case "hand_started": return `Hand #${p.hand_no || "?"} started`;
@@ -4364,10 +4389,146 @@ function describeEvent(ev) {
       return `${(p.street || "street").toUpperCase()} dealt ${cards}`;
     }
     case "showdown_ready": return "Showdown";
+    case "street_advanced": return `${String(p.to || "street").toUpperCase()} ready`;
     case "pot_awarded": return "Pot awarded";
     case "hand_settled": return "Hand settled";
-    default: return ev.event_type;
+    default: return escapeHtml(ev.event_type);
   }
+}
+
+function buildPotAwardLogEntries(ev, hand = getLatestHand(), players = getHandPlayers()) {
+  const payload = ev.payload || {};
+  const notes = [];
+
+  if (Number(payload.amount || 0) > 0 && Number(payload.winner_seat || 0) > 0) {
+    notes.push({
+      type: "note",
+      variant: "result",
+      html: `<strong>${escapeHtml(playerNameBySeat(payload.winner_seat))}</strong> wins the pot for <strong>${fmtShort(payload.amount)}</strong>.`,
+    });
+    return notes;
+  }
+
+  const payouts = Array.isArray(payload.payouts) ? payload.payouts : [];
+  const settledPlayers = Array.isArray(players) ? players : [];
+  const board = Array.isArray(hand?.board_cards) ? hand.board_cards : [];
+  if (!payouts.length || board.length !== 5 || !settledPlayers.length) return notes;
+
+  const contenders = settledPlayers
+    .filter((player) => !player?.folded && Array.isArray(player?.hole_cards) && player.hole_cards.length === 2)
+    .map((player) => ({
+      seatNo: Number(player.seat_no || 0),
+      committed: Number(player.committed || 0),
+      folded: !!player.folded,
+      holeCards: player.hole_cards,
+    }));
+  if (!contenders.length) return notes;
+
+  const handBySeat = new Map();
+  for (const player of contenders) {
+    try {
+      handBySeat.set(player.seatNo, describeSevenCardHand([...player.holeCards, ...board]));
+    } catch {
+      // Ignore malformed render-only state.
+    }
+  }
+
+  const pots = computeSidePots(
+    settledPlayers.map((player) => ({
+      seatNo: Number(player.seat_no || 0),
+      committed: Number(player.committed || 0),
+      folded: !!player.folded,
+    }))
+  ).filter((pot) => Number(pot.amount || 0) > 0.001);
+
+  for (let index = 0; index < pots.length; index += 1) {
+    const pot = pots[index];
+    const eligible = contenders.filter((player) => pot.eligible.includes(player.seatNo));
+    if (!eligible.length) continue;
+    let winners = [];
+    let bestTuple = null;
+    for (const player of eligible) {
+      const desc = handBySeat.get(player.seatNo);
+      if (!desc?.tuple?.length) continue;
+      if (!bestTuple || compareRankTuples(desc.tuple, bestTuple) > 0) {
+        bestTuple = desc.tuple;
+        winners = [player.seatNo];
+      } else if (compareRankTuples(desc.tuple, bestTuple) === 0) {
+        winners.push(player.seatNo);
+      }
+    }
+    if (!winners.length) continue;
+    const label = index === 0 ? "Main pot" : `Side pot ${index}`;
+    const names = winners.map((seatNo) => escapeHtml(playerNameBySeat(seatNo)));
+    const desc = handBySeat.get(winners[0]);
+    const shared = names.length === 1
+      ? `<strong>${names[0]}</strong> wins ${label.toLowerCase()} <strong>${fmtShort(pot.amount)}</strong>`
+      : `<strong>${names.join(" & ")}</strong> split ${label.toLowerCase()} <strong>${fmtShort(pot.amount)}</strong>`;
+    notes.push({
+      type: "note",
+      variant: "result",
+      html: `${shared}${desc?.label ? ` with <strong>${escapeHtml(desc.label)}</strong>` : ""}.`,
+    });
+  }
+
+  for (const payout of payouts) {
+    const seatNo = Number(payout?.seat_no || 0);
+    const amount = Number(payout?.amount || 0);
+    if (!seatNo || amount <= 0) continue;
+    notes.push({
+      type: "note",
+      variant: "payout",
+      html: `Paid <strong>${escapeHtml(playerNameBySeat(seatNo))}</strong> <strong>${fmtShort(amount)}</strong>.`,
+    });
+  }
+
+  return notes;
+}
+
+function buildHandSettledLogEntries(ev, hand = getLatestHand(), players = getHandPlayers()) {
+  const payload = ev.payload || {};
+  const notes = [];
+  const board = Array.isArray(hand?.board_cards) ? hand.board_cards : [];
+  if (payload.reason === "everyone_else_folded") {
+    notes.push({
+      type: "note",
+      variant: "summary",
+      html: "Hand complete. Everyone else folded.",
+    });
+    return notes;
+  }
+  if (board.length !== 5) return notes;
+
+  const contenders = (Array.isArray(players) ? players : []).filter(
+    (player) => !player?.folded && Array.isArray(player?.hole_cards) && player.hole_cards.length === 2
+  );
+  for (const player of contenders) {
+    try {
+      const desc = describeSevenCardHand([...player.hole_cards, ...board]);
+      const cards = player.hole_cards
+        .map((card) => {
+          const face = cardFace(card);
+          return face.valid ? face.text : "?";
+        })
+        .join(" ");
+      notes.push({
+        type: "note",
+        variant: "showdown",
+        html: `<strong>${escapeHtml(seatName(player.group_player_id))}</strong> showed <strong>${escapeHtml(cards)}</strong>${desc?.label ? ` for <strong>${escapeHtml(desc.label)}</strong>` : ""}.`,
+      });
+    } catch {
+      // Ignore malformed render-only state.
+    }
+  }
+
+  if (payload.note) {
+    notes.push({
+      type: "note",
+      variant: "summary",
+      html: escapeHtml(payload.note),
+    });
+  }
+  return notes;
 }
 
 function setHandLogOpen(open) {

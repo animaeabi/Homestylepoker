@@ -124,6 +124,17 @@ Update (showdown payout UX pass):
 - Delayed settlement FX (win overlays, pot push, victory popup) until pending street reveal animation finishes, so turn/river board cards are visually dealt and flipped before chips/results appear.
 - Bumped `/Users/abishek/Documents/poker-buyins/online-table.html` bundle to `v=118`.
 
+Update (hand-log depth + pot simplification pass):
+- Simplified the felt pot UI in `/Users/abishek/Documents/poker-buyins/online/table_app.js` so side-pot pills are no longer shown beside the central pot.
+- Expanded the floating hand log in `/Users/abishek/Documents/poker-buyins/online/table_app.js` and `/Users/abishek/Documents/poker-buyins/online-table.html`:
+  - preserves user scroll while live events continue instead of forcing auto-scroll every update
+  - adds richer showdown settlement entries for:
+    - main/side pot winners
+    - payout amounts
+    - shown hole cards + made hand labels
+  - keeps burn actions visible but intentionally does not reveal the hidden burn-card face, to preserve real poker information boundaries
+- Bumped `/Users/abishek/Documents/poker-buyins/online-table.html` bundle to `v=121`.
+
 Validation:
 - `node --check /Users/abishek/Documents/poker-buyins/online/table_app.js` (pass)
 - Local Playwright smoke capture against `http://127.0.0.1:8000/online-table.html?table=be265f73-02dc-4c0b-89b2-462d7e8d9a6e` completed; latest screenshot: `/Users/abishek/Documents/poker-buyins/output/web-game-fix/shot-0.png`
