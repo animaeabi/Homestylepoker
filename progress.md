@@ -1230,3 +1230,10 @@ Update (action latency + board reveal timing pass):
 - After a player action, the client now nudges `online-runtime-tick` immediately when backend follow-up work is pending (bot turn / all-in progress / showdown), then reloads state again for a snappier hand flow.
 - Fixed street-reveal sequencing so board cards stay hidden during the deferred action-beat and only appear through the deal/flip animation, instead of showing face-up first and then reanimating.
 - Bumped `/Users/abishek/Documents/poker-buyins/online-table.html` bundle to `v=117`.
+
+Update (raise grace + side-pot UI):
+- Added a backend-backed turn grace extension in `/Users/abishek/Documents/poker-buyins/supabase/online_poker_schema.sql` and `/Users/abishek/Documents/poker-buyins/supabase/migrations/20260310013000_add_turn_grace_timer.sql`.
+- Grace only applies when the active player is using raise controls late in the clock, grants small chunks, and caps at 6 extra seconds per turn.
+- Reset the grace budget whenever action passes, streets change, or a hand settles so it cannot be banked or abused.
+- Reused the existing showdown side-pot algorithm on the client and added compact `Main / Side / Side 2...` labels in the pot area during all-in hands.
+- Bumped `/Users/abishek/Documents/poker-buyins/online-table.html` bundle to `v=119`.

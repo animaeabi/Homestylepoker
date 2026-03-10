@@ -207,7 +207,7 @@ export function compareHands(cardsA, cardsB) {
   return compareTuples(best5Rank(cardsA), best5Rank(cardsB));
 }
 
-function computeSidePots(players) {
+export function computeSidePots(players) {
   const sorted = players
     .map((p) => ({
       seatNo: p.seatNo,

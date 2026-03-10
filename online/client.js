@@ -159,6 +159,20 @@ export function createOnlinePokerClient(supabase) {
       });
     },
 
+    requestTurnGrace({
+      handId,
+      actorGroupPlayerId,
+      seatToken,
+      graceSecs = 3
+    }) {
+      return callRpc(supabase, "online_request_turn_grace", {
+        p_hand_id: handId,
+        p_actor_group_player_id: actorGroupPlayerId,
+        p_actor_seat_token: seatToken,
+        p_grace_secs: graceSecs
+      });
+    },
+
     rebuyChips({ tableId, groupPlayerId, seatToken, amount = null }) {
       return callRpc(supabase, "online_rebuy_chips", {
         p_table_id: tableId,

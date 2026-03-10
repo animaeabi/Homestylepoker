@@ -137,6 +137,7 @@ create table if not exists online_hands (
   rng_seed_hash text,
   started_at timestamptz not null default now(),
   ended_at timestamptz,
+  turn_grace_used_secs int not null default 0,
   unique (table_id, hand_no)
 );
 
@@ -1561,7 +1562,8 @@ alter table online_hands
   add column if not exists current_bet numeric not null default 0,
   add column if not exists min_raise numeric not null default 0,
   add column if not exists action_seat int,
-  add column if not exists last_action_at timestamptz default now();
+  add column if not exists last_action_at timestamptz default now(),
+  add column if not exists turn_grace_used_secs int not null default 0;
 
 alter table online_hand_players
   add column if not exists street_contribution numeric not null default 0,
@@ -2401,28 +2403,31 @@ begin
 
   if p_action_type in ('bet', 'raise', 'all_in') and v_new_street_contribution > v_prev_bet then
     if p_action_type = 'bet' then
-      update online_hands
-      set
-        current_bet = v_new_street_contribution,
-        min_raise = greatest(coalesce(v_table.big_blind, 1), v_new_street_contribution),
-        last_action_at = now()
-      where id = p_hand_id
-      returning * into v_hand;
+        update online_hands
+        set
+          current_bet = v_new_street_contribution,
+          min_raise = greatest(coalesce(v_table.big_blind, 1), v_new_street_contribution),
+          last_action_at = now(),
+          turn_grace_used_secs = 0
+        where id = p_hand_id
+        returning * into v_hand;
     elsif v_is_full_raise then
-      update online_hands
-      set
-        current_bet = v_new_street_contribution,
-        min_raise = greatest(coalesce(v_table.big_blind, 1), v_new_street_contribution - v_prev_bet),
-        last_action_at = now()
-      where id = p_hand_id
-      returning * into v_hand;
+        update online_hands
+        set
+          current_bet = v_new_street_contribution,
+          min_raise = greatest(coalesce(v_table.big_blind, 1), v_new_street_contribution - v_prev_bet),
+          last_action_at = now(),
+          turn_grace_used_secs = 0
+        where id = p_hand_id
+        returning * into v_hand;
     else
-      update online_hands
-      set
-        current_bet = greatest(current_bet, v_new_street_contribution),
-        last_action_at = now()
-      where id = p_hand_id
-      returning * into v_hand;
+        update online_hands
+        set
+          current_bet = greatest(current_bet, v_new_street_contribution),
+          last_action_at = now(),
+          turn_grace_used_secs = 0
+        where id = p_hand_id
+        returning * into v_hand;
     end if;
 
     update online_hand_players
@@ -2471,7 +2476,8 @@ begin
       state = 'settled',
       action_seat = null,
       ended_at = now(),
-      last_action_at = now()
+      last_action_at = now(),
+      turn_grace_used_secs = 0
     where id = p_hand_id
     returning * into v_hand;
 
@@ -2504,7 +2510,8 @@ begin
         set
           state = 'showdown',
           action_seat = null,
-          last_action_at = now()
+          last_action_at = now(),
+          turn_grace_used_secs = 0
         where id = p_hand_id
         returning * into v_hand;
 
@@ -2568,7 +2575,8 @@ begin
           current_bet = 0,
           min_raise = greatest(coalesce(v_table.big_blind, 1), 1),
           action_seat = v_next_actor,
-          last_action_at = now()
+          last_action_at = now(),
+          turn_grace_used_secs = 0
         where id = p_hand_id
         returning * into v_hand;
 
@@ -2589,7 +2597,8 @@ begin
       update online_hands
       set
         action_seat = v_next_actor,
-        last_action_at = now()
+        last_action_at = now(),
+        turn_grace_used_secs = 0
       where id = p_hand_id
       returning * into v_hand;
     end if;
@@ -2723,7 +2732,8 @@ begin
     state = 'settled',
     action_seat = null,
     ended_at = now(),
-    last_action_at = now()
+    last_action_at = now(),
+    turn_grace_used_secs = 0
   where id = p_hand_id
   returning * into v_hand;
 
@@ -2981,7 +2991,8 @@ begin
       current_bet = 0,
       min_raise = greatest(coalesce(v_table.big_blind, 1), 1),
       action_seat = v_next_actor,
-      last_action_at = now()
+      last_action_at = now(),
+      turn_grace_used_secs = 0
     where id = p_hand_id
     returning * into v_hand;
   elsif v_next_state = 'showdown' then
@@ -2991,14 +3002,16 @@ begin
       board_cards = v_board,
       deck_cards = to_jsonb(v_deck),
       action_seat = null,
-      last_action_at = now()
+      last_action_at = now(),
+      turn_grace_used_secs = 0
     where id = p_hand_id
     returning * into v_hand;
   else
     update online_hands
     set
       state = v_next_state,
-      last_action_at = now()
+      last_action_at = now(),
+      turn_grace_used_secs = 0
     where id = p_hand_id
     returning * into v_hand;
   end if;
@@ -3294,6 +3307,116 @@ begin
   returning * into v_seat;
 
   return v_seat;
+end;
+$$;
+
+drop function if exists online_request_turn_grace(uuid, uuid, text, int);
+create or replace function online_request_turn_grace(
+  p_hand_id uuid,
+  p_actor_group_player_id uuid,
+  p_actor_seat_token text,
+  p_grace_secs int default 3
+)
+returns online_hands
+language plpgsql
+as $$
+declare
+  v_hand online_hands%rowtype;
+  v_table online_tables%rowtype;
+  v_hand_player online_hand_players%rowtype;
+  v_active_seat online_table_seats%rowtype;
+  v_requested_secs int := greatest(1, least(coalesce(p_grace_secs, 3), 3));
+  v_granted_secs int := 0;
+  v_remaining_secs numeric := 0;
+begin
+  select * into v_hand
+  from online_hands
+  where id = p_hand_id
+  for update;
+
+  if not found then
+    raise exception 'online_hand_not_found';
+  end if;
+
+  if p_actor_group_player_id is null then
+    raise exception 'actor_required';
+  end if;
+
+  if coalesce(nullif(trim(p_actor_seat_token), ''), '') = '' then
+    raise exception 'seat_token_required';
+  end if;
+
+  select *
+  into v_active_seat
+  from online_table_seats
+  where table_id = v_hand.table_id
+    and group_player_id = p_actor_group_player_id
+    and left_at is null
+  limit 1;
+
+  if not found then
+    raise exception 'actor_not_seated';
+  end if;
+
+  if v_active_seat.seat_token is distinct from p_actor_seat_token then
+    raise exception 'seat_token_invalid';
+  end if;
+
+  if v_hand.state not in ('preflop', 'flop', 'turn', 'river')
+     or v_hand.action_seat is null then
+    return v_hand;
+  end if;
+
+  select *
+  into v_hand_player
+  from online_hand_players
+  where hand_id = p_hand_id
+    and group_player_id = p_actor_group_player_id
+  limit 1;
+
+  if not found then
+    raise exception 'actor_not_in_hand';
+  end if;
+
+  if v_hand_player.seat_no <> v_hand.action_seat
+     or v_hand_player.folded
+     or v_hand_player.all_in
+     or coalesce(v_hand_player.stack_end, 0) <= 0 then
+    return v_hand;
+  end if;
+
+  select *
+  into v_table
+  from online_tables
+  where id = v_hand.table_id;
+
+  v_remaining_secs := greatest(
+    0,
+    coalesce(v_table.decision_time_secs, 25)
+    - floor(extract(epoch from greatest(interval '0 second', now() - coalesce(v_hand.last_action_at, now()))))
+  );
+
+  if v_remaining_secs > 4 then
+    return v_hand;
+  end if;
+
+  v_granted_secs := least(
+    v_requested_secs,
+    greatest(0, 6 - coalesce(v_hand.turn_grace_used_secs, 0))
+  );
+
+  if v_granted_secs <= 0 then
+    return v_hand;
+  end if;
+
+  update online_hands
+  set
+    last_action_at = coalesce(last_action_at, now()) + make_interval(secs => v_granted_secs),
+    turn_grace_used_secs = coalesce(turn_grace_used_secs, 0) + v_granted_secs
+  where id = p_hand_id
+  returning * into v_hand;
+
+  return v_hand;
 end;
 $$;
 

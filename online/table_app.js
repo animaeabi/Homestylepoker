@@ -1,7 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../config.js";
-import { createOnlinePokerClient } from "./client.js?v=115";
-import { describeSevenCardHand, resolveShowdownPayouts } from "./showdown.js";
+import { createOnlinePokerClient } from "./client.js?v=119";
+import { computeSidePots, describeSevenCardHand, resolveShowdownPayouts } from "./showdown.js?v=119";
 import { randomPersonality, randomBotName, personalityLabel, OpponentTracker } from "./bot_engine.js";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -25,6 +25,10 @@ const VOICE_FLOOR_HEARTBEAT_MS = 2500;
 const VOICE_HOLD_DELAY_MS = 160;
 const VOICE_CLICK_SUPPRESS_MS = 420;
 const VOICE_BUSY_TOAST_MS = 2000;
+const TURN_GRACE_REQUEST_SECS = 3;
+const TURN_GRACE_REQUEST_THRESHOLD_SECS = 4;
+const TURN_GRACE_MAX_SECS = 6;
+const TURN_GRACE_REQUEST_COOLDOWN_MS = 900;
 function getTurnClockSecs() { return state.config.turnTime || 25; }
 const REALTIME_DEBOUNCE_MS = 180;
 const RECONNECT_DEBOUNCE_MS = 900;
@@ -95,6 +99,7 @@ const el = {
   potDisplay: document.getElementById("potDisplay"),
   potStackArt: document.getElementById("potStackArt"),
   potAmount: document.getElementById("potAmount"),
+  potBreakdown: document.getElementById("potBreakdown"),
   actionAnnouncement: document.getElementById("actionAnnouncement"),
   actionAnnouncementActor: document.getElementById("actionAnnouncementActor"),
   actionAnnouncementText: document.getElementById("actionAnnouncementText"),
@@ -244,6 +249,11 @@ const state = {
     pointerId: null,
     offsetX: 0,
     offsetY: 0,
+  },
+  turnGrace: {
+    pending: false,
+    lastRequestedAt: 0,
+    lastRequestKey: null,
   },
   landscapeTopBarExpanded: true,
   landscapeCompactMode: false,
@@ -2606,6 +2616,65 @@ function getTurnClock(hand) {
   return Math.max(0, getTurnClockSecs() - Math.floor((Date.now() - lastMs) / 1000));
 }
 
+function getTurnGraceUsedSecs(hand = getLatestHand()) {
+  return Math.max(0, Number(hand?.turn_grace_used_secs || 0));
+}
+
+function mergeLatestHandFields(patch) {
+  if (!state.tableState?.latest_hand?.hand || !patch) return;
+  state.tableState.latest_hand.hand = {
+    ...state.tableState.latest_hand.hand,
+    ...patch,
+  };
+}
+
+async function maybeRequestRaiseTurnGrace(source = "interaction") {
+  const hand = getLatestHand();
+  const hp = getMyHandPlayer();
+  const seatToken = getSeatToken();
+  if (!hand || !hp || !seatToken || !state.identity?.groupPlayerId) return false;
+  if (!isActionStreet(hand.state) || Number(hand.action_seat || 0) !== Number(hp.seat_no || 0)) return false;
+  if (hp.folded || hp.all_in || Number(hp.stack_end || 0) <= 0) return false;
+
+  const remaining = getTurnClock(hand);
+  if (remaining == null || remaining > TURN_GRACE_REQUEST_THRESHOLD_SECS) return false;
+
+  const graceUsed = getTurnGraceUsedSecs(hand);
+  if (graceUsed >= TURN_GRACE_MAX_SECS || state.turnGrace.pending) return false;
+
+  const requestKey = `${hand.id}:${hp.seat_no}:${graceUsed}`;
+  if (
+    state.turnGrace.lastRequestKey === requestKey &&
+    Date.now() - state.turnGrace.lastRequestedAt < TURN_GRACE_REQUEST_COOLDOWN_MS
+  ) {
+    return false;
+  }
+
+  state.turnGrace.pending = true;
+  state.turnGrace.lastRequestedAt = Date.now();
+  state.turnGrace.lastRequestKey = requestKey;
+
+  try {
+    const updatedHand = await online.requestTurnGrace({
+      handId: hand.id,
+      actorGroupPlayerId: state.identity.groupPlayerId,
+      seatToken,
+      graceSecs: TURN_GRACE_REQUEST_SECS,
+    });
+    if (updatedHand?.id === getLatestHand()?.id) {
+      mergeLatestHandFields(updatedHand);
+      updateTimerRings();
+      updateTurnUI();
+    }
+    return true;
+  } catch (err) {
+    console.warn("[turnGrace]", source, err);
+    return false;
+  } finally {
+    state.turnGrace.pending = false;
+  }
+}
+
 // ============ EQUITY CALC ============
 function calcEquity(hand, handPlayers) {
   const contenders = (handPlayers || [])
@@ -3550,6 +3619,22 @@ function renderBoard() {
     )
   );
 
+  const sidePotLabels = (() => {
+    if (!allInMode || payoutActive || clearedPot) return [];
+    const pots = computeSidePots(
+      players.map((player) => ({
+        seatNo: Number(player.seat_no || 0),
+        committed: Number(player.committed || 0),
+        folded: !!player.folded,
+      }))
+    ).filter((pot) => Number(pot.amount || 0) > 0.001);
+    if (pots.length <= 1) return [];
+    return pots.map((pot, index) => ({
+      label: index === 0 ? "Main" : index === 1 ? "Side" : `Side ${index}`,
+      amount: Number(pot.amount || 0),
+    }));
+  })();
+
   if (el.potAmount) el.potAmount.textContent = fmtShort(potTotal);
   renderPotChips(potTotal, bigBlind, hand?.id || null);
   if (el.potDisplay) {
@@ -3562,6 +3647,16 @@ function renderBoard() {
     el.potDisplay.dataset.state = potState;
     el.potDisplay.classList.toggle("pot-bump", Date.now() < state.potVisual.pulseUntil);
     el.potDisplay.classList.toggle("pot-cleared", payoutActive || clearedPot);
+  }
+  if (el.potBreakdown) {
+    el.potBreakdown.innerHTML = "";
+    el.potBreakdown.classList.toggle("visible", sidePotLabels.length > 0);
+    for (const item of sidePotLabels) {
+      const badge = document.createElement("span");
+      badge.className = "pot-breakdown-pill";
+      badge.textContent = `${item.label} ${fmtShort(item.amount)}`;
+      el.potBreakdown.appendChild(badge);
+    }
   }
   if (el.tableSurface) {
     el.tableSurface.classList.toggle("all-in-mode", allInMode);
@@ -4270,6 +4365,7 @@ function bindEvents() {
     if ((isLandscapeCollapseMode() || isPortraitCollapseMode()) && !state.landscapeRaisePanelOpen) {
       state.landscapeRaisePanelOpen = true;
       renderActions();
+      void maybeRequestRaiseTurnGrace("open-raise-panel");
       return;
     }
     submitTurnAction(actionType, actionType);
@@ -4476,27 +4572,48 @@ function bindEvents() {
   });
 
   el.betSlider.addEventListener("input", () => {
+    void maybeRequestRaiseTurnGrace("slider");
     setBetControlValue(el.betSlider.value);
     refreshBetControls();
   });
 
+  el.betSlider.addEventListener("pointerdown", () => {
+    void maybeRequestRaiseTurnGrace("slider-pointerdown");
+  });
+
   el.betSliderQuick?.addEventListener("input", () => {
+    void maybeRequestRaiseTurnGrace("quick-slider");
     setBetControlValue(el.betSliderQuick.value);
     refreshBetControls();
   });
 
+  el.betSliderQuick?.addEventListener("pointerdown", () => {
+    void maybeRequestRaiseTurnGrace("quick-slider-pointerdown");
+  });
+
   el.betAmount.addEventListener("input", () => {
+    void maybeRequestRaiseTurnGrace("amount");
     setBetControlValue(el.betAmount.value);
     refreshBetControls();
   });
 
+  el.betAmount.addEventListener("focus", () => {
+    void maybeRequestRaiseTurnGrace("amount-focus");
+  });
+
   el.betAmountQuick?.addEventListener("input", () => {
+    void maybeRequestRaiseTurnGrace("quick-amount");
     setBetControlValue(el.betAmountQuick.value);
     refreshBetControls();
   });
 
+  el.betAmountQuick?.addEventListener("focus", () => {
+    void maybeRequestRaiseTurnGrace("quick-amount-focus");
+  });
+
   document.querySelectorAll(".preset-chip").forEach(btn => {
     btn.addEventListener("click", () => {
+      void maybeRequestRaiseTurnGrace(`preset-${btn.dataset.fraction || "custom"}`);
       const frac = Number(btn.dataset.fraction || 0);
       const meta = getPresetMeta(frac);
       setBetControlValue(meta.amount);
