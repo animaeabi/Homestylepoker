@@ -1070,7 +1070,7 @@
         font-weight: 800;
         font-size: 18px;
         box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-        transition: transform 0.3s ease;
+        transition: transform 0.3s ease, opacity 0.24s ease, filter 0.24s ease, box-shadow 0.24s ease, border-color 0.24s ease;
         backface-visibility: hidden;
       }
 
@@ -1113,6 +1113,32 @@
       .card-empty {
         border: 2px dashed rgba(255,255,255,0.1);
         background: rgba(0,0,0,0.15);
+      }
+
+      .board-cards .card.showdown-winning-board-card {
+        transform: translateY(-10px) scale(1.03);
+        box-shadow:
+          0 14px 24px rgba(0,0,0,0.3),
+          0 0 0 1px rgba(246,219,153,0.86),
+          0 0 22px rgba(236,178,86,0.36);
+        border-color: rgba(246,219,153,0.82);
+        z-index: 2;
+      }
+
+      .board-cards .card.showdown-dimmed-card {
+        opacity: 0.38;
+        filter: grayscale(0.92) saturate(0.45) brightness(0.78);
+        transform: translateY(4px) scale(0.98);
+      }
+
+      .seat-cards-row .card.showdown-winning-card,
+      .my-hand-cards .card.showdown-winning-card {
+        box-shadow:
+          0 6px 18px rgba(0,0,0,0.44),
+          0 0 0 2px rgba(246,219,153,0.88),
+          0 0 20px rgba(236,178,86,0.3);
+        border-color: rgba(246,219,153,0.88);
+        z-index: 2;
       }
 
       .card-sm {
@@ -1625,7 +1651,7 @@
 
       .seat-bet--hero {
         left: 50%;
-        bottom: calc(100% + 118px);
+        bottom: calc(100% + 86px);
         transform: translateX(-50%);
       }
 
@@ -1772,6 +1798,19 @@
         flex-shrink: 0;
       }
 
+      .astrip-btn:disabled {
+        opacity: 0.42;
+        cursor: not-allowed;
+        filter: saturate(0.72);
+      }
+
+      .astrip-btn.active {
+        border-color: rgba(236,178,86,0.42);
+        color: #fff3d8;
+        box-shadow: inset 0 0 0 1px rgba(255,239,198,0.12), 0 8px 18px rgba(0,0,0,0.32), 0 0 18px rgba(236,178,86,0.12);
+        filter: brightness(1.06);
+      }
+
       .astrip-fold {
         background: transparent;
         color: var(--red);
@@ -1800,6 +1839,60 @@
       }
 
       .astrip-allin:hover { background: rgba(251,146,60,0.12); }
+
+      .action-strip.preaction-mode .astrip-allin {
+        display: none !important;
+      }
+
+      .action-strip.preaction-mode .astrip-btn {
+        position: relative;
+        padding-left: 30px !important;
+        text-align: left;
+        background: rgba(12, 16, 22, 0.42) !important;
+        color: #f7eed8 !important;
+        border: 1px solid rgba(255,255,255,0.12) !important;
+        box-shadow: 0 8px 20px rgba(0,0,0,0.22), inset 0 0 0 1px rgba(255,255,255,0.03) !important;
+        filter: none !important;
+      }
+
+      .action-strip.preaction-mode .astrip-btn::before {
+        content: "";
+        position: absolute;
+        left: 11px;
+        top: 50%;
+        width: 12px;
+        height: 12px;
+        transform: translateY(-50%);
+        border-radius: 3px;
+        border: 1px solid rgba(255,239,198,0.34);
+        background: rgba(5, 7, 10, 0.28);
+        box-shadow: inset 0 0 0 1px rgba(255,255,255,0.02);
+      }
+
+      .action-strip.preaction-mode .astrip-btn.active {
+        border-color: rgba(236,178,86,0.28) !important;
+        color: #fff7e6 !important;
+        box-shadow: 0 8px 20px rgba(0,0,0,0.22), inset 0 0 0 1px rgba(255,239,198,0.06) !important;
+        filter: none !important;
+      }
+
+      .action-strip.preaction-mode .astrip-btn.active::before {
+        background: linear-gradient(180deg, rgba(235,193,111,0.92), rgba(196,145,50,0.92));
+        border-color: rgba(255,233,188,0.9);
+        box-shadow: 0 0 0 1px rgba(255,238,198,0.18), 0 0 10px rgba(236,178,86,0.2);
+      }
+
+      .action-strip.preaction-mode .astrip-btn.active::after {
+        content: "✓";
+        position: absolute;
+        left: 14px;
+        top: 50%;
+        transform: translateY(-56%);
+        color: #221708;
+        font-size: 9px;
+        font-weight: 900;
+        line-height: 1;
+      }
 
       .astrip-raise-group {
         display: flex;
@@ -3448,7 +3541,7 @@
         .action-strip {
           position: absolute;
           left: 8px;
-          bottom: calc(env(safe-area-inset-bottom) + 56px);
+          bottom: calc(env(safe-area-inset-bottom) + 18px);
           z-index: 24;
           width: 118px;
           padding: 7px !important;
@@ -3479,7 +3572,7 @@
         .preset-row {
           position: absolute;
           left: 8px;
-          bottom: calc(env(safe-area-inset-bottom) + 252px);
+          bottom: calc(env(safe-area-inset-bottom) + 214px);
           z-index: 24;
           width: 118px;
           display: grid;
@@ -4084,7 +4177,7 @@
         .action-strip {
           position: absolute;
           left: 12px;
-          bottom: 18px;
+          bottom: 0;
           z-index: 24;
           width: 148px;
           padding: 8px !important;
@@ -4116,7 +4209,7 @@
         .preset-row {
           position: absolute;
           left: 166px;
-          bottom: 18px;
+          bottom: 0;
           z-index: 24;
           width: 140px;
           display: grid;
@@ -4495,6 +4588,6 @@
     <div class="voice-audio-rack" id="voiceAudioRack" aria-hidden="true"></div>
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
-    <script type="module" src="./online/table_app.js?v=125"></script>
+    <script type="module" src="./online/table_app.js?v=130"></script>
   </body>
 </html>

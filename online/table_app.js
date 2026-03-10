@@ -1,7 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../config.js";
 import { createOnlinePokerClient } from "./client.js?v=121";
-import { computeSidePots, describeSevenCardHand, resolveShowdownPayouts } from "./showdown.js?v=121";
+import { computeSidePots, describeSevenCardHand, resolveShowdownPayouts } from "./showdown.js?v=130";
 import { randomPersonality, randomBotName, personalityLabel, OpponentTracker } from "./bot_engine.js";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -256,6 +256,8 @@ const state = {
     lastRequestedAt: 0,
     lastRequestKey: null,
   },
+  heroPreaction: null,
+  heroPreactionExecuting: false,
   landscapeTopBarExpanded: true,
   landscapeCompactMode: false,
   compactTopBarMode: null,
@@ -1440,6 +1442,13 @@ function getSeatContributionLabel({
   return contributionText;
 }
 
+function shouldShowBlindPositionLabel(hand, handPlayer, seatNo) {
+  if (!hand || !seatNo) return false;
+  if (["settled", "canceled"].includes(hand.state)) return false;
+  if (handPlayer?.folded) return false;
+  return hand.small_blind_seat === seatNo || hand.big_blind_seat === seatNo;
+}
+
 function getSeatContributionAnchor(pos, { hero = false } = {}) {
   if (hero) return "seat-bet--hero";
   const px = Number.parseFloat(pos?.x);
@@ -1669,6 +1678,102 @@ function isActionStreet(s) {
   return ["preflop","flop","turn","river"].includes(s);
 }
 
+function clearHeroPreaction() {
+  state.heroPreaction = null;
+  state.heroPreactionExecuting = false;
+}
+
+function getHeroPreactionKey(hand = getLatestHand()) {
+  if (!hand || !isActionStreet(hand.state)) return null;
+  return `${hand.id}:${hand.state}`;
+}
+
+function setHeroPreaction(kind) {
+  const hand = getLatestHand();
+  const hp = getMyHandPlayer();
+  if (!hand || !hp || !getSeatToken() || hp.folded || hp.all_in) return;
+  const key = getHeroPreactionKey(hand);
+  if (!key) return;
+  if (state.heroPreaction?.kind === kind && state.heroPreaction?.key === key) {
+    clearHeroPreaction();
+    renderActions();
+    return;
+  }
+  state.heroPreaction = { kind, key };
+  state.heroPreactionExecuting = false;
+  renderActions();
+}
+
+function syncHeroPreaction(hand = getLatestHand(), hp = getMyHandPlayer()) {
+  if (!state.heroPreaction) return;
+  const nextKey = getHeroPreactionKey(hand);
+  if (!nextKey || state.heroPreaction.key !== nextKey || !hp || hp.folded || hp.all_in || !getSeatToken()) {
+    clearHeroPreaction();
+    return;
+  }
+  const { toCall } = getBetBounds(hand, hp);
+  if (state.heroPreaction.kind === "check" && toCall > 0) {
+    clearHeroPreaction();
+  }
+}
+
+function resolveHeroPreaction(hand = getLatestHand(), hp = getMyHandPlayer()) {
+  if (!state.heroPreaction || !hand || !hp) return null;
+  const { toCall } = getBetBounds(hand, hp);
+  switch (state.heroPreaction.kind) {
+    case "check_fold":
+      return { label: toCall > 0 ? "Fold" : "Check", actionType: toCall > 0 ? "fold" : "check" };
+    case "check":
+      return toCall === 0 ? { label: "Check", actionType: "check" } : null;
+    case "call_any":
+      return { label: toCall > 0 ? "Call" : "Check", actionType: toCall > 0 ? "call" : "check" };
+    default:
+      return null;
+  }
+}
+
+function isHeroPreactionMode({ hand, hp, myTurn, actionLocked }) {
+  return Boolean(
+    hand &&
+    isActionStreet(hand.state) &&
+    getSeatToken() &&
+    hp &&
+    !hp.folded &&
+    !hp.all_in &&
+    !myTurn &&
+    !actionLocked
+  );
+}
+
+function syncHeroPreactionUi({ hand, hp, myTurn, actionLocked }) {
+  syncHeroPreaction(hand, hp);
+  const preactionMode = isHeroPreactionMode({ hand, hp, myTurn, actionLocked });
+  if (!preactionMode) {
+    if (!hand || !isActionStreet(hand?.state) || !hp || hp.folded || hp.all_in) clearHeroPreaction();
+    el.foldBtn?.classList.remove("active");
+    el.callBtn?.classList.remove("active");
+    el.betRaiseBtn?.classList.remove("active");
+    if (el.callBtn) {
+      el.callBtn.disabled = false;
+      el.callBtn.setAttribute("aria-disabled", "false");
+    }
+    return false;
+  }
+
+  const { toCall } = getBetBounds(hand, hp);
+  const currentKey = getHeroPreactionKey(hand);
+  const isSelected = (kind) => state.heroPreaction?.kind === kind && state.heroPreaction?.key === currentKey;
+
+  el.foldBtn?.classList.toggle("active", isSelected("check_fold"));
+  el.callBtn?.classList.toggle("active", isSelected("check"));
+  el.betRaiseBtn?.classList.toggle("active", isSelected("call_any"));
+  if (el.callBtn) {
+    el.callBtn.disabled = toCall > 0;
+    el.callBtn.setAttribute("aria-disabled", toCall > 0 ? "true" : "false");
+  }
+  return true;
+}
+
 function syncShowdownRevealState(hand = getLatestHand()) {
   const revealHandId = hand && ["showdown", "settled"].includes(hand.state) ? hand.id : null;
   if (state.showdownRevealHandId === revealHandId) return;
@@ -1708,7 +1813,7 @@ function getShowdownLeaders(hand = getLatestHand(), players = getHandPlayers()) 
     if (player?.folded) continue;
     if (!Array.isArray(player?.hole_cards) || player.hole_cards.length < 2) continue;
     try {
-      const desc = describeSevenCardHand([...player.hole_cards, ...board]);
+      const desc = describeSevenCardHand([...player.hole_cards, ...board], player.hole_cards);
       if (Array.isArray(desc?.tuple) && desc.tuple.length) {
         contenders.push({ player, desc });
       }
@@ -1726,6 +1831,37 @@ function getShowdownLeaders(hand = getLatestHand(), players = getHandPlayers()) 
   }
 
   return contenders.filter((contender) => compareRankTuples(contender.desc.tuple, bestTuple) === 0);
+}
+
+function getShowdownHighlightData(hand = getLatestHand(), players = getHandPlayers()) {
+  const leaders = getShowdownLeaders(hand, players);
+  const boardHighlights = new Set();
+  const holeHighlightsBySeat = new Map();
+  const board = Array.isArray(hand?.board_cards) ? hand.board_cards.map(normCard).filter(Boolean) : [];
+
+  for (const leader of leaders) {
+    const seatNo = Number(leader?.player?.seat_no || 0);
+    const winningCards = new Set((leader?.desc?.winningCards || []).map(normCard).filter(Boolean));
+    if (!winningCards.size) continue;
+
+    const holeHighlights = (leader?.player?.hole_cards || [])
+      .map(normCard)
+      .filter((token) => token && winningCards.has(token));
+
+    if (holeHighlights.length) {
+      holeHighlightsBySeat.set(seatNo, new Set(holeHighlights));
+    }
+
+    for (const token of board) {
+      if (winningCards.has(token)) boardHighlights.add(token);
+    }
+  }
+
+  return {
+    leaderSeats: new Set(leaders.map(({ player }) => Number(player?.seat_no || 0))),
+    boardHighlights,
+    holeHighlightsBySeat,
+  };
 }
 
 function isAllInRunoutShowdown(hand = getLatestHand(), players = getHandPlayers()) {
@@ -3758,6 +3894,7 @@ function renderBoard() {
   const players = getHandPlayers();
   const board = Array.isArray(hand?.board_cards) ? hand.board_cards : [];
   const contestedShowdown = isContestedShowdown(hand, players);
+  const showdownHighlightData = getShowdownHighlightData(hand, players);
   const payoutActive = Boolean(state.potPushAnimation?.handId === hand?.id && state.potPushAnimation?.launched);
   const clearedPot = Boolean(hand?.id && state.clearedPotHandId === hand.id);
   const potTotal = (payoutActive || clearedPot) ? 0 : Number(hand?.pot_total || 0);
@@ -3798,6 +3935,14 @@ function renderBoard() {
     const revealMeta = getStreetRevealMeta(i, hand);
     if (board[i]) {
       const card = makeCardEl(board[i], false);
+      const boardToken = normCard(board[i]);
+      if (contestedShowdown && showdownHighlightData.boardHighlights.size) {
+        if (boardToken && showdownHighlightData.boardHighlights.has(boardToken)) {
+          card.classList.add("showdown-winning-card", "showdown-winning-board-card");
+        } else {
+          card.classList.add("showdown-dimmed-card");
+        }
+      }
       if (revealMeta) {
         card.classList.add("board-deal-target", "board-card-hidden");
         if (revealMeta.showUnderlay) card.classList.add("board-card-settling");
@@ -3847,7 +3992,8 @@ function renderSeats() {
   const portrait = isPortraitMobile();
   const compactMobile = isCompactMobileLayout();
   const contestedShowdown = isContestedShowdown(hand, handPlayers);
-  const showdownLeaderSeats = new Set(getShowdownLeaders(hand, handPlayers).map(({ player }) => player.seat_no));
+  const showdownHighlightData = getShowdownHighlightData(hand, handPlayers);
+  const showdownLeaderSeats = showdownHighlightData.leaderSeats;
   const activeVoiceSpeakerId = getServerVoiceState().speakerPlayerId;
   const turnRemaining = hand && hand.action_seat ? getTurnClock(hand) : null;
 
@@ -3955,7 +4101,7 @@ function renderSeats() {
       }
 
       // SB/BB label
-      if (hand) {
+      if (hand && shouldShowBlindPositionLabel(hand, hp, seat.seat_no)) {
         if (hand.small_blind_seat === seat.seat_no) {
           const lbl = document.createElement("span");
           lbl.className = "seat-pos-label";
@@ -4034,21 +4180,35 @@ function renderSeats() {
             const anchor = py <= 10 ? "top" : (px < 50 ? "left" : "right");
             cards.classList.add(`compact-opponent--${anchor}`);
           }
-          const firstCard = markDealCardTarget(makeCardEl(holeCards[0] || null, !hasHoleCards || !reveal, false), seat.seat_no, 1, hand, -10);
-          const secondCard = markDealCardTarget(makeCardEl(holeCards[1] || null, !hasHoleCards || !reveal, false), seat.seat_no, 2, hand, 9);
-          cards.append(firstCard, secondCard);
+          const winningHoleCards = showdownHighlightData.holeHighlightsBySeat.get(seat.seat_no) || new Set();
+          const firstCard = makeCardEl(holeCards[0] || null, !hasHoleCards || !reveal, false);
+          const secondCard = makeCardEl(holeCards[1] || null, !hasHoleCards || !reveal, false);
+          if (isShowdown && reveal && winningHoleCards.has(normCard(holeCards[0]))) firstCard.classList.add("showdown-winning-card");
+          if (isShowdown && reveal && winningHoleCards.has(normCard(holeCards[1]))) secondCard.classList.add("showdown-winning-card");
+          const firstCardTarget = markDealCardTarget(firstCard, seat.seat_no, 1, hand, -10);
+          const secondCardTarget = markDealCardTarget(secondCard, seat.seat_no, 2, hand, 9);
+          cards.append(firstCardTarget, secondCardTarget);
           node.appendChild(cards);
         } else {
           const cards = document.createElement("div");
           cards.className = "seat-cards-row";
           if (isShowdown && reveal && !isMe) cards.classList.add("showdown");
           if (animateShowdownReveal) cards.classList.add("showdown-fresh");
+          const winningHoleCards = showdownHighlightData.holeHighlightsBySeat.get(seat.seat_no) || new Set();
           if (isMe && reveal) {
-            cards.appendChild(markDealCardTarget(makeCardEl(holeCards[0] || null, false, false, true), seat.seat_no, 1, hand, -9));
-            cards.appendChild(markDealCardTarget(makeCardEl(holeCards[1] || null, false, false, true), seat.seat_no, 2, hand, 8));
+            const firstCard = makeCardEl(holeCards[0] || null, false, false, true);
+            const secondCard = makeCardEl(holeCards[1] || null, false, false, true);
+            if (isShowdown && winningHoleCards.has(normCard(holeCards[0]))) firstCard.classList.add("showdown-winning-card");
+            if (isShowdown && winningHoleCards.has(normCard(holeCards[1]))) secondCard.classList.add("showdown-winning-card");
+            cards.appendChild(markDealCardTarget(firstCard, seat.seat_no, 1, hand, -9));
+            cards.appendChild(markDealCardTarget(secondCard, seat.seat_no, 2, hand, 8));
           } else {
-            cards.appendChild(markDealCardTarget(makeCardEl(holeCards[0] || null, !hasHoleCards || !reveal, true), seat.seat_no, 1, hand, -7));
-            cards.appendChild(markDealCardTarget(makeCardEl(holeCards[1] || null, !hasHoleCards || !reveal, true), seat.seat_no, 2, hand, 6));
+            const firstCard = makeCardEl(holeCards[0] || null, !hasHoleCards || !reveal, true);
+            const secondCard = makeCardEl(holeCards[1] || null, !hasHoleCards || !reveal, true);
+            if (isShowdown && reveal && winningHoleCards.has(normCard(holeCards[0]))) firstCard.classList.add("showdown-winning-card");
+            if (isShowdown && reveal && winningHoleCards.has(normCard(holeCards[1]))) secondCard.classList.add("showdown-winning-card");
+            cards.appendChild(markDealCardTarget(firstCard, seat.seat_no, 1, hand, -7));
+            cards.appendChild(markDealCardTarget(secondCard, seat.seat_no, 2, hand, 6));
           }
           node.appendChild(cards);
         }
@@ -4136,6 +4296,7 @@ function renderMyHand() {
   const hand = getLatestHand();
   const hp = getMyHandPlayer();
   const mySeat = getMySeat();
+  const showdownHighlightData = getShowdownHighlightData(hand, getHandPlayers());
   if (!mySeat) {
     el.myHandArea?.classList.remove("folded");
     el.myHandArea?.classList.remove("voice-speaking");
@@ -4165,12 +4326,12 @@ function renderMyHand() {
       d.textContent = "D";
       badgesEl.appendChild(d);
     }
-    if (hand.small_blind_seat === mySeat.seat_no) {
+    if (shouldShowBlindPositionLabel(hand, hp, mySeat.seat_no) && hand.small_blind_seat === mySeat.seat_no) {
       const lbl = document.createElement("span");
       lbl.className = "seat-pos-label";
       lbl.textContent = "SB";
       badgesEl.appendChild(lbl);
-    } else if (hand.big_blind_seat === mySeat.seat_no) {
+    } else if (shouldShowBlindPositionLabel(hand, hp, mySeat.seat_no) && hand.big_blind_seat === mySeat.seat_no) {
       const lbl = document.createElement("span");
       lbl.className = "seat-pos-label";
       lbl.textContent = "BB";
@@ -4193,6 +4354,9 @@ function renderMyHand() {
     const useMyHandTargets = isPortraitMobile();
     const firstCard = makeCardEl(visibleHoleCards[0], false, false, false);
     const secondCard = makeCardEl(visibleHoleCards[1], false, false, false);
+    const winningHoleCards = showdownHighlightData.holeHighlightsBySeat.get(mySeat.seat_no) || new Set();
+    if (winningHoleCards.has(normCard(visibleHoleCards[0]))) firstCard.classList.add("showdown-winning-card");
+    if (winningHoleCards.has(normCard(visibleHoleCards[1]))) secondCard.classList.add("showdown-winning-card");
     el.myHandCards.appendChild(useMyHandTargets ? markDealCardTarget(firstCard, mySeat.seat_no, 1, hand, -9) : firstCard);
     el.myHandCards.appendChild(useMyHandTargets ? markDealCardTarget(secondCard, mySeat.seat_no, 2, hand, 8) : secondCard);
   }
@@ -4300,8 +4464,25 @@ function renderActions() {
   const noActiveHand = !hand || ["settled","canceled"].includes(hand.state);
   const presentationActive = isShowdownPresentationActive(hand);
   const nextHandEligible = Date.now() >= getNextHandEligibleAtMs(hand);
+  const preactionMode = syncHeroPreactionUi({ hand, hp, myTurn, actionLocked });
   el.tableView.classList.toggle("landscape-actions-visible", Boolean(myTurn));
   el.tableView.classList.toggle("landscape-vertical-actions", compactActions);
+  el.actionStrip.classList.toggle("preaction-mode", preactionMode);
+
+  if (myTurn && state.heroPreaction && !state.heroPreactionExecuting) {
+    const resolved = resolveHeroPreaction(hand, hp);
+    if (resolved) {
+      state.heroPreaction = null;
+      state.heroPreactionExecuting = true;
+      queueMicrotask(() => {
+        void submitTurnAction(resolved.label, resolved.actionType);
+      });
+      el.actionStrip.classList.add("hidden");
+      el.presetRow.classList.add("hidden");
+      return;
+    }
+    clearHeroPreaction();
+  }
 
   if (isHost && noActiveHand && !presentationActive && nextHandEligible) {
     el.startHandBtn.classList.remove("hidden");
@@ -4311,9 +4492,17 @@ function renderActions() {
     el.startHandBtn.classList.add("hidden");
   }
 
-  // Show action strip only when it's your turn
   if (myTurn) {
     el.actionStrip.classList.remove("hidden");
+    el.allInBtn.classList.remove("hidden");
+    el.foldBtn.textContent = "Fold";
+    el.callBtn.textContent = "Check";
+    el.betRaiseBtn.textContent = "Bet";
+    el.foldBtn.classList.remove("active");
+    el.callBtn.classList.remove("active");
+    el.betRaiseBtn.classList.remove("active");
+    el.callBtn.disabled = false;
+    el.callBtn.setAttribute("aria-disabled", "false");
 
     const { toCall } = getBetBounds(hand, hp);
     const raiseActionType = Number(hand.current_bet || 0) > 0 ? "raise" : "bet";
@@ -4326,10 +4515,27 @@ function renderActions() {
       el.presetRow.classList.remove("hidden");
     }
     refreshBetControls(hand, hp);
+  } else if (preactionMode) {
+    el.actionStrip.classList.remove("hidden");
+    el.presetRow.classList.add("hidden");
+    el.landscapeRaisePanelOpen = false;
+    el.allInBtn.classList.add("hidden");
+    el.foldBtn.textContent = "Check/Fold";
+    el.callBtn.textContent = "Check";
+    el.betRaiseBtn.textContent = "Call Any";
   } else {
     state.landscapeRaisePanelOpen = false;
     el.actionStrip.classList.add("hidden");
     el.presetRow.classList.add("hidden");
+    el.foldBtn.textContent = "Fold";
+    el.callBtn.textContent = "Check";
+    el.betRaiseBtn.textContent = "Bet";
+    el.allInBtn.classList.remove("hidden");
+    el.foldBtn.classList.remove("active");
+    el.callBtn.classList.remove("active");
+    el.betRaiseBtn.classList.remove("active");
+    el.callBtn.disabled = false;
+    el.callBtn.setAttribute("aria-disabled", "false");
   }
 
 }
@@ -4651,6 +4857,7 @@ async function doAction(actionType) {
 
 async function submitTurnAction(label, actionType) {
   if (state.loading || state.pendingAction) return;
+  clearHeroPreaction();
   state.pendingAction = true;
   state.landscapeRaisePanelOpen = false;
   renderActions();
@@ -4664,9 +4871,11 @@ async function submitTurnAction(label, actionType) {
     }
   } catch (err) {
     state.pendingAction = false;
+    state.heroPreactionExecuting = false;
     renderActions();
     toast(err.message || `${label} failed`, "error");
   } finally {
+    state.heroPreactionExecuting = false;
     state.loading = false;
   }
 }
@@ -4674,16 +4883,38 @@ async function submitTurnAction(label, actionType) {
 // ============ EVENT HANDLERS ============
 function bindEvents() {
   el.foldBtn.addEventListener("click", () => {
+    const hand = getLatestHand();
+    const hp = getMyHandPlayer();
+    const actionLocked = state.pendingAction;
+    const myTurn = Boolean(hand && isActionStreet(hand.state) && getSeatToken() && hp && !hp.folded && !hp.all_in && hand.action_seat === hp.seat_no && !actionLocked);
+    if (syncHeroPreactionUi({ hand, hp, myTurn, actionLocked })) {
+      setHeroPreaction("check_fold");
+      return;
+    }
     submitTurnAction("Fold", "fold");
   });
   el.callBtn.addEventListener("click", () => {
     const hand = getLatestHand();
     const hp = getMyHandPlayer();
+    const actionLocked = state.pendingAction;
+    const myTurn = Boolean(hand && isActionStreet(hand.state) && getSeatToken() && hp && !hp.folded && !hp.all_in && hand.action_seat === hp.seat_no && !actionLocked);
+    if (syncHeroPreactionUi({ hand, hp, myTurn, actionLocked })) {
+      if (el.callBtn.disabled) return;
+      setHeroPreaction("check");
+      return;
+    }
     const toCall = Math.max(0, Number(hand?.current_bet || 0) - Number(hp?.street_contribution || 0));
     submitTurnAction(toCall > 0 ? "Call" : "Check", toCall > 0 ? "call" : "check");
   });
   el.betRaiseBtn.addEventListener("click", () => {
     const hand = getLatestHand();
+    const hp = getMyHandPlayer();
+    const actionLocked = state.pendingAction;
+    const myTurn = Boolean(hand && isActionStreet(hand.state) && getSeatToken() && hp && !hp.folded && !hp.all_in && hand.action_seat === hp.seat_no && !actionLocked);
+    if (syncHeroPreactionUi({ hand, hp, myTurn, actionLocked })) {
+      setHeroPreaction("call_any");
+      return;
+    }
     const actionType = Number(hand?.current_bet || 0) > 0 ? "raise" : "bet";
     if ((isLandscapeCollapseMode() || isPortraitCollapseMode()) && !state.landscapeRaisePanelOpen) {
       state.landscapeRaisePanelOpen = true;

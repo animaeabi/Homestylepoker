@@ -202,13 +202,57 @@ function rankToFace(rankValue: number) {
   return String(rankValue || "");
 }
 
-export function describeSevenCardHand(cardTokens: string[]) {
-  const cards = (cardTokens || []).map(toCard);
-  if (cards.length < 5) {
-    return { classRank: null, className: "", label: "", tuple: [] as number[] };
+function normalizedToken(token: string) {
+  return String(token || "").trim().toUpperCase();
+}
+
+function selectWinningFive(cardTokens: string[], preferredTokens: string[] = []) {
+  const entries = (cardTokens || []).map((token) => ({
+    token: normalizedToken(token),
+    card: toCard(token)
+  }));
+  if (entries.length < 5) {
+    return { tuple: [] as number[], winningCards: [] as string[] };
   }
 
-  const tuple = best5Rank(cards);
+  const preferred = new Set((preferredTokens || []).map(normalizedToken));
+  let bestTuple: number[] | null = null;
+  let bestWinningCards: string[] = [];
+  let bestPreferredHits = -1;
+
+  for (let a = 0; a < entries.length - 4; a += 1) {
+    for (let b = a + 1; b < entries.length - 3; b += 1) {
+      for (let c = b + 1; c < entries.length - 2; c += 1) {
+        for (let d = c + 1; d < entries.length - 1; d += 1) {
+          for (let e = d + 1; e < entries.length; e += 1) {
+            const combo = [entries[a], entries[b], entries[c], entries[d], entries[e]];
+            const tuple = best5Rank(combo.map((entry) => entry.card));
+            const preferredHits = combo.reduce(
+              (total, entry) => total + (preferred.has(entry.token) ? 1 : 0),
+              0
+            );
+            const cmp = bestTuple ? compareTuples(tuple, bestTuple) : 1;
+            if (cmp > 0 || (cmp === 0 && preferredHits > bestPreferredHits)) {
+              bestTuple = tuple;
+              bestWinningCards = combo.map((entry) => entry.token);
+              bestPreferredHits = preferredHits;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return { tuple: bestTuple || [], winningCards: bestWinningCards };
+}
+
+export function describeSevenCardHand(cardTokens: string[], preferredTokens: string[] = []) {
+  const normalized = (cardTokens || []).map(normalizedToken);
+  if (normalized.length < 5) {
+    return { classRank: null, className: "", label: "", tuple: [] as number[], winningCards: [] as string[] };
+  }
+
+  const { tuple, winningCards } = selectWinningFive(normalized, preferredTokens);
   const classRank = Number(tuple[0]);
   const className = HAND_CLASS_NAMES[classRank] || "Hand";
   let label = className;
@@ -221,7 +265,7 @@ export function describeSevenCardHand(cardTokens: string[]) {
     label = `${className} (${rankToFace(tuple[1])})`;
   }
 
-  return { classRank, className, label, tuple };
+  return { classRank, className, label, tuple, winningCards };
 }
 
 export function resolveShowdownPayouts({

@@ -140,6 +140,26 @@ Validation:
 - Local Playwright smoke capture against `http://127.0.0.1:8000/online-table.html?table=be265f73-02dc-4c0b-89b2-462d7e8d9a6e` completed; latest screenshot: `/Users/abishek/Documents/poker-buyins/output/web-game-fix/shot-0.png`
   - Aims to prevent overlap and keep table readable on portrait screens.
 
+Update (hero pre-action rail):
+- Replaced the rejected separate pre-action row with the existing vertical hero action rail in `/Users/abishek/Documents/poker-buyins/online-table.html` and `/Users/abishek/Documents/poker-buyins/online/table_app.js`.
+- Waiting-state rail now uses the same three action slots:
+  - `Check/Fold`
+  - `Check`
+  - `Call Any`
+- On the hero turn, that same rail transforms back into the live action buttons:
+  - `Fold`
+  - `Check` / `Call $X`
+  - `Bet` / `Raise`
+- Pre-actions are client-local, scoped to the current hand + street, auto-clear on street/hand change, and auto-fire only when the hero's turn arrives and the action is still legal.
+- `Check` auto-cancels if the spot is no longer checkable before action reaches the hero.
+- Lowered the compact hero action rail a bit more and added disabled styling for unavailable pre-actions.
+- Pre-actions now render as neutral checkbox-style choices on the same rail, and the fold slot explicitly resets to `Fold` when the hero's live turn begins.
+- Lowered the hero action chip so it sits closer to the hero cards, and SB/BB badges now clear once a player has folded out of the hand after posting.
+- Bundle bumped to `v=129`.
+
+Validation:
+- `node --check /Users/abishek/Documents/poker-buyins/online/table_app.js` (pass)
+
 Validation:
 - `node --check online/table_app.js` (pass)
 - `node --check online/showdown.js` (pass)
@@ -1267,3 +1287,13 @@ Update (seat-anchored action labels):
   - top seat -> bottom chin
   - hero -> top of the hero label
 - Adjusted `/Users/abishek/Documents/poker-buyins/online-table.html` styling for the new anchored chip look and bumped the bundle to `v=124`.
+
+Update (showdown winning-combo highlight pass):
+- Extended `/Users/abishek/Documents/poker-buyins/online/showdown.js` and `/Users/abishek/Documents/poker-buyins/supabase/functions/_shared/showdown.ts` so `describeSevenCardHand(...)` now returns the exact winning five-card combo as `winningCards`, with a preference for including the player's hole cards when multiple equivalent combinations tie.
+- Updated `/Users/abishek/Documents/poker-buyins/online/table_app.js` to highlight the current showdown winner's contributing hole cards, lift the contributing board cards in place, and dim the unused community cards.
+- Updated `/Users/abishek/Documents/poker-buyins/online-table.html` highlight styling and bumped the online table bundle to `v=130`.
+
+Validation:
+- `node --check /Users/abishek/Documents/poker-buyins/online/table_app.js` (pass)
+- `node --check /Users/abishek/Documents/poker-buyins/online/showdown.js` (pass)
+- `node /Users/abishek/Documents/poker-buyins/online/showdown.test.js` (pass)

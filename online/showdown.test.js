@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { resolveShowdownPayouts } from "./showdown.js";
+import { describeSevenCardHand, resolveShowdownPayouts } from "./showdown.js";
 
 function run() {
   // Royal flush beats all.
@@ -24,6 +24,13 @@ function run() {
   const total2 = payouts2.reduce((sum, p) => sum + p.amount, 0);
   assert.equal(Number(total2.toFixed(2)), 250);
   assert.equal(payouts2.find((p) => p.seat_no === 1)?.amount > 0, true);
+
+  const desc = describeSevenCardHand(
+    ["AS", "KS", "QS", "JS", "TS", "2D", "3C"],
+    ["JS", "TS"]
+  );
+  assert.equal(desc.label, "Royal Flush");
+  assert.deepEqual(desc.winningCards.sort(), ["AS", "KS", "QS", "JS", "TS"].sort());
 
   console.log("showdown tests passed");
 }
