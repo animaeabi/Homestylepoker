@@ -1320,6 +1320,25 @@ function flushActionAnnouncementQueue() {
   }, 880);
 }
 
+function hasActiveWinOverlays() {
+  return [...state.winOverlays.values()].some((data) => Date.now() < Number(data?.until || 0));
+}
+
+function isShowdownPresentationActive(hand = getLatestHand()) {
+  if (!hand || !["settled", "canceled"].includes(hand.state)) return false;
+  const handId = hand.id;
+  return Boolean(
+    state.deferredStreetRevealTimer
+    || (state.streetRevealAnimation?.handId === handId)
+    || state.settlementFxTimer
+    || (state.potPushAnimation?.handId === handId)
+    || state.victoryPopupTimer
+    || state.victoryPopupHideTimer
+    || state.victoryPopup?.visible
+    || hasActiveWinOverlays()
+  );
+}
+
 function queueActionAnnouncement(ev, { replace = false } = {}) {
   const copy = getActionCopy(ev);
   if (!copy.detail) return;
@@ -1373,6 +1392,53 @@ function syncActionAnnouncements({ hadPriorTableState = false, oldHandId = null 
   const latestAction = newActions[newActions.length - 1];
   queueActionAnnouncement(latestAction, { replace: true });
   return { hasNewActions: true, latestAction };
+}
+
+function findLatestSeatActionForStreet(seatNo, street, hand = getLatestHand()) {
+  if (!seatNo || !street || !hand) return null;
+  const events = getHandEvents();
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const ev = events[i];
+    if (ev?.event_type !== "action_taken") continue;
+    if (Number(ev?.payload?.seat_no || ev?.payload?.actor_seat_no || ev?.seat_no || 0) !== Number(seatNo)) continue;
+    if ((ev?.payload?.street || "") !== street) continue;
+    return ev;
+  }
+  return null;
+}
+
+function getSeatContributionLabel({
+  seat,
+  handPlayer,
+  hand = getLatestHand(),
+}) {
+  const contribution = Number(handPlayer?.street_contribution || 0);
+  if (!(contribution > 0)) return "";
+
+  const street = hand?.state;
+  const latestAction = findLatestSeatActionForStreet(seat?.seat_no, street, hand);
+  const actionType = latestAction?.payload?.action_type || "";
+  const contributionText = fmtShort(contribution);
+
+  switch (actionType) {
+    case "bet":
+      return `Bet ${contributionText}`;
+    case "call":
+      return `Call ${contributionText}`;
+    case "raise":
+      return `Raise ${contributionText}`;
+    case "all_in":
+      return `All-in ${contributionText}`;
+    default:
+      break;
+  }
+
+  if (street === "preflop") {
+    if (hand?.small_blind_seat === seat?.seat_no) return `SB ${contributionText}`;
+    if (hand?.big_blind_seat === seat?.seat_no) return `BB ${contributionText}`;
+  }
+
+  return contributionText;
 }
 
 function decimalPlaces(v) {
@@ -4007,10 +4073,16 @@ function renderSeats() {
         node.appendChild(winAmt);
       }
 
-      if (hp && !isFolded && hp.street_contribution > 0) {
+      const contributionLabel = getSeatContributionLabel({
+        seat,
+        handPlayer: hp,
+        hand,
+      });
+
+      if (hp && !isFolded && contributionLabel) {
         const betEl = document.createElement("div");
         betEl.className = "seat-bet";
-        betEl.textContent = fmtShort(hp.street_contribution);
+        betEl.textContent = contributionLabel;
         const px = parseFloat(pos.x);
         const py = parseFloat(pos.y);
         // Position bet chip toward center of table from seat
@@ -4229,11 +4301,11 @@ function renderActions() {
 
   const myTurn = hand && isActionStreet(hand.state) && token && hp && !hp.folded && !hp.all_in && hand.action_seat === hp.seat_no && !actionLocked;
   const noActiveHand = !hand || ["settled","canceled"].includes(hand.state);
+  const presentationActive = isShowdownPresentationActive(hand);
   el.tableView.classList.toggle("landscape-actions-visible", Boolean(myTurn));
   el.tableView.classList.toggle("landscape-vertical-actions", compactActions);
 
-  const hasWinOverlays = state.winOverlays.size > 0 && [...state.winOverlays.values()].some(d => Date.now() < d.until);
-  if (isHost && noActiveHand && !hasWinOverlays) {
+  if (isHost && noActiveHand && !presentationActive) {
     el.startHandBtn.classList.remove("hidden");
     el.startHandBtn.disabled = false;
     el.startHandBtn.textContent = "Deal";
@@ -4628,6 +4700,10 @@ function bindEvents() {
   });
 
   el.startHandBtn.addEventListener("click", () => {
+    if (isShowdownPresentationActive(getLatestHand())) {
+      toast("Waiting for the hand to finish...", "error");
+      return;
+    }
     withAction("Start hand", async () => {
       await online.startHand({
         tableId: state.tableId,

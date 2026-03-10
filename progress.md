@@ -1248,3 +1248,8 @@ Update (raise grace + side-pot UI):
 - Reset the grace budget whenever action passes, streets change, or a hand settles so it cannot be banked or abused.
 - Reused the existing showdown side-pot algorithm on the client and added compact `Main / Side / Side 2...` labels in the pot area during all-in hands.
 - Bumped `/Users/abishek/Documents/poker-buyins/online-table.html` bundle to `v=119`.
+
+Update (showdown pacing + seat contribution labels):
+- Delayed backend auto-deal eligibility by an extra 2 seconds in `/Users/abishek/Documents/poker-buyins/supabase/online_poker_schema.sql` and migration `/Users/abishek/Documents/poker-buyins/supabase/migrations/20260310021500_delay_auto_deal_for_showdown_presentation.sql` so the board reveal / payout / victory presentation can complete before the next hand starts.
+- Added a settled-hand presentation guard in `/Users/abishek/Documents/poker-buyins/online/table_app.js` so the manual `Deal` button stays hidden until street-reveal FX, payout FX, victory popup, and win overlays are all done.
+- Upgraded persistent felt contribution chips to action-aware labels (`Bet $X`, `Call $X`, `Raise $X`, `All-in $X`) instead of amount-only pills.

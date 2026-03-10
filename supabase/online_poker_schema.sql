@@ -1771,7 +1771,7 @@ as $$
   where t.status <> 'closed'
     and coalesce(t.auto_deal_enabled, true)
     and lh.state in ('settled', 'canceled')
-    and coalesce(lh.ended_at, now()) <= now() - make_interval(secs => greatest(coalesce(t.showdown_delay_secs, 5), 1))
+    and coalesce(lh.ended_at, now()) <= now() - make_interval(secs => greatest(coalesce(t.showdown_delay_secs, 5), 1) + 2)
     and not exists (
       select 1
       from online_hands active_hand
