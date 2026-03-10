@@ -401,71 +401,488 @@ function preflopStrength(hole1?: string, hole2?: string) {
   return Math.min(1.0, Math.max(0.0, score));
 }
 
+type PositionBand =
+  | "heads_up_button"
+  | "heads_up_big_blind"
+  | "button"
+  | "small_blind"
+  | "big_blind"
+  | "cutoff"
+  | "middle"
+  | "early";
+type PreflopBucket = "unopened" | "limped" | "vs_open" | "vs_3bet" | "vs_4bet_plus";
+type PreflopTier = "premium" | "strong" | "value" | "speculative" | "marginal" | "trash";
+type PreflopFeatures = {
+  highRank: number;
+  lowRank: number;
+  suited: boolean;
+  paired: boolean;
+  gap: number;
+  connected: boolean;
+  aceHigh: boolean;
+  broadwayCount: number;
+  pairRank: number | null;
+  tier: PreflopTier;
+  tierScore: number;
+};
+
 function stackInBigBlinds(stack: number, bigBlind: number) {
   return stack / Math.max(1, Number(bigBlind || 2));
 }
 
-function shouldJamPreflop({
-  rawStrength,
-  stackBb,
-  activeSeatCount,
-  personality,
-}: {
-  rawStrength: number;
-  stackBb: number;
-  activeSeatCount: number;
-  personality: BotPersonality;
-}) {
-  const headsUp = activeSeatCount <= 2;
-  if (stackBb <= 7.5) return rawStrength >= 0.62;
-  if (stackBb <= 11) return rawStrength >= (headsUp ? 0.68 : 0.74);
-  if (stackBb <= 15) return rawStrength >= (personality === "LAG" ? 0.8 : 0.84);
-  if (stackBb <= 20 && headsUp) return rawStrength >= 0.9;
-  return rawStrength >= 0.96 && stackBb <= 26;
+function roundBbAmount(targetBb: number, bigBlind: number) {
+  return Math.max(
+    Math.max(1, Number(bigBlind || 2)),
+    Math.round(Math.max(0, targetBb) * 2) / 2 * Math.max(1, Number(bigBlind || 2))
+  );
 }
 
-function choosePreflopRaiseTarget({
-  currentBet,
-  toCall,
-  streetContribution,
-  bigBlind,
-  stack,
-  personality,
-  activeSeatCount,
-  effectiveStrength,
-}: {
-  currentBet: number;
-  toCall: number;
-  streetContribution: number;
-  bigBlind: number;
-  stack: number;
-  personality: BotPersonality;
-  activeSeatCount: number;
-  effectiveStrength: number;
-}) {
-  const blind = Math.max(1, Number(bigBlind || 2));
-  const totalCommitted = Number(streetContribution || 0) + Number(stack || 0);
-  const facingOpen = toCall <= blind * 1.05;
-  const raiseMultiplierBase = personality === "LAG" ? 3.4 : personality === "Rock" ? 2.55 : 2.9;
-
-  let target = 0;
-  if (facingOpen) {
-    const openBb = rand(
-      Math.max(2.2, raiseMultiplierBase - 0.35),
-      Math.min(4.2, raiseMultiplierBase + (effectiveStrength >= 0.82 ? 0.45 : 0.18))
-    );
-    target = blind * openBb;
-    if (activeSeatCount >= 5 && effectiveStrength < 0.82) target = Math.min(target, blind * 3.2);
-  } else if (currentBet <= blind * 6) {
-    const reRaiseMultiplier = personality === "LAG" ? rand(2.7, 3.35) : rand(2.45, 3.05);
-    target = currentBet * reRaiseMultiplier;
-  } else {
-    const lateReRaiseMultiplier = personality === "Rock" ? rand(2.0, 2.25) : rand(2.1, 2.5);
-    target = currentBet * lateReRaiseMultiplier;
+function preflopFeatures(hole1?: string, hole2?: string): PreflopFeatures {
+  if (!hole1 || !hole2 || hole1.length < 2 || hole2.length < 2) {
+    return {
+      highRank: 0,
+      lowRank: 0,
+      suited: false,
+      paired: false,
+      gap: 12,
+      connected: false,
+      aceHigh: false,
+      broadwayCount: 0,
+      pairRank: null,
+      tier: "trash",
+      tierScore: 0,
+    };
   }
 
-  const roundedTarget = Math.max(currentBet + blind, Math.round(target / blind) * blind);
-  return Math.min(roundedTarget, totalCommitted);
+  const r1 = RANK_VAL[hole1[0].toUpperCase()] || 2;
+  const r2 = RANK_VAL[hole2[0].toUpperCase()] || 2;
+  const hi = Math.max(r1, r2);
+  const lo = Math.min(r1, r2);
+  const suited = hole1[1].toLowerCase() === hole2[1].toLowerCase();
+  const paired = r1 === r2;
+  const gap = hi - lo;
+  const connected = gap <= 1;
+  const broadwayCount = (hi >= 10 ? 1 : 0) + (lo >= 10 ? 1 : 0);
+  const aceHigh = hi === 14;
+
+  let tier: PreflopTier = "trash";
+  if (paired && hi >= 11) tier = "premium";
+  else if ((hi === 14 && lo === 13) || (suited && hi === 14 && lo === 12)) tier = "premium";
+  else if ((paired && hi >= 9) || (hi === 14 && lo >= 12) || (suited && hi >= 13 && lo >= 11)) tier = "strong";
+  else if (
+    (paired && hi >= 6)
+    || (suited && aceHigh)
+    || (suited && broadwayCount === 2)
+    || (broadwayCount === 2 && connected)
+    || (suited && connected && hi >= 9)
+  ) tier = "value";
+  else if (
+    paired
+    || suited
+    || (aceHigh && lo >= 8)
+    || (broadwayCount === 2)
+    || (connected && hi >= 8)
+  ) tier = "speculative";
+  else if ((hi >= 11 && lo >= 8) || (connected && hi >= 6)) tier = "marginal";
+
+  const tierScoreMap: Record<PreflopTier, number> = {
+    premium: 5,
+    strong: 4,
+    value: 3,
+    speculative: 2,
+    marginal: 1,
+    trash: 0,
+  };
+
+  return {
+    highRank: hi,
+    lowRank: lo,
+    suited,
+    paired,
+    gap,
+    connected,
+    aceHigh,
+    broadwayCount,
+    pairRank: paired ? hi : null,
+    tier,
+    tierScore: tierScoreMap[tier],
+  };
+}
+
+function positionBand(
+  seatNo: number,
+  buttonSeat: number,
+  totalSeats: number,
+  activeSeatCount: number
+): PositionBand {
+  if (!buttonSeat || !totalSeats) return activeSeatCount <= 2 ? "heads_up_big_blind" : "middle";
+  const dist = ((seatNo - buttonSeat + totalSeats) % totalSeats);
+  if (activeSeatCount <= 2) return dist === 0 ? "heads_up_button" : "heads_up_big_blind";
+  if (dist === 0) return "button";
+  if (dist === 1) return "small_blind";
+  if (dist === 2) return "big_blind";
+  const normalized = dist / Math.max(1, totalSeats);
+  if (normalized >= 0.72) return "early";
+  if (normalized >= 0.48) return "middle";
+  return "cutoff";
+}
+
+function isInPosition(position: PositionBand) {
+  return position === "button" || position === "cutoff" || position === "heads_up_button";
+}
+
+function isBlindPosition(position: PositionBand) {
+  return position === "small_blind" || position === "big_blind" || position === "heads_up_big_blind";
+}
+
+function classifyPreflopBucket(aggressionCount: number, limperCount: number): PreflopBucket {
+  if (aggressionCount >= 3) return "vs_4bet_plus";
+  if (aggressionCount === 2) return "vs_3bet";
+  if (aggressionCount === 1) return "vs_open";
+  if (limperCount > 0) return "limped";
+  return "unopened";
+}
+
+const PREFLOP_STYLE: Record<BotPersonality, {
+  openShift: number;
+  flatShift: number;
+  threeBetShift: number;
+  jamShift: number;
+  riskShift: number;
+}> = {
+  TAG: { openShift: 0, flatShift: 0, threeBetShift: 0, jamShift: 0, riskShift: 0 },
+  LAG: { openShift: 0.5, flatShift: -0.2, threeBetShift: 0.45, jamShift: 0.12, riskShift: 0.08 },
+  Rock: { openShift: -0.5, flatShift: -0.15, threeBetShift: -0.22, jamShift: -0.18, riskShift: -0.08 },
+  Station: { openShift: -0.15, flatShift: 0.45, threeBetShift: -0.38, jamShift: -0.2, riskShift: -0.12 },
+};
+
+function preflopReadShift(opProfile: OpponentProfile | undefined | null, personality: BotPersonality) {
+  if (!opProfile) return 0;
+  let shift = 0;
+  const style = READ_STYLE[personality] || READ_STYLE.TAG;
+  if ((opProfile.tags || []).includes("nit")) shift += 0.24 * style.pressureGain;
+  if ((opProfile.tags || []).includes("river-overfolder")) shift += 0.08 * style.bluffGain;
+  if ((opProfile.tags || []).includes("station")) shift -= 0.14 * style.cautionGain;
+  if ((opProfile.tags || []).includes("lag")) shift -= 0.12 * style.cautionGain;
+  if ((opProfile.tags || []).includes("trapper")) shift -= 0.1 * style.cautionGain;
+  if ((opProfile.tags || []).includes("bluff-heavy")) shift -= 0.06 * style.callGain;
+  if ((opProfile.states || []).includes("protecting_stack")) shift += 0.1 * style.pressureGain;
+  if ((opProfile.states || []).includes("bullying")) shift -= 0.05 * style.cautionGain;
+  return clamp(shift, -0.3, 0.3);
+}
+
+function openThresholdByPosition(position: PositionBand) {
+  switch (position) {
+    case "heads_up_button": return 2.35;
+    case "button": return 2.7;
+    case "cutoff": return 3.1;
+    case "small_blind": return 3.15;
+    case "big_blind": return 3.05;
+    case "heads_up_big_blind": return 2.7;
+    case "middle": return 3.8;
+    case "early":
+    default:
+      return 4.45;
+  }
+}
+
+function humanOpenRaiseTargetBb({
+  position,
+  personality,
+  limperCount,
+  handTier,
+}: {
+  position: PositionBand;
+  personality: BotPersonality;
+  limperCount: number;
+  handTier: PreflopTier;
+}) {
+  let base = position === "early"
+    ? 2.8
+    : position === "middle"
+      ? 2.6
+      : position === "small_blind"
+        ? 3.15
+        : position === "heads_up_button"
+          ? 2.3
+          : 2.4;
+  if (personality === "LAG") base += 0.15;
+  if (personality === "Rock") base -= 0.1;
+  if (limperCount > 0) base = Math.min(6.4, 3.8 + limperCount + (handTier === "premium" ? 0.4 : 0));
+  return clamp(base, 2.1, 6.4);
+}
+
+function humanThreeBetTargetBb({
+  currentBetBb,
+  inPosition,
+  personality,
+}: {
+  currentBetBb: number;
+  inPosition: boolean;
+  personality: BotPersonality;
+}) {
+  const multiplier = inPosition
+    ? (personality === "LAG" ? rand(2.9, 3.2) : rand(2.75, 3.05))
+    : (personality === "Rock" ? rand(3.2, 3.45) : rand(3.3, 3.75));
+  return currentBetBb * multiplier;
+}
+
+function humanFourBetTargetBb({
+  currentBetBb,
+  inPosition,
+  personality,
+  effectiveStackBb,
+}: {
+  currentBetBb: number;
+  inPosition: boolean;
+  personality: BotPersonality;
+  effectiveStackBb: number;
+}) {
+  const baseMultiplier = inPosition
+    ? (personality === "LAG" ? rand(2.15, 2.35) : rand(2.2, 2.45))
+    : (personality === "Rock" ? rand(2.2, 2.35) : rand(2.25, 2.5));
+  const deepStackCap = effectiveStackBb >= 80 ? 0.92 : 1;
+  return currentBetBb * baseMultiplier * deepStackCap;
+}
+
+function maxPreflopCommitmentBb({
+  tier,
+  bucket,
+  effectiveStackBb,
+  personality,
+}: {
+  tier: PreflopTier;
+  bucket: PreflopBucket;
+  effectiveStackBb: number;
+  personality: BotPersonality;
+}) {
+  const style = PREFLOP_STYLE[personality] || PREFLOP_STYLE.TAG;
+  const baseByTier: Record<PreflopTier, number> = {
+    premium: bucket === "vs_4bet_plus" ? 42 : bucket === "vs_3bet" ? 30 : 18,
+    strong: bucket === "vs_3bet" ? 18 : 13,
+    value: bucket === "vs_open" ? 9 : 7.5,
+    speculative: bucket === "vs_open" ? 6.2 : 5,
+    marginal: 4.2,
+    trash: 2.5,
+  };
+  const personalityAdjust = style.riskShift * 7;
+  return clamp(baseByTier[tier] + personalityAdjust, 2.5, effectiveStackBb);
+}
+
+function shouldJamPreflopByContext({
+  tier,
+  rawStrength,
+  effectiveStackBb,
+  bucket,
+  currentBetBb,
+  currentContributionBb,
+  personality,
+}: {
+  tier: PreflopTier;
+  rawStrength: number;
+  effectiveStackBb: number;
+  bucket: PreflopBucket;
+  currentBetBb: number;
+  currentContributionBb: number;
+  personality: BotPersonality;
+}) {
+  const style = PREFLOP_STYLE[personality] || PREFLOP_STYLE.TAG;
+  const committedRatio = effectiveStackBb > 0
+    ? clamp((currentContributionBb + currentBetBb) / effectiveStackBb, 0, 1)
+    : 0;
+  if (effectiveStackBb <= 8.5) return rawStrength >= 0.62;
+  if (effectiveStackBb <= 12) return tier === "premium" || (tier === "strong" && rawStrength >= 0.76 + style.jamShift * 0.2);
+  if (bucket === "vs_3bet" && effectiveStackBb <= 22) {
+    return tier === "premium" || (tier === "strong" && personality === "LAG" && rawStrength >= 0.84);
+  }
+  if (bucket === "vs_4bet_plus" && effectiveStackBb <= 30) {
+    return tier === "premium" && rawStrength >= 0.86 + style.jamShift * 0.08;
+  }
+  if (tier === "premium" && committedRatio >= 0.38 && effectiveStackBb <= 40) return true;
+  return false;
+}
+
+function canOpenLimp({
+  position,
+  tier,
+  personality,
+}: {
+  position: PositionBand;
+  tier: PreflopTier;
+  personality: BotPersonality;
+}) {
+  if (!(position === "small_blind" || position === "heads_up_button")) return false;
+  if (tier === "speculative" && (personality === "Station" || personality === "LAG")) return true;
+  return tier === "marginal" && personality === "Station";
+}
+
+function canFlatOpen({
+  features,
+  tier,
+  position,
+  toCallBb,
+  effectiveStackBb,
+  activeSeatCount,
+  personality,
+}: {
+  features: PreflopFeatures;
+  tier: PreflopTier;
+  position: PositionBand;
+  toCallBb: number;
+  effectiveStackBb: number;
+  activeSeatCount: number;
+  personality: BotPersonality;
+}) {
+  const inPosition = isInPosition(position);
+  const inBlind = isBlindPosition(position);
+  if (tier === "premium") return false;
+  if (tier === "strong") return toCallBb <= 6.5 || inPosition || inBlind;
+  if (tier === "value") {
+    if (features.paired && effectiveStackBb >= 20) return toCallBb <= 6.5;
+    if (features.suited && inPosition) return toCallBb <= 5.5;
+    return (inPosition || inBlind) && toCallBb <= 4.5;
+  }
+  if (tier === "speculative") {
+    if (features.paired) return inPosition && effectiveStackBb >= 35 && toCallBb <= 5.5;
+    if (features.suited && features.connected) return inPosition && effectiveStackBb >= 32 && toCallBb <= 4.2;
+    if (position === "heads_up_big_blind" || position === "big_blind") return toCallBb <= 2.5 && activeSeatCount <= 3;
+    return personality === "Station" && inPosition && toCallBb <= 3.5;
+  }
+  if (tier === "marginal") {
+    return (position === "big_blind" || position === "heads_up_big_blind") && toCallBb <= 2.0;
+  }
+  return false;
+}
+
+function canContinueVsThreeBet({
+  features,
+  tier,
+  position,
+  toCallBb,
+  effectiveStackBb,
+  personality,
+}: {
+  features: PreflopFeatures;
+  tier: PreflopTier;
+  position: PositionBand;
+  toCallBb: number;
+  effectiveStackBb: number;
+  personality: BotPersonality;
+}) {
+  const inPosition = isInPosition(position);
+  if (tier === "premium") return true;
+  if (tier === "strong") {
+    if (features.paired && features.highRank >= 10) return toCallBb <= 11;
+    return (inPosition && toCallBb <= 9.5) || (personality === "Station" && toCallBb <= 8.5);
+  }
+  if (tier === "value") {
+    if (features.paired) return inPosition && effectiveStackBb >= 42 && toCallBb <= 8;
+    return inPosition && features.suited && effectiveStackBb >= 38 && toCallBb <= 7;
+  }
+  if (tier === "speculative") {
+    return features.paired && inPosition && effectiveStackBb >= 55 && toCallBb <= 6.5;
+  }
+  return false;
+}
+
+function stackToPotRatio(stack: number, pot: number, toCall: number) {
+  return Math.max(0, stack - toCall) / Math.max(1, pot + toCall);
+}
+
+function shouldStackOffPostflop({
+  madeClassRank,
+  effectiveStrength,
+  drawStrength,
+  spr,
+}: {
+  madeClassRank: number | null;
+  effectiveStrength: number;
+  drawStrength: number;
+  spr: number;
+}) {
+  if ((madeClassRank || 0) >= 6) return true;
+  if ((madeClassRank || 0) >= 5) return spr <= 4.5 || effectiveStrength >= 0.9;
+  if ((madeClassRank || 0) >= 3) return spr <= 2.2 || effectiveStrength >= 0.85;
+  if ((madeClassRank || 0) === 2) return spr <= 1.25 && effectiveStrength >= 0.75;
+  if (drawStrength >= 0.16) return spr <= 1.0 && effectiveStrength >= 0.62;
+  return false;
+}
+
+function postflopRiskFraction({
+  street,
+  madeClassRank,
+  effectiveStrength,
+  drawStrength,
+  spr,
+  personality,
+}: {
+  street: string;
+  madeClassRank: number | null;
+  effectiveStrength: number;
+  drawStrength: number;
+  spr: number;
+  personality: BotPersonality;
+}) {
+  let base = 0.18;
+  if ((madeClassRank || 0) >= 6) base = 0.95;
+  else if ((madeClassRank || 0) >= 5) base = 0.78;
+  else if ((madeClassRank || 0) >= 3) base = 0.58;
+  else if ((madeClassRank || 0) === 2) base = 0.46;
+  else if ((madeClassRank || 0) === 1) base = effectiveStrength >= 0.78 ? 0.36 : 0.27;
+  else if (drawStrength >= 0.14) base = 0.29;
+
+  if (street === "turn") base += 0.04;
+  if (street === "river") base += 0.08;
+  if (spr <= 2) base += 0.12;
+  if (spr <= 1.1) base += 0.1;
+  if (personality === "LAG") base += 0.04;
+  if (personality === "Rock") base -= 0.04;
+  if (personality === "Station") base -= 0.06;
+  return clamp(base, 0.16, 1);
+}
+
+function postflopSizeFraction({
+  madeClassRank,
+  effectiveStrength,
+  drawStrength,
+  personality,
+  bluff = false,
+}: {
+  madeClassRank: number | null;
+  effectiveStrength: number;
+  drawStrength: number;
+  personality: BotPersonality;
+  bluff?: boolean;
+}) {
+  if (bluff) {
+    if (drawStrength >= 0.12) return clamp(rand(0.42, 0.62) + (personality === "LAG" ? 0.04 : 0), 0.38, 0.68);
+    return clamp(rand(0.33, 0.5) + (personality === "LAG" ? 0.03 : 0), 0.3, 0.58);
+  }
+  if ((madeClassRank || 0) >= 6) return clamp(rand(0.62, 0.86), 0.55, 0.9);
+  if ((madeClassRank || 0) >= 5) return clamp(rand(0.55, 0.78), 0.5, 0.82);
+  if ((madeClassRank || 0) >= 3) return clamp(rand(0.46, 0.7), 0.42, 0.74);
+  if ((madeClassRank || 0) === 2) return clamp(rand(0.42, 0.62), 0.38, 0.66);
+  if ((madeClassRank || 0) === 1) return effectiveStrength >= 0.78
+    ? clamp(rand(0.38, 0.55), 0.34, 0.58)
+    : clamp(rand(0.28, 0.44), 0.25, 0.48);
+  if (drawStrength >= 0.12) return clamp(rand(0.42, 0.58), 0.38, 0.62);
+  return clamp(rand(0.3, 0.44), 0.28, 0.48);
+}
+
+function capTargetByRisk({
+  desiredTarget,
+  streetContribution,
+  stack,
+  riskFraction,
+}: {
+  desiredTarget: number;
+  streetContribution: number;
+  stack: number;
+  riskFraction: number;
+}) {
+  const maxAdditional = Math.max(0, stack * riskFraction);
+  const maxTarget = streetContribution + maxAdditional;
+  return Math.min(desiredTarget, streetContribution + stack, maxTarget);
 }
 
 function toParsedCard(token?: string | null) {
@@ -766,6 +1183,249 @@ const PROFILES: Record<BotPersonality, {
   },
 };
 
+function decideStructuredPreflopAction({
+  personality,
+  holeCards,
+  currentBet,
+  streetContribution,
+  stack,
+  bigBlind,
+  seatNo,
+  buttonSeat,
+  totalSeats,
+  activeSeatCount,
+  rawStrength,
+  effectiveStrength,
+  opponentProfile,
+  streetAggressionCount = 0,
+  preflopLimperCount = 0,
+  effectiveStackBbHint = null,
+}: {
+  personality: BotPersonality;
+  holeCards: string[];
+  currentBet: number;
+  streetContribution: number;
+  stack: number;
+  bigBlind: number;
+  seatNo: number;
+  buttonSeat: number;
+  totalSeats: number;
+  activeSeatCount: number;
+  rawStrength: number;
+  effectiveStrength: number;
+  opponentProfile?: OpponentProfile;
+  streetAggressionCount?: number;
+  preflopLimperCount?: number;
+  effectiveStackBbHint?: number | null;
+}) {
+  const blind = Math.max(1, Number(bigBlind || 2));
+  const toCall = Math.max(0, Number(currentBet || 0) - Number(streetContribution || 0));
+  const toCallBb = toCall / blind;
+  const currentBetBb = Number(currentBet || 0) / blind;
+  const currentContributionBb = Number(streetContribution || 0) / blind;
+  const stackBb = stackInBigBlinds(stack, blind);
+  const effectiveStackBb = Math.max(
+    1,
+    Math.min(stackBb + currentContributionBb, Number(effectiveStackBbHint || (stackBb + currentContributionBb)))
+  );
+  const absoluteCapBb = currentContributionBb + stackBb;
+  const position = positionBand(seatNo || 0, buttonSeat || 0, totalSeats || 6, activeSeatCount || 2);
+  const inPosition = isInPosition(position);
+  const features = preflopFeatures(holeCards?.[0], holeCards?.[1]);
+  const bucket = classifyPreflopBucket(Number(streetAggressionCount || 0), Number(preflopLimperCount || 0));
+  const style = PREFLOP_STYLE[personality] || PREFLOP_STYLE.TAG;
+  const readShift = preflopReadShift(opponentProfile || null, personality);
+  const handScore = features.tierScore + rawStrength * 0.9;
+
+  const raiseTargetAmount = (targetBb: number) => {
+    const cappedCommitmentBb = maxPreflopCommitmentBb({
+      tier: features.tier,
+      bucket,
+      effectiveStackBb,
+      personality,
+    });
+    const cappedTargetBb = Math.min(targetBb, cappedCommitmentBb, absoluteCapBb);
+    const minimumReRaiseBb = bucket === "vs_open" ? currentBetBb * 2.45 : currentBetBb * 2.08;
+    if ((bucket === "vs_open" || bucket === "vs_3bet" || bucket === "vs_4bet_plus") && cappedTargetBb < minimumReRaiseBb) {
+      return null;
+    }
+    return roundBbAmount(cappedTargetBb, blind);
+  };
+
+  const jamNow = shouldJamPreflopByContext({
+    tier: features.tier,
+    rawStrength,
+    effectiveStackBb,
+    bucket,
+    currentBetBb,
+    currentContributionBb,
+    personality,
+  });
+
+  if (bucket === "unopened") {
+    if (toCall <= 0) return { actionType: "check", amount: null as number | null };
+    const openThreshold = openThresholdByPosition(position) - style.openShift - readShift;
+    if (handScore >= openThreshold) {
+      const targetAmount = raiseTargetAmount(
+        humanOpenRaiseTargetBb({
+          position,
+          personality,
+          limperCount: 0,
+          handTier: features.tier,
+        })
+      );
+      if (targetAmount != null) return { actionType: "raise", amount: targetAmount };
+    }
+    if (canOpenLimp({ position, tier: features.tier, personality })) {
+      return { actionType: "call", amount: null as number | null };
+    }
+    return { actionType: "fold", amount: null as number | null };
+  }
+
+  if (bucket === "limped") {
+    if (toCall <= 0) return { actionType: "check", amount: null as number | null };
+    const isoThreshold = 3.15 - style.openShift * 0.45 - readShift * 0.55 + Math.max(0, preflopLimperCount - 1) * 0.12;
+    if (handScore >= isoThreshold || features.tier === "premium" || (features.tier === "strong" && preflopLimperCount <= 2)) {
+      const targetAmount = raiseTargetAmount(
+        humanOpenRaiseTargetBb({
+          position,
+          personality,
+          limperCount: Math.max(1, preflopLimperCount),
+          handTier: features.tier,
+        })
+      );
+      if (targetAmount != null) return { actionType: "raise", amount: targetAmount };
+    }
+    if (canFlatOpen({
+      features,
+      tier: features.tier,
+      position,
+      toCallBb: Math.max(1, toCallBb),
+      effectiveStackBb,
+      activeSeatCount,
+      personality,
+    })) {
+      return { actionType: "call", amount: null as number | null };
+    }
+    return { actionType: toCall > 0 ? "fold" : "check", amount: null as number | null };
+  }
+
+  if (bucket === "vs_open") {
+    if (features.tier === "premium") {
+      if (jamNow) return { actionType: "all_in", amount: null as number | null };
+      const targetAmount = raiseTargetAmount(
+        humanThreeBetTargetBb({ currentBetBb, inPosition, personality })
+      );
+      if (targetAmount != null) return { actionType: "raise", amount: targetAmount };
+      return { actionType: "call", amount: null as number | null };
+    }
+
+    if (features.tier === "strong") {
+      const shouldThreeBet =
+        features.paired
+        || (features.aceHigh && features.lowRank >= 11)
+        || (features.suited && features.highRank >= 13 && features.lowRank >= 11);
+      const threeBetChance = clamp(0.22 + style.threeBetShift * 0.4 + readShift * 0.28, 0.08, 0.58);
+      if (shouldThreeBet && coinFlip(threeBetChance)) {
+        const targetAmount = raiseTargetAmount(
+          humanThreeBetTargetBb({ currentBetBb, inPosition, personality })
+        );
+        if (targetAmount != null) return { actionType: "raise", amount: targetAmount };
+      }
+      if (canFlatOpen({
+        features,
+        tier: features.tier,
+        position,
+        toCallBb,
+        effectiveStackBb,
+        activeSeatCount,
+        personality,
+      })) {
+        return { actionType: "call", amount: null as number | null };
+      }
+      return { actionType: "fold", amount: null as number | null };
+    }
+
+    if (features.tier === "value") {
+      const squeezeChance = clamp((personality === "LAG" ? 0.16 : personality === "TAG" ? 0.1 : 0.04) + readShift * 0.2, 0, 0.26);
+      if (coinFlip(squeezeChance) && currentBetBb <= 4.2 && activeSeatCount <= 4) {
+        const targetAmount = raiseTargetAmount(
+          humanThreeBetTargetBb({ currentBetBb, inPosition, personality })
+        );
+        if (targetAmount != null) return { actionType: "raise", amount: targetAmount };
+      }
+      if (canFlatOpen({
+        features,
+        tier: features.tier,
+        position,
+        toCallBb,
+        effectiveStackBb,
+        activeSeatCount,
+        personality,
+      })) {
+        return { actionType: "call", amount: null as number | null };
+      }
+      return { actionType: "fold", amount: null as number | null };
+    }
+
+    if (canFlatOpen({
+      features,
+      tier: features.tier,
+      position,
+      toCallBb,
+      effectiveStackBb,
+      activeSeatCount,
+      personality,
+    })) {
+      return { actionType: "call", amount: null as number | null };
+    }
+    return { actionType: "fold", amount: null as number | null };
+  }
+
+  if (bucket === "vs_3bet") {
+    if (features.tier === "premium") {
+      if (jamNow) return { actionType: "all_in", amount: null as number | null };
+      const targetAmount = raiseTargetAmount(
+        humanFourBetTargetBb({ currentBetBb, inPosition, personality, effectiveStackBb })
+      );
+      if (targetAmount != null) return { actionType: "raise", amount: targetAmount };
+      return { actionType: "call", amount: null as number | null };
+    }
+
+    if (features.tier === "strong" && canContinueVsThreeBet({
+      features,
+      tier: features.tier,
+      position,
+      toCallBb,
+      effectiveStackBb,
+      personality,
+    })) {
+      return { actionType: "call", amount: null as number | null };
+    }
+
+    if ((features.tier === "value" || features.tier === "speculative") && canContinueVsThreeBet({
+      features,
+      tier: features.tier,
+      position,
+      toCallBb,
+      effectiveStackBb,
+      personality,
+    })) {
+      return { actionType: "call", amount: null as number | null };
+    }
+
+    return { actionType: "fold", amount: null as number | null };
+  }
+
+  if (features.tier === "premium") {
+    if (jamNow) return { actionType: "all_in", amount: null as number | null };
+    if (toCallBb <= Math.max(8, effectiveStackBb * 0.24)) {
+      return { actionType: "call", amount: null as number | null };
+    }
+  }
+  return { actionType: "fold", amount: null as number | null };
+}
+
 export function decideBotAction({
   personality,
   holeCards,
@@ -782,6 +1442,9 @@ export function decideBotAction({
   activeSeatCount,
   wasAggressor,
   opponentProfile,
+  streetAggressionCount = 0,
+  preflopLimperCount = 0,
+  effectiveStackBb = null,
 }: {
   personality: BotPersonality;
   holeCards: string[];
@@ -798,11 +1461,15 @@ export function decideBotAction({
   activeSeatCount: number;
   wasAggressor: boolean;
   opponentProfile?: OpponentProfile;
+  streetAggressionCount?: number;
+  preflopLimperCount?: number;
+  effectiveStackBb?: number | null;
 }) {
   const profile = PROFILES[personality] || PROFILES.TAG;
   const toCall = Math.max(0, (currentBet || 0) - (streetContribution || 0));
   const stack = stackEnd || 0;
-  const stackBb = stackInBigBlinds(stack, bigBlind || 2);
+  const blind = Math.max(1, Number(bigBlind || 2));
+  const stackBb = stackInBigBlinds(stack, blind);
   const isPreflop = street === "preflop" || !boardCards || boardCards.length < 3;
   const isFlop = street === "flop";
   const postflop = isPreflop ? { strength: 0, drawStrength: 0, classRank: null } : analyzePostflopHand(holeCards, boardCards);
@@ -819,24 +1486,56 @@ export function decideBotAction({
   const opAdj = opponentAdjustments(opponentProfile || null, personality);
   const noise = rand(-0.05, 0.05);
   const effectiveStrength = Math.min(1.0, Math.max(0.0, rawStrength * posMult + noise));
-  const jamPreflop = isPreflop && shouldJamPreflop({
-    rawStrength,
-    stackBb,
-    activeSeatCount: activeSeatCount || 2,
-    personality,
-  });
-
   const adjustedBluffRate = Math.max(0, Math.min(0.3, profile.bluffRate + opAdj.bluffMod));
   const adjustedFoldThreshold = isPreflop
     ? Math.max(0.1, profile.preflopFoldBelow + opAdj.foldMod)
     : Math.max(0.1, profile.postflopFoldBelow + opAdj.foldMod);
-  const adjustedRaiseAbove = Math.max(
-    0.3,
-    profile.raiseAbove - opAdj.betMod + (isPreflop && stackBb > 16 ? 0.06 : 0)
-  );
+  const adjustedRaiseAbove = Math.max(0.3, profile.raiseAbove - opAdj.betMod);
   const adjustedCallRate = clamp(profile.callRate + opAdj.callMod, 0.48, 0.98);
   const strongDraw = !isPreflop && drawStrength >= 0.12;
   const premiumMadeHand = !isPreflop && (madeClassRank || 0) >= 2;
+  const effectiveStackForStreetBb = Math.max(1, Math.min(
+    stackBb + Number(streetContribution || 0) / blind,
+    Number(effectiveStackBb || (stackBb + Number(streetContribution || 0) / blind))
+  ));
+  const spr = stackToPotRatio(stack, pot || 0, toCall);
+  const riskFraction = isPreflop
+    ? 1
+    : postflopRiskFraction({
+      street,
+      madeClassRank,
+      effectiveStrength,
+      drawStrength,
+      spr,
+      personality,
+    });
+  const canStackOffPostflop = !isPreflop && shouldStackOffPostflop({
+    madeClassRank,
+    effectiveStrength,
+    drawStrength,
+    spr,
+  });
+
+  if (isPreflop) {
+    return decideStructuredPreflopAction({
+      personality,
+      holeCards,
+      currentBet,
+      streetContribution,
+      stack,
+      bigBlind: blind,
+      seatNo,
+      buttonSeat,
+      totalSeats,
+      activeSeatCount,
+      rawStrength,
+      effectiveStrength,
+      opponentProfile,
+      streetAggressionCount,
+      preflopLimperCount,
+      effectiveStackBbHint: effectiveStackForStreetBb,
+    });
+  }
 
   if (isFlop && wasAggressor && currentBet === 0 && toCall === 0) {
     const cbetRate = Math.min(
@@ -844,8 +1543,26 @@ export function decideBotAction({
       profile.cbetRate + (strongDraw ? 0.08 : 0) + (premiumMadeHand ? 0.06 : 0) + opAdj.bluffMod * 0.35 + opAdj.betMod * 0.2
     );
     if (coinFlip(cbetRate)) {
-      const cbetSize = Math.max(Math.round(pot * rand(0.4, 0.7)), bigBlind || 2);
-      if (cbetSize < stack) {
+      const cbetSize = Math.max(
+        Math.round(pot * postflopSizeFraction({
+          madeClassRank,
+          effectiveStrength,
+          drawStrength,
+          personality,
+          bluff: !premiumMadeHand,
+        })),
+        blind
+      );
+      const cappedCbet = capTargetByRisk({
+        desiredTarget: cbetSize,
+        streetContribution,
+        stack,
+        riskFraction,
+      });
+      if (cappedCbet > 0 && cappedCbet < stack) {
+        return { actionType: "bet", amount: cappedCbet };
+      }
+      if (canStackOffPostflop) {
         return { actionType: "bet", amount: cbetSize };
       }
     }
@@ -862,10 +1579,28 @@ export function decideBotAction({
     const affordableDraw = toCall <= stack * 0.34 || potOdds <= Math.min(0.42, effectiveStrength + drawStrength * 0.55);
     if (affordableDraw) {
       if (coinFlip(Math.min(0.36, adjustedBluffRate + 0.14)) && stack > toCall * 2.5) {
-        const raiseSize = Math.max(Math.round(pot * rand(0.45, 0.8)), bigBlind || 2);
+        const raiseSize = Math.max(
+          Math.round(pot * postflopSizeFraction({
+            madeClassRank,
+            effectiveStrength,
+            drawStrength,
+            personality,
+            bluff: true,
+          })),
+          blind
+        );
         const raiseTarget = (currentBet || 0) + raiseSize;
-        if (raiseTarget <= (streetContribution || 0) + stack) {
-          return { actionType: "raise", amount: raiseTarget };
+        const cappedTarget = capTargetByRisk({
+          desiredTarget: raiseTarget,
+          streetContribution,
+          stack,
+          riskFraction,
+        });
+        if (cappedTarget > (currentBet || 0) + blind * 0.9) {
+          return { actionType: "raise", amount: cappedTarget };
+        }
+        if (canStackOffPostflop) {
+          return { actionType: "all_in", amount: null as number | null };
         }
       }
       return { actionType: "call", amount: null as number | null };
@@ -885,52 +1620,60 @@ export function decideBotAction({
 
   if (effectiveStrength >= adjustedRaiseAbove) {
     if (currentBet > 0) {
-      if (isPreflop) {
-        const raiseTarget = choosePreflopRaiseTarget({
-          currentBet,
-          toCall,
-          streetContribution,
-          bigBlind,
-          stack,
-          personality,
-          activeSeatCount,
+      const raiseSize = Math.max(
+        Math.round(pot * postflopSizeFraction({
+          madeClassRank,
           effectiveStrength,
-        });
-        if (raiseTarget >= (streetContribution || 0) + stack - 0.0001) {
-          if (jamPreflop) {
-            return { actionType: "all_in", amount: null as number | null };
-          }
-          return toCall > 0 ? { actionType: "call", amount: null as number | null } : { actionType: "check", amount: null as number | null };
-        }
-        return { actionType: "raise", amount: raiseTarget };
-      }
-
-      const sizeFrac = rand(profile.betSizeMin, profile.betSizeMax);
-      const raiseSize = Math.max(Math.round(pot * sizeFrac), bigBlind || 2);
+          drawStrength,
+          personality,
+        })),
+        blind
+      );
       const raiseTarget = (currentBet || 0) + raiseSize;
-      if (raiseTarget > (streetContribution || 0) + stack) {
+      const cappedTarget = capTargetByRisk({
+        desiredTarget: raiseTarget,
+        streetContribution,
+        stack,
+        riskFraction,
+      });
+      if (cappedTarget > (currentBet || 0) + blind * 0.9) {
+        return { actionType: "raise", amount: cappedTarget };
+      }
+      if (canStackOffPostflop) {
         return { actionType: "all_in", amount: null as number | null };
       }
-      return { actionType: "raise", amount: raiseTarget };
+      return toCall > 0 ? { actionType: "call", amount: null as number | null } : { actionType: "check", amount: null as number | null };
     }
 
-    const sizeFrac = rand(profile.betSizeMin, profile.betSizeMax);
-    const betSize = Math.max(Math.round(pot * sizeFrac), bigBlind || 2);
-    if (betSize >= stack) {
-      if (isPreflop && !jamPreflop) {
-        return { actionType: "call", amount: null as number | null };
-      }
+    const betSize = Math.max(
+      Math.round(pot * postflopSizeFraction({
+        madeClassRank,
+        effectiveStrength,
+        drawStrength,
+        personality,
+      })),
+      blind
+    );
+    const cappedBet = capTargetByRisk({
+      desiredTarget: betSize,
+      streetContribution,
+      stack,
+      riskFraction,
+    });
+    if (cappedBet > 0 && cappedBet < stack) {
+      return { actionType: "bet", amount: cappedBet };
+    }
+    if (canStackOffPostflop) {
       return { actionType: "all_in", amount: null as number | null };
     }
-    return { actionType: "bet", amount: betSize };
+    return { actionType: "check", amount: null as number | null };
   }
 
   if (toCall > 0) {
     if (toCall > stack) {
-      if (isPreflop && !jamPreflop) {
-        return { actionType: "fold", amount: null as number | null };
-      }
-      return coinFlip(adjustedCallRate) ? { actionType: "all_in", amount: null as number | null } : { actionType: "fold", amount: null as number | null };
+      return canStackOffPostflop && coinFlip(adjustedCallRate)
+        ? { actionType: "all_in", amount: null as number | null }
+        : { actionType: "fold", amount: null as number | null };
     }
 
     const potOdds = toCall / Math.max(1, pot + toCall);
@@ -942,16 +1685,46 @@ export function decideBotAction({
   }
 
   if (strongDraw && coinFlip(0.42)) {
-    const semibluffSize = Math.max(Math.round(pot * rand(0.38, 0.62)), bigBlind || 2);
-    if (semibluffSize < stack) {
-      return { actionType: "bet", amount: semibluffSize };
+    const semibluffSize = Math.max(
+      Math.round(pot * postflopSizeFraction({
+        madeClassRank,
+        effectiveStrength,
+        drawStrength,
+        personality,
+        bluff: true,
+      })),
+      blind
+    );
+    const cappedSemibluff = capTargetByRisk({
+      desiredTarget: semibluffSize,
+      streetContribution,
+      stack,
+      riskFraction,
+    });
+    if (cappedSemibluff > 0 && cappedSemibluff < stack) {
+      return { actionType: "bet", amount: cappedSemibluff };
     }
   }
 
   if (effectiveStrength > adjustedFoldThreshold + 0.15 && coinFlip(0.3)) {
-    const betSize = Math.max(Math.round(pot * rand(0.3, 0.5)), bigBlind || 2);
-    if (betSize < stack) {
-      return { actionType: "bet", amount: betSize };
+    const betSize = Math.max(
+      Math.round(pot * postflopSizeFraction({
+        madeClassRank,
+        effectiveStrength,
+        drawStrength,
+        personality,
+        bluff: false,
+      })),
+      blind
+    );
+    const cappedBet = capTargetByRisk({
+      desiredTarget: betSize,
+      streetContribution,
+      stack,
+      riskFraction,
+    });
+    if (cappedBet > 0 && cappedBet < stack) {
+      return { actionType: "bet", amount: cappedBet };
     }
   }
 

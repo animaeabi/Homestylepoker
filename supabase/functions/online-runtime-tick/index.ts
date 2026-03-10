@@ -298,6 +298,28 @@ function didSeatAggressInCurrentHand(events: any[], groupPlayerId: string | null
   return false;
 }
 
+function summarizeStreetActionShape(events: any[], street: string, bigBlind: number) {
+  let aggressionCount = 0;
+  let limperCount = 0;
+  for (const ev of events || []) {
+    if (ev?.event_type !== "action_taken") continue;
+    if (String(ev?.payload?.street || "") !== String(street || "")) continue;
+    const action = String(ev?.payload?.action_type || "");
+    if (action === "raise" || action === "bet" || action === "all_in") {
+      aggressionCount += 1;
+      continue;
+    }
+    if (
+      street === "preflop"
+      && action === "call"
+      && Number(ev?.payload?.to_call_before || 0) <= Math.max(1, Number(bigBlind || 2)) * 1.05
+    ) {
+      limperCount += 1;
+    }
+  }
+  return { aggressionCount, limperCount };
+}
+
 function toNumber(value: unknown, fallback = 0) {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
@@ -309,6 +331,20 @@ function countActionablePlayers(players: any[]) {
     !player?.all_in &&
     toNumber(player?.stack_end, 0) > 0
   ).length;
+}
+
+function effectiveStackBbForBot(botPlayer: any, players: any[], bigBlind: number) {
+  const blind = Math.max(1, Number(bigBlind || 2));
+  const botTotal = toNumber(botPlayer?.stack_end, 0) + toNumber(botPlayer?.committed, 0);
+  const opponentTotals = (players || [])
+    .filter((player: any) =>
+      Number(player?.seat_no) !== Number(botPlayer?.seat_no) &&
+      !player?.folded &&
+      (toNumber(player?.stack_end, 0) + toNumber(player?.committed, 0)) > 0
+    )
+    .map((player: any) => toNumber(player?.stack_end, 0) + toNumber(player?.committed, 0));
+  const maxOpponentTotal = opponentTotals.length ? Math.max(...opponentTotals) : botTotal;
+  return Math.max(1, Math.min(botTotal, maxOpponentTotal) / blind);
 }
 
 function buildOpponentRead({
@@ -384,6 +420,16 @@ async function processBotAction({
     })
     .filter(Boolean);
   const opponentProfile = combineOpponentProfiles(activeHumanReads);
+  const streetActionShape = summarizeStreetActionShape(
+    handState?.events || [],
+    String(liveHand?.state || hand.state || "preflop"),
+    Math.max(1, Number(table?.big_blind || 2))
+  );
+  const effectiveStackBb = effectiveStackBbForBot(
+    botPlayer,
+    players,
+    Math.max(1, Number(table?.big_blind || 2))
+  );
 
   const lastActionAt = liveHand?.last_action_at || hand.last_action_at || null;
   const elapsedMs = lastActionAt ? (Date.now() - Date.parse(lastActionAt)) : Number.MAX_SAFE_INTEGER;
@@ -451,7 +497,10 @@ async function processBotAction({
         totalSeats: Number(table?.max_seats || 6),
         activeSeatCount: players.filter((player: any) => !player.folded).length,
         wasAggressor: didSeatAggressInCurrentHand(handState?.events || [], actingSeat.group_player_id),
-        opponentProfile
+        opponentProfile,
+        streetAggressionCount: streetActionShape.aggressionCount,
+        preflopLimperCount: streetActionShape.limperCount,
+        effectiveStackBb,
       });
     } catch (_error) {
       decision = timeoutFallbackDecision;

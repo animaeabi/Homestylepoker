@@ -1337,3 +1337,14 @@ Update (simplify waiting pre-actions):
 - Removed the redundant standalone `Check` choice from the hero waiting rail in `/Users/abishek/Documents/poker-buyins/online/table_app.js`.
 - The waiting rail now shows `Check/Fold` plus `Call Any`, and only reveals the middle `Call $X` button once there is an actual bet to call.
 - Bumped `/Users/abishek/Documents/poker-buyins/online-table.html` bundle to `v=136`.
+
+Update (server bot commitment + sizing model):
+- Reworked `/Users/abishek/Documents/poker-buyins/supabase/functions/_shared/bot_engine.ts` so bot preflop decisions now use structured poker situations (`unopened`, `limped`, `vs_open`, `vs_3bet`, `vs_4bet_plus`) instead of a single aggression threshold.
+- Added effective-stack / commitment guardrails:
+  - position-aware opens and iso-raises
+  - more realistic flatting vs opens and 3-bets
+  - 4-bet / jam only when stack depth and prior action make it logical
+  - smaller, human-style value sizing intended to keep dominated hands in
+- Added SPR-aware postflop risk caps so medium-strength made hands stop taking giant punt lines while strong value can still stack off naturally at low SPR.
+- Updated `/Users/abishek/Documents/poker-buyins/supabase/functions/online-runtime-tick/index.ts` to pass richer live context into the bot engine (`streetAggressionCount`, `preflopLimperCount`, `effectiveStackBb`).
+- Added focused regression coverage in `/Users/abishek/Documents/poker-buyins/supabase/functions/_shared/bot_engine.test.ts` for deep-stack opens, 3-bet spots, short-stack jams, and deep postflop value behavior.
