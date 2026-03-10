@@ -936,6 +936,7 @@
         pointer-events: none;
         z-index: 12;
         transition: opacity 0.18s ease, transform 0.18s ease;
+        display: none;
       }
 
       .action-announce.visible {
@@ -943,21 +944,33 @@
         transform: translate(-50%, 0);
       }
 
-      .action-announce[data-action="check"] {
+      .action-announce[data-action="check"],
+      .seat-action-popup[data-action="check"],
+      .hero-action-popup[data-action="check"] {
         border-color: rgba(129,212,250,0.28);
       }
 
-      .action-announce[data-action="call"] {
+      .action-announce[data-action="call"],
+      .seat-action-popup[data-action="call"],
+      .hero-action-popup[data-action="call"] {
         border-color: rgba(120,255,175,0.26);
       }
 
       .action-announce[data-action="bet"],
       .action-announce[data-action="raise"],
-      .action-announce[data-action="all_in"] {
+      .action-announce[data-action="all_in"],
+      .seat-action-popup[data-action="bet"],
+      .seat-action-popup[data-action="raise"],
+      .seat-action-popup[data-action="all_in"],
+      .hero-action-popup[data-action="bet"],
+      .hero-action-popup[data-action="raise"],
+      .hero-action-popup[data-action="all_in"] {
         border-color: rgba(255,210,125,0.28);
       }
 
-      .action-announce[data-action="fold"] {
+      .action-announce[data-action="fold"],
+      .seat-action-popup[data-action="fold"],
+      .hero-action-popup[data-action="fold"] {
         border-color: rgba(248,113,113,0.24);
       }
 
@@ -977,6 +990,60 @@
         color: rgba(255,246,228,0.92);
         letter-spacing: 0.02em;
         white-space: nowrap;
+      }
+
+      .seat-action-popup,
+      .hero-action-popup {
+        position: absolute;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        max-width: 148px;
+        padding: 6px 10px;
+        border-radius: 12px;
+        background: linear-gradient(180deg, rgba(18,14,9,0.9), rgba(8,6,4,0.94));
+        border: 1px solid rgba(212,175,85,0.22);
+        box-shadow: 0 10px 28px rgba(0,0,0,0.34);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        color: rgba(255,246,228,0.94);
+        line-height: 1.15;
+        text-align: center;
+        pointer-events: none;
+        z-index: 14;
+      }
+
+      .seat-action-popup {
+        left: 50%;
+      }
+
+      .seat-action-popup--above {
+        bottom: calc(100% + 8px);
+        transform: translateX(-50%);
+      }
+
+      .seat-action-popup--below {
+        top: calc(100% + 8px);
+        transform: translateX(-50%);
+      }
+
+      .seat-action-popup--left {
+        right: calc(100% + 8px);
+        top: 50%;
+        left: auto;
+        transform: translateY(-50%);
+      }
+
+      .seat-action-popup--right {
+        left: calc(100% + 8px);
+        top: 50%;
+        transform: translateY(-50%);
+      }
+
+      .seat-action-popup-text {
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.01em;
       }
 
       .street-label {
@@ -1373,6 +1440,18 @@
         text-transform: uppercase;
         letter-spacing: 0.06em;
         flex-shrink: 0;
+      }
+
+      .seat-pos-label.all-in-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 2px 6px;
+        border-radius: 999px;
+        background: rgba(74, 13, 13, 0.88);
+        border: 1px solid rgba(248,113,113,0.34);
+        color: #ffd9ce;
+        line-height: 1;
       }
 
       .seat-node.allin-seat {
@@ -2506,6 +2585,18 @@
         color: var(--gold);
         line-height: 1;
       }
+
+      .my-hand-badges .seat-pos-label.all-in-badge {
+        background: rgba(74, 13, 13, 0.92);
+        border-color: rgba(248,113,113,0.34);
+        color: #ffd9ce;
+      }
+
+      .hero-action-popup {
+        left: 50%;
+        bottom: calc(100% + 8px);
+        transform: translateX(-50%);
+      }
       .my-hand-info { display: none; }
 
       /* Hamburger & Config Panel */
@@ -3076,6 +3167,13 @@
         .seat-node.empty { width: 44px !important; height: 44px !important; min-width: 0 !important; max-width: none !important; border: 2px dashed rgba(180,140,60,0.15) !important; border-radius: 50% !important; background: rgba(0,0,0,0.15) !important; padding: 0 !important; }
         .seat-node.empty .seat-avatar { display: none !important; }
         .seat-empty-label { font-size: 8px !important; color: rgba(180,140,60,0.3) !important; }
+        .seat-action-popup,
+        .hero-action-popup {
+          max-width: 118px !important;
+          padding: 5px 8px !important;
+          border-radius: 10px !important;
+        }
+        .seat-action-popup-text { font-size: 10px !important; }
 
         .floating-cards {
           position: absolute;
@@ -3265,6 +3363,9 @@
           border: 1px solid rgba(180,140,60,0.3) !important;
           color: var(--gold) !important;
           line-height: 1 !important;
+        }
+        .hero-action-popup {
+          bottom: calc(100% + 6px) !important;
         }
 
         @supports (-webkit-touch-callout: none) {
@@ -3712,6 +3813,13 @@
         }
         .seat-node.folded { opacity: 0.45 !important; }
         .seat-node.empty .seat-avatar { display: none !important; }
+        .seat-action-popup,
+        .hero-action-popup {
+          max-width: 128px !important;
+          padding: 5px 8px !important;
+          border-radius: 10px !important;
+        }
+        .seat-action-popup-text { font-size: 10px !important; }
         .seat-empty-label { font-size: 9px !important; color: rgba(180,140,60,0.38) !important; letter-spacing: 0.1em; }
 
         .floating-cards {
@@ -4335,6 +4443,6 @@
     <div class="voice-audio-rack" id="voiceAudioRack" aria-hidden="true"></div>
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
-    <script type="module" src="./online/table_app.js?v=119"></script>
+    <script type="module" src="./online/table_app.js?v=120"></script>
   </body>
 </html>

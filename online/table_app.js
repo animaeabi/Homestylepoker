@@ -1,7 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../config.js";
-import { createOnlinePokerClient } from "./client.js?v=119";
-import { computeSidePots, describeSevenCardHand, resolveShowdownPayouts } from "./showdown.js?v=119";
+import { createOnlinePokerClient } from "./client.js?v=120";
+import { computeSidePots, describeSevenCardHand, resolveShowdownPayouts } from "./showdown.js?v=120";
 import { randomPersonality, randomBotName, personalityLabel, OpponentTracker } from "./bot_engine.js";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -205,6 +205,7 @@ const state = {
   clearedPotHandId: null,
   audioCtx: null,
   actionAnnouncementQueue: [],
+  actionAnnouncementCurrent: null,
   actionAnnouncementHideTimer: null,
   actionAnnouncementNextTimer: null,
   lastAnnouncedActionHandId: null,
@@ -1245,24 +1246,25 @@ function presetName(fraction) {
 
 function getActionCopy(ev) {
   const actor = ev.actor_group_player_id ? seatName(ev.actor_group_player_id) : "Player";
+  const seatNo = ev.actor_group_player_id ? seatNoForGroupPlayer(ev.actor_group_player_id) : null;
   const p = ev.payload || {};
   const amountText = actionAmountText(p.amount);
   const targetText = actionAmountText(p.raise_to ?? p.target_amount);
   switch (p.action_type) {
     case "check":
-      return { actor, detail: "checks", sound: "check", actionType: "check" };
+      return { actor, detail: "checks", sound: "check", actionType: "check", seatNo };
     case "call":
-      return { actor, detail: amountText ? `calls ${amountText}` : "calls", sound: "call", actionType: "call" };
+      return { actor, detail: amountText ? `calls ${amountText}` : "calls", sound: "call", actionType: "call", seatNo };
     case "bet":
-      return { actor, detail: amountText ? `bets ${amountText}` : "bets", sound: "bet", actionType: "bet" };
+      return { actor, detail: amountText ? `bets ${amountText}` : "bets", sound: "bet", actionType: "bet", seatNo };
     case "raise":
-      return { actor, detail: targetText ? `raises to ${targetText}` : amountText ? `raises by ${amountText}` : "raises", sound: "raise", actionType: "raise" };
+      return { actor, detail: targetText ? `raises to ${targetText}` : amountText ? `raises by ${amountText}` : "raises", sound: "raise", actionType: "raise", seatNo };
     case "fold":
-      return { actor, detail: "folds", sound: "fold", actionType: "fold" };
+      return { actor, detail: "folds", sound: "fold", actionType: "fold", seatNo };
     case "all_in":
-      return { actor, detail: amountText ? `goes all-in for ${amountText}` : "goes all-in", sound: "all_in", actionType: "all_in" };
+      return { actor, detail: amountText ? `goes all-in for ${amountText}` : "goes all-in", sound: "all_in", actionType: "all_in", seatNo };
     default:
-      return { actor, detail: p.action_type || "acts", sound: null, actionType: p.action_type || "" };
+      return { actor, detail: p.action_type || "acts", sound: null, actionType: p.action_type || "", seatNo };
   }
 }
 
@@ -1280,10 +1282,15 @@ function playActionAnnouncementSound(kind) {
 
 function hideActionAnnouncement() {
   el.actionAnnouncement?.classList.remove("visible");
+  if (!state.actionAnnouncementCurrent) return;
+  state.actionAnnouncementCurrent = null;
+  renderSeats();
+  renderMyHand();
 }
 
 function resetActionAnnouncements() {
   state.actionAnnouncementQueue = [];
+  state.actionAnnouncementCurrent = null;
   clearTimeout(state.actionAnnouncementHideTimer);
   clearTimeout(state.actionAnnouncementNextTimer);
   state.actionAnnouncementHideTimer = null;
@@ -1299,13 +1306,12 @@ function resetActionAnnouncements() {
 function flushActionAnnouncementQueue() {
   if (!state.actionAnnouncementQueue.length) return;
   const next = state.actionAnnouncementQueue.shift();
-  if (!next || !el.actionAnnouncement || !el.actionAnnouncementActor || !el.actionAnnouncementText) return;
+  if (!next) return;
   clearTimeout(state.actionAnnouncementHideTimer);
   clearTimeout(state.actionAnnouncementNextTimer);
-  el.actionAnnouncement.dataset.action = next.actionType || "";
-  el.actionAnnouncementActor.textContent = next.actor;
-  el.actionAnnouncementText.textContent = next.detail;
-  el.actionAnnouncement.classList.add("visible");
+  state.actionAnnouncementCurrent = next;
+  renderSeats();
+  renderMyHand();
   playActionAnnouncementSound(next.sound);
   state.actionAnnouncementHideTimer = setTimeout(hideActionAnnouncement, 760);
   state.actionAnnouncementNextTimer = setTimeout(() => {
@@ -1641,6 +1647,31 @@ function getShowdownLeaders(hand = getLatestHand(), players = getHandPlayers()) 
   return contenders.filter((contender) => compareRankTuples(contender.desc.tuple, bestTuple) === 0);
 }
 
+function isAllInRunoutShowdown(hand = getLatestHand(), players = getHandPlayers()) {
+  return Boolean(
+    isContestedShowdown(hand, players) &&
+    players.some((player) => !player?.folded && player?.all_in)
+  );
+}
+
+function shouldRevealShowdownSeat({
+  hand = getLatestHand(),
+  players = getHandPlayers(),
+  seatNo,
+  isMe = false,
+  isFolded = false,
+  showdownLeaderSeats = new Set(),
+}) {
+  if (isMe) return true;
+  if (!hand || !["showdown", "settled"].includes(hand.state) || isFolded) return false;
+  if (isAllInRunoutShowdown(hand, players)) {
+    return players.some((player) => !player?.folded && Number(player?.seat_no || 0) === Number(seatNo || 0));
+  }
+  const isWinner = showdownLeaderSeats.has(seatNo);
+  const isAggressor = getLastAggressor(hand) === seatNo;
+  return isWinner || isAggressor;
+}
+
 function getUncontestedWinner(hand = getLatestHand(), players = getHandPlayers()) {
   if (!hand || !["showdown", "settled"].includes(hand.state)) return null;
   const remaining = players.filter((player) => !player?.folded);
@@ -1774,6 +1805,35 @@ function seatName(groupPlayerId) {
   if (hp?.player_name) return hp.player_name;
   if (state.identity?.groupPlayerId === groupPlayerId) return state.identity.name;
   return `Seat ${seat?.seat_no || "?"}`;
+}
+
+function seatNoForGroupPlayer(groupPlayerId) {
+  if (!groupPlayerId) return null;
+  const seat = getSeats().find((item) => item.group_player_id === groupPlayerId && !item.left_at);
+  return seat?.seat_no ?? null;
+}
+
+function getActionPopupAnchor(pos = {}) {
+  const px = Number.parseFloat(pos.x);
+  const py = Number.parseFloat(pos.y);
+  if (Number.isFinite(py) && py <= 18) return "below";
+  if (Number.isFinite(px) && px <= 24) return "right";
+  if (Number.isFinite(px) && px >= 76) return "left";
+  return "above";
+}
+
+function buildActionPopup(copy, { hero = false, anchor = "above" } = {}) {
+  if (!copy?.detail) return null;
+  const popup = document.createElement("div");
+  popup.className = hero
+    ? "seat-action-popup hero-action-popup"
+    : `seat-action-popup seat-action-popup--${anchor}`;
+  popup.dataset.action = copy.actionType || "";
+  const text = document.createElement("span");
+  text.className = "seat-action-popup-text";
+  text.textContent = copy.detail;
+  popup.appendChild(text);
+  return popup;
 }
 
 function hashString(value = "") {
@@ -3840,6 +3900,13 @@ function renderSeats() {
         }
       }
 
+      if (isAllIn && !isFolded) {
+        const lbl = document.createElement("span");
+        lbl.className = "seat-pos-label all-in-badge";
+        lbl.textContent = "ALL-IN";
+        roleBadges.appendChild(lbl);
+      }
+
       header.append(nameEl);
       if (roleBadges.childElementCount) header.append(roleBadges);
       node.appendChild(header);
@@ -3876,9 +3943,14 @@ function renderSeats() {
         const isShowdown = contestedShowdown;
         let reveal = isMe;
         if (isShowdown && !isFolded) {
-          const isWinner = showdownLeaderSeats.has(seat.seat_no);
-          const isAggressor = getLastAggressor(hand) === seat.seat_no;
-          reveal = isMe || isWinner || isAggressor;
+          reveal = shouldRevealShowdownSeat({
+            hand,
+            players: handPlayers,
+            seatNo: seat.seat_no,
+            isMe,
+            isFolded,
+            showdownLeaderSeats,
+          });
         }
         const animateShowdownReveal = isShowdown && reveal && !isMe && consumeShowdownReveal(seat.seat_no, hand);
 
@@ -3911,6 +3983,14 @@ function renderSeats() {
           }
           node.appendChild(cards);
         }
+      }
+
+      const currentAnnouncement = state.actionAnnouncementCurrent;
+      if (currentAnnouncement?.seatNo === seat.seat_no && !isMe) {
+        const actionPopup = buildActionPopup(currentAnnouncement, {
+          anchor: getActionPopupAnchor(pos),
+        });
+        if (actionPopup) node.appendChild(actionPopup);
       }
 
       if (showEquity && !isFolded) {
@@ -3993,6 +4073,7 @@ function renderMyHand() {
   if (!el.myHandCards || !nameEl) return;
   el.myHandCards.innerHTML = "";
   if (badgesEl) badgesEl.innerHTML = "";
+  el.myHandArea?.querySelector(".hero-action-popup")?.remove();
   el.myHandArea?.classList.add("no-hole-cards");
 
   const hand = getLatestHand();
@@ -4039,6 +4120,12 @@ function renderMyHand() {
       badgesEl.appendChild(lbl);
     }
   }
+  if (hp?.all_in && !hp?.folded && badgesEl) {
+    const lbl = document.createElement("span");
+    lbl.className = "seat-pos-label all-in-badge";
+    lbl.textContent = "ALL-IN";
+    badgesEl.appendChild(lbl);
+  }
 
   const visibleHoleCards = Array.isArray(hp?.hole_cards)
     ? hp.hole_cards.map(normCard).filter(Boolean)
@@ -4051,6 +4138,11 @@ function renderMyHand() {
     const secondCard = makeCardEl(visibleHoleCards[1], false, false, false);
     el.myHandCards.appendChild(useMyHandTargets ? markDealCardTarget(firstCard, mySeat.seat_no, 1, hand, -9) : firstCard);
     el.myHandCards.appendChild(useMyHandTargets ? markDealCardTarget(secondCard, mySeat.seat_no, 2, hand, 8) : secondCard);
+  }
+
+  if (state.actionAnnouncementCurrent?.seatNo === mySeat.seat_no) {
+    const actionPopup = buildActionPopup(state.actionAnnouncementCurrent, { hero: true });
+    if (actionPopup) el.myHandArea?.appendChild(actionPopup);
   }
 
   // Rebuy button in my-hand area -- create once, show/hide
