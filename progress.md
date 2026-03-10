@@ -1348,3 +1348,12 @@ Update (server bot commitment + sizing model):
 - Added SPR-aware postflop risk caps so medium-strength made hands stop taking giant punt lines while strong value can still stack off naturally at low SPR.
 - Updated `/Users/abishek/Documents/poker-buyins/supabase/functions/online-runtime-tick/index.ts` to pass richer live context into the bot engine (`streetAggressionCount`, `preflopLimperCount`, `effectiveStackBb`).
 - Added focused regression coverage in `/Users/abishek/Documents/poker-buyins/supabase/functions/_shared/bot_engine.test.ts` for deep-stack opens, 3-bet spots, short-stack jams, and deep postflop value behavior.
+
+Update (dynamic bot personality + hidden personality UI):
+- Added hidden in-hand personality evolution in `/Users/abishek/Documents/poker-buyins/supabase/functions/_shared/bot_engine.ts` so bots no longer stay fixed as TAG/LAG/Rock/Station for the whole session.
+- The effective style now shifts from the stored base archetype based on stack growth, short-stack pressure, effective depth, and table-average stack context, while still staying inside sane poker guardrails.
+- Updated `/Users/abishek/Documents/poker-buyins/supabase/functions/online-runtime-tick/index.ts` to pass starting-stack and table-average context into the server bot engine.
+- Removed player-facing personality leaks from `/Users/abishek/Documents/poker-buyins/online/table_app.js`:
+  - add-bot toast no longer announces the archetype
+  - seat badge now shows generic `AI` instead of `AI · Tight-Agg` style labels
+- Bumped `/Users/abishek/Documents/poker-buyins/online-table.html` bundle to `v=137`.

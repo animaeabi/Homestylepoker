@@ -2,7 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../config.js";
 import { createOnlinePokerClient } from "./client.js?v=121";
 import { computeSidePots, describeSevenCardHand, resolveShowdownPayouts } from "./showdown.js?v=130";
-import { randomPersonality, randomBotName, personalityLabel, OpponentTracker } from "./bot_engine.js";
+import { randomPersonality, randomBotName, OpponentTracker } from "./bot_engine.js";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const online = createOnlinePokerClient(supabase);
@@ -3835,7 +3835,7 @@ async function addBot(seatNo) {
         name,
       });
       saveBotSeats();
-      toast(`${name} (${personalityLabel(personality)}) joined seat ${seat.seat_no}`, "success");
+      toast(`${name} joined seat ${seat.seat_no}`, "success");
     }
     await loadTableState();
   } catch (err) {
@@ -4276,7 +4276,7 @@ function renderSeats() {
       if (botInfo) {
         const botTag = document.createElement("div");
         botTag.className = "bot-label";
-        botTag.textContent = `AI · ${personalityLabel(botInfo.personality || seat.bot_personality || "TAG")}`;
+        botTag.textContent = "AI";
         node.appendChild(botTag);
       }
 

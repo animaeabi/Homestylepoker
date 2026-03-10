@@ -1183,6 +1183,64 @@ const PROFILES: Record<BotPersonality, {
   },
 };
 
+export function resolveDynamicBotPersonality({
+  basePersonality,
+  stackBb,
+  effectiveStackBb,
+  startingStackBb = null,
+  averageOpponentStackBb = null,
+  opponentProfile = null,
+  activeSeatCount = 2,
+}: {
+  basePersonality: BotPersonality;
+  stackBb: number;
+  effectiveStackBb: number;
+  startingStackBb?: number | null;
+  averageOpponentStackBb?: number | null;
+  opponentProfile?: OpponentProfile | null;
+  activeSeatCount?: number;
+}) {
+  const liveStackBb = Math.max(0, Number(stackBb || 0));
+  const effectiveDepthBb = Math.max(0, Number(effectiveStackBb || liveStackBb));
+  const baselineStackBb = Number(startingStackBb || 0) > 0 ? Number(startingStackBb || 0) : null;
+  const tableAverageBb = Number(averageOpponentStackBb || 0) > 0 ? Number(averageOpponentStackBb || 0) : null;
+  const stackGrowthRatio = baselineStackBb ? liveStackBb / baselineStackBb : 1;
+  const tableLeadRatio = tableAverageBb ? liveStackBb / tableAverageBb : 1;
+  const tags = new Set(opponentProfile?.tags || []);
+  const states = new Set(opponentProfile?.states || []);
+
+  const playingBigStack = (
+    (baselineStackBb !== null && stackGrowthRatio >= 1.45 && liveStackBb >= Math.max(24, baselineStackBb * 0.8)) ||
+    (tableAverageBb !== null && tableLeadRatio >= 1.33 && liveStackBb >= 28)
+  );
+  const underPressure = (
+    effectiveDepthBb <= 16 ||
+    (baselineStackBb !== null && stackGrowthRatio <= 0.58) ||
+    (tableAverageBb !== null && tableLeadRatio <= 0.72)
+  );
+
+  let next = basePersonality;
+  if (underPressure) {
+    if (basePersonality === "LAG") next = "TAG";
+    else if (basePersonality === "TAG") next = "Rock";
+    else if (basePersonality === "Station") next = "TAG";
+    else next = "Rock";
+  } else if (playingBigStack) {
+    if (basePersonality === "Rock") next = "TAG";
+    else if (basePersonality === "TAG") next = "LAG";
+    else if (basePersonality === "Station") next = "TAG";
+    else next = "LAG";
+  }
+
+  // Big stacks should lean toward value extraction, not mindless blasting.
+  if ((tags.has("station") || tags.has("trapper")) && next === "LAG") next = "TAG";
+  if (tags.has("nit") && playingBigStack && next === "TAG" && activeSeatCount >= 4) next = "LAG";
+  if (states.has("protecting_stack") && playingBigStack && next === "TAG") next = "LAG";
+  if (states.has("bullying") && underPressure && next === "LAG") next = "TAG";
+
+  return next;
+}
+
 function decideStructuredPreflopAction({
   personality,
   holeCards,
@@ -1445,6 +1503,8 @@ export function decideBotAction({
   streetAggressionCount = 0,
   preflopLimperCount = 0,
   effectiveStackBb = null,
+  startingStackBb = null,
+  averageOpponentStackBb = null,
 }: {
   personality: BotPersonality;
   holeCards: string[];
@@ -1464,8 +1524,9 @@ export function decideBotAction({
   streetAggressionCount?: number;
   preflopLimperCount?: number;
   effectiveStackBb?: number | null;
+  startingStackBb?: number | null;
+  averageOpponentStackBb?: number | null;
 }) {
-  const profile = PROFILES[personality] || PROFILES.TAG;
   const toCall = Math.max(0, (currentBet || 0) - (streetContribution || 0));
   const stack = stackEnd || 0;
   const blind = Math.max(1, Number(bigBlind || 2));
@@ -1481,9 +1542,23 @@ export function decideBotAction({
     : postflop.strength;
   const drawStrength = isPreflop ? 0 : postflop.drawStrength;
   const madeClassRank = isPreflop ? null : postflop.classRank;
+  const effectiveStackForStreetBb = Math.max(1, Math.min(
+    stackBb + Number(streetContribution || 0) / blind,
+    Number(effectiveStackBb || (stackBb + Number(streetContribution || 0) / blind))
+  ));
+  const livePersonality = resolveDynamicBotPersonality({
+    basePersonality: personality,
+    stackBb: stackBb + Number(streetContribution || 0) / blind,
+    effectiveStackBb: effectiveStackForStreetBb,
+    startingStackBb,
+    averageOpponentStackBb,
+    opponentProfile,
+    activeSeatCount,
+  });
+  const profile = PROFILES[livePersonality] || PROFILES.TAG;
 
   const posMult = positionMultiplier(seatNo || 0, buttonSeat || 0, totalSeats || 6, activeSeatCount || 2);
-  const opAdj = opponentAdjustments(opponentProfile || null, personality);
+  const opAdj = opponentAdjustments(opponentProfile || null, livePersonality);
   const noise = rand(-0.05, 0.05);
   const effectiveStrength = Math.min(1.0, Math.max(0.0, rawStrength * posMult + noise));
   const adjustedBluffRate = Math.max(0, Math.min(0.3, profile.bluffRate + opAdj.bluffMod));
@@ -1494,10 +1569,6 @@ export function decideBotAction({
   const adjustedCallRate = clamp(profile.callRate + opAdj.callMod, 0.48, 0.98);
   const strongDraw = !isPreflop && drawStrength >= 0.12;
   const premiumMadeHand = !isPreflop && (madeClassRank || 0) >= 2;
-  const effectiveStackForStreetBb = Math.max(1, Math.min(
-    stackBb + Number(streetContribution || 0) / blind,
-    Number(effectiveStackBb || (stackBb + Number(streetContribution || 0) / blind))
-  ));
   const spr = stackToPotRatio(stack, pot || 0, toCall);
   const riskFraction = isPreflop
     ? 1
@@ -1507,7 +1578,7 @@ export function decideBotAction({
       effectiveStrength,
       drawStrength,
       spr,
-      personality,
+      personality: livePersonality,
     });
   const canStackOffPostflop = !isPreflop && shouldStackOffPostflop({
     madeClassRank,
@@ -1518,7 +1589,7 @@ export function decideBotAction({
 
   if (isPreflop) {
     return decideStructuredPreflopAction({
-      personality,
+      personality: livePersonality,
       holeCards,
       currentBet,
       streetContribution,
@@ -1548,7 +1619,7 @@ export function decideBotAction({
           madeClassRank,
           effectiveStrength,
           drawStrength,
-          personality,
+          personality: livePersonality,
           bluff: !premiumMadeHand,
         })),
         blind
@@ -1581,12 +1652,12 @@ export function decideBotAction({
       if (coinFlip(Math.min(0.36, adjustedBluffRate + 0.14)) && stack > toCall * 2.5) {
         const raiseSize = Math.max(
           Math.round(pot * postflopSizeFraction({
-            madeClassRank,
-            effectiveStrength,
-            drawStrength,
-            personality,
-            bluff: true,
-          })),
+          madeClassRank,
+          effectiveStrength,
+          drawStrength,
+          personality: livePersonality,
+          bluff: true,
+        })),
           blind
         );
         const raiseTarget = (currentBet || 0) + raiseSize;
@@ -1625,7 +1696,7 @@ export function decideBotAction({
           madeClassRank,
           effectiveStrength,
           drawStrength,
-          personality,
+          personality: livePersonality,
         })),
         blind
       );
@@ -1650,7 +1721,7 @@ export function decideBotAction({
         madeClassRank,
         effectiveStrength,
         drawStrength,
-        personality,
+        personality: livePersonality,
       })),
       blind
     );
@@ -1690,7 +1761,7 @@ export function decideBotAction({
         madeClassRank,
         effectiveStrength,
         drawStrength,
-        personality,
+        personality: livePersonality,
         bluff: true,
       })),
       blind
@@ -1712,7 +1783,7 @@ export function decideBotAction({
         madeClassRank,
         effectiveStrength,
         drawStrength,
-        personality,
+        personality: livePersonality,
         bluff: false,
       })),
       blind

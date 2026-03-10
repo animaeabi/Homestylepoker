@@ -1,4 +1,4 @@
-import { decideBotAction } from "./bot_engine.ts";
+import { decideBotAction, resolveDynamicBotPersonality } from "./bot_engine.ts";
 
 function assert(condition: boolean, message: string) {
   if (!condition) throw new Error(message);
@@ -15,6 +15,26 @@ function withFixedRandom<T>(fn: () => T) {
 }
 
 function run() {
+  const deepLeadRock = resolveDynamicBotPersonality({
+    basePersonality: "Rock",
+    stackBb: 160,
+    effectiveStackBb: 70,
+    startingStackBb: 100,
+    averageOpponentStackBb: 62,
+    activeSeatCount: 6,
+  });
+  assert(deepLeadRock === "TAG", "Big-stack Rocks should loosen into a value-seeking TAG style");
+
+  const shortLag = resolveDynamicBotPersonality({
+    basePersonality: "LAG",
+    stackBb: 28,
+    effectiveStackBb: 12,
+    startingStackBb: 100,
+    averageOpponentStackBb: 55,
+    activeSeatCount: 6,
+  });
+  assert(shortLag === "TAG", "Short-stacked LAGs should tighten up instead of punting");
+
   const premiumOpen = withFixedRandom(() => decideBotAction({
     personality: "TAG",
     holeCards: ["As", "Ah"],
@@ -33,6 +53,8 @@ function run() {
     streetAggressionCount: 0,
     preflopLimperCount: 0,
     effectiveStackBb: 100,
+    startingStackBb: 100,
+    averageOpponentStackBb: 100,
   }));
   assert(premiumOpen.actionType === "raise", "AA unopened should raise, not limp or jam deep");
   assert((premiumOpen.amount || 0) < 50, "AA deep unopened should not choose a jam-sized raise");
@@ -55,6 +77,8 @@ function run() {
     streetAggressionCount: 1,
     preflopLimperCount: 0,
     effectiveStackBb: 100,
+    startingStackBb: 100,
+    averageOpponentStackBb: 100,
   }));
   assert(akVsOpen.actionType !== "all_in", "AK deep versus a single open should not jam by default");
 
@@ -76,6 +100,8 @@ function run() {
     streetAggressionCount: 2,
     preflopLimperCount: 0,
     effectiveStackBb: 97,
+    startingStackBb: 100,
+    averageOpponentStackBb: 100,
   }));
   assert(
     ninesVsThreeBet.actionType === "call" || ninesVsThreeBet.actionType === "fold",
@@ -100,6 +126,8 @@ function run() {
     streetAggressionCount: 1,
     preflopLimperCount: 0,
     effectiveStackBb: 8,
+    startingStackBb: 100,
+    averageOpponentStackBb: 55,
   }));
   assert(shortPremium.actionType === "all_in", "Short premium hands should still jam when stack depth makes it logical");
 
@@ -119,6 +147,8 @@ function run() {
     activeSeatCount: 4,
     wasAggressor: true,
     effectiveStackBb: 90,
+    startingStackBb: 100,
+    averageOpponentStackBb: 70,
   }));
   assert(topPairFlop.actionType !== "all_in", "Medium-strength postflop value should not open-jam deep");
 }

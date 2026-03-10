@@ -501,6 +501,8 @@ async function processBotAction({
         streetAggressionCount: streetActionShape.aggressionCount,
         preflopLimperCount: streetActionShape.limperCount,
         effectiveStackBb,
+        startingStackBb: Number(table?.starting_stack || 0) / Math.max(1, Number(table?.big_blind || 2)),
+        averageOpponentStackBb: averageStackBb,
       });
     } catch (_error) {
       decision = timeoutFallbackDecision;
