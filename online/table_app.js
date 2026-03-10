@@ -19,6 +19,8 @@ const BOARD_REVEAL_FLIP_STAGGER_MS = 80;
 const STREET_REVEAL_DEFER_MS = 90;
 const ROUND_TRANSITION_BREATH_MS = 320;
 const SHOWDOWN_RESULT_BREATH_MS = 460;
+const SHOWDOWN_COMBO_REVEAL_PAUSE_MS = 520;
+const SHOWDOWN_PAYOUT_FX_DELAY_MS = 180;
 const POT_BUMP_MS = 520;
 const CHIP_PUSH_MS = 760;
 const CHIP_PUSH_STAGGER_MS = 48;
@@ -2046,6 +2048,16 @@ function isShowdownResultReady(hand = getLatestHand()) {
   return Date.now() >= Number(reveal.readyAt || 0);
 }
 
+function getShowdownResultDelayMs(revealDelayMs = 0) {
+  const baseRevealDelayMs = Number.isFinite(Number(revealDelayMs))
+    ? Math.max(0, Number(revealDelayMs))
+    : 0;
+  return Math.max(
+    SHOWDOWN_RESULT_BREATH_MS + SHOWDOWN_COMBO_REVEAL_PAUSE_MS,
+    baseRevealDelayMs + SHOWDOWN_RESULT_BREATH_MS + SHOWDOWN_COMBO_REVEAL_PAUSE_MS
+  );
+}
+
 function renderVictoryPopup() {
   if (!el.victoryPopup || !el.victoryPopupTitle || !el.victoryPopupDetail) return;
   const popup = state.victoryPopup;
@@ -2083,7 +2095,7 @@ function syncVictoryPopup({ oldHand, hand, hadPriorTableState = false, shouldDel
     : getStreetRevealDelayForTransition(oldHand, hand, {
         deferred: shouldDelayStreetReveal
       });
-  const showDelayMs = Math.max(SHOWDOWN_RESULT_BREATH_MS, effectiveRevealDelayMs + SHOWDOWN_RESULT_BREATH_MS);
+  const showDelayMs = getShowdownResultDelayMs(effectiveRevealDelayMs);
   const handId = hand.id;
   state.showdownResultReveal = {
     handId,
@@ -3583,7 +3595,7 @@ function handleSettlementFx(hand, { revealDelayMs = 0 } = {}) {
     renderAll();
   };
 
-  const showDelayMs = Math.max(SHOWDOWN_RESULT_BREATH_MS, Number(revealDelayMs || 0) + SHOWDOWN_RESULT_BREATH_MS);
+  const showDelayMs = getShowdownResultDelayMs(revealDelayMs) + SHOWDOWN_PAYOUT_FX_DELAY_MS;
   state.settlementFxTimer = setTimeout(() => {
     state.settlementFxTimer = null;
     launch();
