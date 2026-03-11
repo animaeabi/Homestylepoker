@@ -16,6 +16,7 @@ const BOARD_REVEAL_STAGGER_MS = 120;
 const BOARD_REVEAL_LAND_MS = 500;
 const BOARD_REVEAL_FLIP_MS = 380;
 const BOARD_REVEAL_CARD_BREATH_MS = 130;
+const BOARD_REVEAL_SEQUENCE_STEP_MS = BOARD_REVEAL_LAND_MS + BOARD_REVEAL_FLIP_MS + BOARD_REVEAL_CARD_BREATH_MS;
 const STREET_REVEAL_DEFER_MS = 90;
 // Hold the final street-closing action long enough that players can actually read it
 // before the next board card or showdown sequence starts.
@@ -2532,19 +2533,30 @@ function maybeStartDealAnimation(oldHand, hand, hadPriorTableState = false) {
 
 function getStreetRevealLandDelayMs(anim, index) {
   if (!anim) return null;
+  const schedule = anim.timings?.[index];
+  if (schedule && Number.isFinite(Number(schedule.landMs))) return Number(schedule.landMs);
   const revealIndex = anim.indices.indexOf(index);
   if (revealIndex < 0) return null;
-  const sequenceStepMs = BOARD_REVEAL_LAND_MS + BOARD_REVEAL_FLIP_MS + BOARD_REVEAL_CARD_BREATH_MS;
-  return Number(anim.startDelayMs || 0) + revealIndex * sequenceStepMs;
+  return Number(anim.startDelayMs || 0) + revealIndex * BOARD_REVEAL_SEQUENCE_STEP_MS;
 }
 
 function getStreetRevealFlipDelayMs(anim, index) {
+  const schedule = anim?.timings?.[index];
+  if (schedule && Number.isFinite(Number(schedule.flipMs))) return Number(schedule.flipMs);
   const landDelayMs = getStreetRevealLandDelayMs(anim, index);
   if (landDelayMs == null) return null;
   return landDelayMs + BOARD_REVEAL_LAND_MS - 20;
 }
 
 function getStreetRevealTotalMs(anim) {
+  const timingValues = Object.values(anim?.timings || {});
+  if (timingValues.length) {
+    const maxFlipDelayMs = Math.max(
+      0,
+      ...timingValues.map((timing) => Number(timing?.flipMs || 0))
+    );
+    return maxFlipDelayMs + BOARD_REVEAL_FLIP_MS + BOARD_REVEAL_CARD_BREATH_MS + 120;
+  }
   if (!anim?.indices?.length) return 0;
   const lastIndex = anim.indices[anim.indices.length - 1];
   const flipDelayMs = getStreetRevealFlipDelayMs(anim, lastIndex);
@@ -2592,17 +2604,57 @@ function maybeStartStreetRevealAnimation(oldHand, hand, hadPriorTableState = fal
     if (newBoard[i] && oldBoard[i] !== newBoard[i]) indices.push(i);
   }
   if (!indices.length) return;
+  const sortedIndices = [...new Set(indices)].sort((a, b) => a - b);
+
+  const existing = state.streetRevealAnimation;
+  if (existing && existing.handId === hand.id) {
+    const known = new Set([...(existing.indices || []), ...(existing.pendingIndices || []), ...(existing.launchedIndices || [])]);
+    const additions = sortedIndices.filter((idx) => !known.has(idx)).sort((a, b) => a - b);
+    existing.board = [...newBoard];
+    if (!additions.length) return;
+    const elapsed = Date.now() - Number(existing.startedAt || Date.now());
+    const totalMs = getStreetRevealTotalMs(existing);
+    const appendStartMs = Math.max(
+      elapsed + BOARD_REVEAL_CARD_BREATH_MS,
+      totalMs + BOARD_REVEAL_CARD_BREATH_MS
+    );
+    let cursorMs = appendStartMs;
+    existing.timings = existing.timings || {};
+    for (const idx of additions) {
+      existing.timings[idx] = {
+        landMs: cursorMs,
+        flipMs: cursorMs + BOARD_REVEAL_LAND_MS - 20,
+      };
+      cursorMs += BOARD_REVEAL_SEQUENCE_STEP_MS;
+    }
+    existing.indices = [...new Set([...(existing.indices || []), ...additions])].sort((a, b) => a - b);
+    existing.pendingIndices = [...new Set([...(existing.pendingIndices || []), ...additions])].sort((a, b) => a - b);
+    return;
+  }
+
+  const normalizedStartDelayMs = Math.max(0, Number(startDelayMs || 0));
+  const timings = {};
+  for (let order = 0; order < sortedIndices.length; order += 1) {
+    const landMs = normalizedStartDelayMs + order * BOARD_REVEAL_SEQUENCE_STEP_MS;
+    const idx = sortedIndices[order];
+    timings[idx] = {
+      landMs,
+      flipMs: landMs + BOARD_REVEAL_LAND_MS - 20,
+    };
+  }
 
   clearStreetRevealFx();
   state.streetRevealAnimation = {
-    key: `${hand.id}|${hand.state}|${indices.join(",")}|${newBoard.join(",")}`,
+    key: `${hand.id}|${hand.state}|${sortedIndices.join(",")}|${newBoard.join(",")}`,
     handId: hand.id,
     street: hand.state,
     board: [...newBoard],
-    indices,
+    indices: sortedIndices,
+    pendingIndices: [...sortedIndices],
+    launchedIndices: [],
     startedAt: Date.now(),
-    startDelayMs: Math.max(0, Number(startDelayMs || 0)),
-    launched: false,
+    startDelayMs: normalizedStartDelayMs,
+    timings,
     cleanupTimer: null,
     soundTimers: [],
   };
@@ -2757,7 +2809,7 @@ function maybeLaunchDealFx(hand = getLatestHand()) {
 
 function maybeLaunchStreetRevealFx(hand = getLatestHand()) {
   const anim = state.streetRevealAnimation;
-  if (!anim || anim.launched || !hand || anim.handId !== hand.id) return;
+  if (!anim || !hand || anim.handId !== hand.id) return;
   if (!el.dealFxLayer || !el.tableSurface || !el.boardCards) return;
 
   const tableRect = el.tableSurface.getBoundingClientRect();
@@ -2771,16 +2823,24 @@ function maybeLaunchStreetRevealFx(hand = getLatestHand()) {
   const fromY = deckRect?.height ? deckRect.top + deckRect.height / 2 - tableRect.top : fallbackFromY;
   const soundTimers = [];
   let created = 0;
+  const elapsed = Date.now() - Number(anim.startedAt || Date.now());
+  const launchedSet = new Set(anim.launchedIndices || []);
+  const queue = Array.isArray(anim.pendingIndices) && anim.pendingIndices.length
+    ? anim.pendingIndices.filter((idx) => !launchedSet.has(idx))
+    : (anim.indices || []).filter((idx) => !launchedSet.has(idx));
+  if (!queue.length) return;
 
-  for (const boardIndex of anim.indices) {
+  for (const boardIndex of queue) {
     const target = el.boardCards.querySelector(`.board-deal-target[data-board-index="${boardIndex}"]`);
     if (!target) continue;
     const targetRect = target.getBoundingClientRect();
     if (!targetRect.width || !targetRect.height) continue;
 
-    const landDelayMs = getStreetRevealLandDelayMs(anim, boardIndex);
-    const flipDelayMs = getStreetRevealFlipDelayMs(anim, boardIndex);
-    if (landDelayMs == null || flipDelayMs == null) continue;
+    const landAtMs = getStreetRevealLandDelayMs(anim, boardIndex);
+    const flipAtMs = getStreetRevealFlipDelayMs(anim, boardIndex);
+    if (landAtMs == null || flipAtMs == null) continue;
+    const landDelayMs = Math.max(0, landAtMs - elapsed);
+    const flipDelayMs = Math.max(0, flipAtMs - elapsed);
 
     const targetX = targetRect.left - tableRect.left;
     const targetY = targetRect.top - tableRect.top;
@@ -2821,7 +2881,7 @@ function maybeLaunchStreetRevealFx(hand = getLatestHand()) {
     inner.append(backFace, frontFace);
     flight.appendChild(inner);
 
-    const finishAt = flipDelayMs + BOARD_REVEAL_FLIP_MS + 60;
+    const finishAt = flipAtMs + BOARD_REVEAL_FLIP_MS + 60;
     flight.addEventListener("animationend", () => {
       if (Date.now() - anim.startedAt >= finishAt) flight.remove();
     });
@@ -2832,19 +2892,22 @@ function maybeLaunchStreetRevealFx(hand = getLatestHand()) {
     soundTimers.push(setTimeout(() => sounds.streetFlip(), Math.max(0, flipDelayMs + 40)));
   }
 
-  anim.launched = true;
-  anim.soundTimers = soundTimers;
+  anim.launchedIndices = [...launchedSet, ...queue].sort((a, b) => a - b);
+  anim.pendingIndices = [];
+  anim.soundTimers = [...(anim.soundTimers || []), ...soundTimers];
   if (!created) {
-    state.streetRevealAnimation = null;
+    if (!anim.pendingIndices.length) state.streetRevealAnimation = null;
     return;
   }
 
+  if (anim.cleanupTimer) clearTimeout(anim.cleanupTimer);
+  const remainingMs = Math.max(120, getStreetRevealTotalMs(anim) - (Date.now() - Number(anim.startedAt || Date.now())));
   anim.cleanupTimer = setTimeout(() => {
     if (state.streetRevealAnimation?.key === anim.key) {
       clearStreetRevealFx();
       renderAll();
     }
-  }, getStreetRevealTotalMs(anim));
+  }, remainingMs);
 }
 
 function getPotChipCount(potTotal, bigBlind) {
