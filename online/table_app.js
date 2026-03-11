@@ -602,10 +602,27 @@ function clearVoiceAudioRack() {
   }
 }
 
+function isUsableAudioTrack(track) {
+  return Boolean(
+    track &&
+    typeof track === "object" &&
+    String(track.kind || "").toLowerCase() === "audio" &&
+    typeof track.id !== "undefined"
+  );
+}
+
 function getParticipantAudioTrack(participant) {
-  const audio = participant?.tracks?.audio;
-  if (!audio) return null;
-  return audio.persistentTrack || audio.track || null;
+  const audioState = participant?.tracks?.audio;
+  if (!audioState) return null;
+  const candidates = [
+    audioState?.persistentTrack,
+    audioState?.track,
+    audioState,
+  ];
+  for (const candidate of candidates) {
+    if (isUsableAudioTrack(candidate)) return candidate;
+  }
+  return null;
 }
 
 function syncVoiceAudioRack() {
@@ -641,8 +658,14 @@ function syncVoiceAudioRack() {
 
     const trackId = String(track.id || "");
     if (audio.dataset.trackId !== trackId) {
-      audio.dataset.trackId = trackId;
-      audio.srcObject = new MediaStream([track]);
+      try {
+        const stream = new MediaStream([track]);
+        audio.dataset.trackId = trackId;
+        audio.srcObject = stream;
+      } catch (error) {
+        console.warn("Failed to attach remote audio track", error);
+        continue;
+      }
     }
     audio.muted = false;
     audio.volume = 1;
@@ -729,34 +752,32 @@ async function ensureVoiceConnected({ unmute = false } = {}) {
   state.voiceJoinPromise = (async () => {
     const call = await ensureVoiceCallObject();
     let session = await getVoiceSession();
+    const joinPayload = {
+      url: session.room_url,
+      token: session.meeting_token,
+      userName: state.identity?.name || "Player",
+      audioSource: true,
+      videoSource: false,
+      startAudioOff: false,
+      startVideoOff: true,
+      subscribeToTracksAutomatically: true,
+      dailyConfig: { avoidEval: true },
+    };
     try {
-      await call.join({
-        url: session.room_url,
-        token: session.meeting_token,
-        userName: state.identity?.name || "Player",
-        audioSource: true,
-        videoSource: false,
-        startAudioOff: !Boolean(unmute),
-        startVideoOff: true,
-        subscribeToTracksAutomatically: true,
-        dailyConfig: { avoidEval: true },
-      });
+      await call.join(joinPayload);
     } catch (error) {
       state.voiceSession = null;
       session = await getVoiceSession({ forceFresh: true });
-      await call.join({
-        url: session.room_url,
-        token: session.meeting_token,
-        userName: state.identity?.name || "Player",
-        audioSource: true,
-        videoSource: false,
-        startAudioOff: !Boolean(unmute),
-        startVideoOff: true,
-        subscribeToTracksAutomatically: true,
-        dailyConfig: { avoidEval: true },
-      });
+      joinPayload.url = session.room_url;
+      joinPayload.token = session.meeting_token;
+      await call.join(joinPayload);
     }
-    try { call.setLocalAudio(Boolean(unmute)); } catch {}
+    try { await call.setLocalAudio(Boolean(unmute)); } catch {}
+    if (unmute) {
+      setTimeout(() => {
+        try { call.setLocalAudio(true); } catch {}
+      }, 180);
+    }
     state.voiceSpeaking = Boolean(unmute);
     state.voiceConnected = true;
     syncVoiceAudioRack();
@@ -787,14 +808,7 @@ async function ensureMicrophonePermissionForVoiceCall() {
 
   let stream = null;
   try {
-    stream = await mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-      },
-      video: false,
-    });
+    stream = await mediaDevices.getUserMedia({ audio: true, video: false });
     state.voicePermissionPrimed = true;
     state.voicePermissionDenied = false;
     renderVoiceUi();
@@ -825,14 +839,7 @@ async function requestMicrophonePermissionOnJoin() {
   if (!mediaDevices || typeof mediaDevices.getUserMedia !== "function") return;
 
   try {
-    const stream = await mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-      },
-      video: false,
-    });
+    const stream = await mediaDevices.getUserMedia({ audio: true, video: false });
     for (const track of stream.getTracks()) {
       try { track.stop(); } catch {}
     }

@@ -200,7 +200,7 @@ async function ensureRoom(apiKey: string, dailyDomain: string, tableId: string) 
         privacy: "private",
         properties: {
           max_participants: 10,
-          start_audio_off: true,
+          start_audio_off: false,
           start_video_off: true,
         },
       }),
@@ -233,7 +233,7 @@ async function createMeetingToken(apiKey: string, roomName: string, userName: st
         room_name: roomName,
         user_name: userName,
         user_id: userId,
-        start_audio_off: true,
+        start_audio_off: false,
         start_video_off: true,
         exp: Math.floor(Date.now() / 1000) + ROOM_TTL_SECS,
         eject_at_token_exp: true,
