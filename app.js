@@ -9190,16 +9190,6 @@ async function openOnlineGameDetail(tableId) {
     .select("seat_no,group_player_id,chip_stack")
     .eq("table_id", tableId);
 
-  const gpIds = [...new Set((seats || []).map(s => s.group_player_id).filter(Boolean))];
-  let playerNames = new Map();
-  if (gpIds.length > 0) {
-    const { data: players } = await supabase
-      .from("group_players")
-      .select("id,name")
-      .in("id", gpIds);
-    (players || []).forEach(p => playerNames.set(p.id, p.name));
-  }
-
   // Calculate In (buy-ins) and Out (final stack) per player.
   // In = first hand stack_start + any rebuys (detected when stack_start > previous stack_end).
   // Out = last hand stack_end.
@@ -9238,6 +9228,19 @@ async function openOnlineGameDetail(tableId) {
       r.prevStackEnd = endVal;
       r.hands += 1;
     });
+  }
+
+  const gpIds = [...new Set([
+    ...(seats || []).map(s => s.group_player_id).filter(Boolean),
+    ...playerResults.keys()
+  ])];
+  let playerNames = new Map();
+  if (gpIds.length > 0) {
+    const { data: players } = await supabase
+      .from("group_players")
+      .select("id,name")
+      .in("id", gpIds);
+    (players || []).forEach(p => playerNames.set(p.id, p.name));
   }
 
   elements.onlineGameTitle.textContent = table.name || "Online Table";
