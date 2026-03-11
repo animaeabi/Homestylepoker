@@ -632,6 +632,8 @@ function syncVoiceAudioRack() {
       audio = document.createElement("audio");
       audio.autoplay = true;
       audio.playsInline = true;
+      audio.muted = false;
+      audio.volume = 1;
       audio.dataset.participantId = key;
       rack.appendChild(audio);
       state.voiceAudioElements.set(key, audio);
@@ -642,6 +644,8 @@ function syncVoiceAudioRack() {
       audio.dataset.trackId = trackId;
       audio.srcObject = new MediaStream([track]);
     }
+    audio.muted = false;
+    audio.volume = 1;
 
     const playResult = audio.play?.();
     if (playResult && typeof playResult.catch === "function") {
@@ -732,7 +736,7 @@ async function ensureVoiceConnected({ unmute = false } = {}) {
         userName: state.identity?.name || "Player",
         audioSource: true,
         videoSource: false,
-        startAudioOff: true,
+        startAudioOff: !Boolean(unmute),
         startVideoOff: true,
         subscribeToTracksAutomatically: true,
         dailyConfig: { avoidEval: true },
@@ -746,7 +750,7 @@ async function ensureVoiceConnected({ unmute = false } = {}) {
         userName: state.identity?.name || "Player",
         audioSource: true,
         videoSource: false,
-        startAudioOff: true,
+        startAudioOff: !Boolean(unmute),
         startVideoOff: true,
         subscribeToTracksAutomatically: true,
         dailyConfig: { avoidEval: true },
@@ -771,6 +775,46 @@ async function ensureVoiceConnected({ unmute = false } = {}) {
     state.voiceJoinPromise = null;
     state.voiceJoining = false;
     renderVoiceUi();
+  }
+}
+
+async function ensureMicrophonePermissionForVoiceCall() {
+  if (!window.isSecureContext) throw new Error("Voice requires HTTPS microphone access.");
+  const mediaDevices = navigator.mediaDevices;
+  if (!mediaDevices || typeof mediaDevices.getUserMedia !== "function") {
+    throw new Error("This browser does not support microphone input.");
+  }
+
+  let stream = null;
+  try {
+    stream = await mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+      video: false,
+    });
+    state.voicePermissionPrimed = true;
+    state.voicePermissionDenied = false;
+    renderVoiceUi();
+  } catch (error) {
+    const name = String(error?.name || "");
+    if (/NotAllowedError|PermissionDeniedError|SecurityError/i.test(name)) {
+      state.voicePermissionDenied = true;
+      renderVoiceUi();
+      throw new Error("Microphone permission is required to join table voice.");
+    }
+    if (/NotFoundError|OverconstrainedError/i.test(name)) {
+      throw new Error("No usable microphone found on this device.");
+    }
+    throw new Error(error?.message || "Microphone access failed.");
+  } finally {
+    if (stream) {
+      for (const track of stream.getTracks()) {
+        try { track.stop(); } catch {}
+      }
+    }
   }
 }
 
@@ -853,6 +897,7 @@ async function joinTableVoiceCall({ fromIncoming = false } = {}) {
     return;
   }
   try {
+    await ensureMicrophonePermissionForVoiceCall();
     const call = await ensureVoiceConnected({ unmute: true });
     call.setLocalAudio(true);
     state.voiceSpeaking = true;
@@ -890,6 +935,7 @@ async function startHostedVoiceCall() {
     return;
   }
   try {
+    await ensureMicrophonePermissionForVoiceCall();
     await online.startVoiceCall({
       tableId: state.tableId,
       actorGroupPlayerId: state.identity.groupPlayerId,
