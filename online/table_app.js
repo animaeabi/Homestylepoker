@@ -1343,6 +1343,7 @@ function isShowdownPresentationActive(hand = getLatestHand()) {
     || state.settlementFxTimer
     || (state.potPushAnimation?.handId === handId)
     || state.victoryPopupTimer
+    || state.victoryPopup?.visible
     || hasActiveWinOverlays()
   );
 }
