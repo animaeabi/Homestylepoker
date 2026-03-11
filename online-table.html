@@ -533,7 +533,7 @@
         transform-origin: center center;
         animation:
           boardCardLand var(--flight-ms, 520ms) cubic-bezier(0.14, 0.84, 0.24, 1) var(--delay-ms, 0ms) both,
-          boardCardGhostOut 180ms ease-out calc(var(--flip-delay-ms, 540ms) + 110ms) forwards;
+          boardCardGhostOut 140ms ease-out calc(var(--flip-delay-ms, 540ms) + var(--flip-ms, 420ms) + 40ms) forwards;
         pointer-events: none;
         will-change: transform, opacity;
         z-index: 22;
@@ -566,10 +566,10 @@
 
       .board-deal-target.board-card-hidden {
         opacity: 0;
-        transform: translateY(-1px) scale(0.992);
+        transform: translateY(3px) scale(0.972);
         transition:
-          opacity 180ms ease,
-          transform 220ms cubic-bezier(0.2, 0.9, 0.2, 1);
+          opacity 150ms ease,
+          transform 180ms cubic-bezier(0.2, 0.9, 0.2, 1);
       }
 
       .board-deal-target.board-card-hidden.board-card-settling {
@@ -582,17 +582,17 @@
           opacity: 0;
           transform: translate(var(--from-x), var(--from-y)) scale(0.36) rotate(var(--from-rot, -14deg));
         }
-        16% {
+        14% {
           opacity: 1;
           transform: translate(var(--from-x), var(--from-y)) scale(0.48) rotate(var(--from-rot, -14deg));
         }
-        72% {
+        70% {
           opacity: 1;
           transform: translate(var(--mid-x), var(--mid-y)) scale(0.94) rotate(var(--mid-rot, -4deg));
         }
-        90% {
+        88% {
           opacity: 1;
-          transform: translate(var(--to-x), calc(var(--to-y) - 3px)) scale(1.01) rotate(var(--to-rot, 0deg));
+          transform: translate(var(--to-x), calc(var(--to-y) - 8px)) scale(1.015) rotate(var(--to-rot, 0deg));
         }
         100% {
           opacity: 1;
@@ -4668,6 +4668,6 @@
     <div class="voice-audio-rack" id="voiceAudioRack" aria-hidden="true"></div>
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
-    <script type="module" src="./online/table_app.js?v=143"></script>
+    <script type="module" src="./online/table_app.js?v=144"></script>
   </body>
 </html>

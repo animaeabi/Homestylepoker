@@ -191,6 +191,21 @@ Update (integrated online foundation hardening pass):
   - Added turn-timeout fold enforcement (25s) using authoritative `seat_token`.
   - Runtime now submits forced `fold` when actor times out, then continues normal progression/showdown settlement.
 
+Update (board reveal animation cleanup pass):
+- Reworked community-card reveal pacing in `/Users/abishek/Documents/poker-buyins/online/table_app.js`:
+  - flop now reveals one card at a time instead of grouped land/flip behavior
+  - turn and river use the same sequential land -> flip -> breath sequence
+  - board underlay cards stay hidden until the flying reveal card has effectively finished the flip, eliminating the double-show/glitch handoff
+- Tightened reveal CSS in `/Users/abishek/Documents/poker-buyins/online-table.html`:
+  - slower, cleaner hover-and-settle landing
+  - later ghost-out of the flying FX card
+  - smoother underlay fade-in once the reveal completes
+- Bumped `/Users/abishek/Documents/poker-buyins/online-table.html` bundle to `v=144`.
+
+Validation:
+- `node --check /Users/abishek/Documents/poker-buyins/online/table_app.js` (pass)
+- Local browser smoke against `http://127.0.0.1:8000/online-table.html` returned clean HTML and no new script/runtime output from the Playwright loop.
+
 Validation:
 - `node --check app.js` (pass)
 - `node --check online/client.js` (pass)

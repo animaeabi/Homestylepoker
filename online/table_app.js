@@ -13,9 +13,9 @@ const DEAL_ANIMATION_MS = 560;
 const DEAL_REVEAL_MS = 220;
 const DEAL_REVEAL_OFFSET_MS = 95;
 const BOARD_REVEAL_STAGGER_MS = 120;
-const BOARD_REVEAL_LAND_MS = 520;
-const BOARD_REVEAL_FLIP_MS = 420;
-const BOARD_REVEAL_FLIP_STAGGER_MS = 80;
+const BOARD_REVEAL_LAND_MS = 500;
+const BOARD_REVEAL_FLIP_MS = 380;
+const BOARD_REVEAL_CARD_BREATH_MS = 130;
 const STREET_REVEAL_DEFER_MS = 90;
 // Hold the final street-closing action long enough that players can actually read it
 // before the next board card or showdown sequence starts.
@@ -2516,26 +2516,21 @@ function getStreetRevealLandDelayMs(anim, index) {
   if (!anim) return null;
   const revealIndex = anim.indices.indexOf(index);
   if (revealIndex < 0) return null;
-  return Number(anim.startDelayMs || 0) + revealIndex * BOARD_REVEAL_STAGGER_MS;
+  const sequenceStepMs = BOARD_REVEAL_LAND_MS + BOARD_REVEAL_FLIP_MS + BOARD_REVEAL_CARD_BREATH_MS;
+  return Number(anim.startDelayMs || 0) + revealIndex * sequenceStepMs;
 }
 
 function getStreetRevealFlipDelayMs(anim, index) {
   const landDelayMs = getStreetRevealLandDelayMs(anim, index);
   if (landDelayMs == null) return null;
-  if (anim?.indices?.length >= 3) {
-    return (anim.indices.length - 1) * BOARD_REVEAL_STAGGER_MS
-      + BOARD_REVEAL_LAND_MS
-      + 110
-      + anim.indices.indexOf(index) * BOARD_REVEAL_FLIP_STAGGER_MS;
-  }
-  return landDelayMs + BOARD_REVEAL_LAND_MS - 30;
+  return landDelayMs + BOARD_REVEAL_LAND_MS - 20;
 }
 
 function getStreetRevealTotalMs(anim) {
   if (!anim?.indices?.length) return 0;
   const lastIndex = anim.indices[anim.indices.length - 1];
   const flipDelayMs = getStreetRevealFlipDelayMs(anim, lastIndex);
-  return (flipDelayMs || 0) + BOARD_REVEAL_FLIP_MS + 180;
+  return (flipDelayMs || 0) + BOARD_REVEAL_FLIP_MS + BOARD_REVEAL_CARD_BREATH_MS + 120;
 }
 
 function getStreetRevealDelayForTransition(oldHand, hand, { deferred = false } = {}) {
@@ -2604,7 +2599,7 @@ function getStreetRevealMeta(index, hand = getLatestHand()) {
   return {
     landDelayMs: Math.max(0, getStreetRevealLandDelayMs(anim, index) - elapsed),
     flipDelayMs: Math.max(0, flipDelayMs - elapsed),
-    showUnderlay: elapsed >= (flipDelayMs + BOARD_REVEAL_FLIP_MS * 0.45),
+    showUnderlay: elapsed >= (flipDelayMs + BOARD_REVEAL_FLIP_MS - 36),
   };
 }
 
