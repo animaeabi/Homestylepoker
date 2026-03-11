@@ -309,6 +309,30 @@ export function createOnlinePokerClient(supabase) {
       });
     },
 
+    startVoiceCall({
+      tableId,
+      actorGroupPlayerId,
+      seatToken
+    }) {
+      return callRpc(supabase, "online_start_voice_call", {
+        p_table_id: tableId,
+        p_actor_group_player_id: actorGroupPlayerId,
+        p_seat_token: seatToken
+      });
+    },
+
+    endVoiceCall({
+      tableId,
+      actorGroupPlayerId,
+      seatToken
+    }) {
+      return callRpc(supabase, "online_end_voice_call", {
+        p_table_id: tableId,
+        p_actor_group_player_id: actorGroupPlayerId,
+        p_seat_token: seatToken
+      });
+    },
+
     async createVoiceSession({
       tableId,
       actorGroupPlayerId,

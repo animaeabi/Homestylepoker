@@ -1384,3 +1384,53 @@ Update (dynamic bot personality + hidden personality UI):
 
 - 2026-03-10: Strengthened active-turn highlight styling and lowered hero action chip for clearer turn ownership on mobile.
 - 2026-03-10: Cleared seat payout tags when chip-push finishes and tightened iPhone portrait winner/board stack spacing for less overlap near lower seats.
+
+Update (2026-03-10: board reveal replay regression):
+- Reworked board reveal scheduling in `/Users/abishek/Documents/poker-buyins/online/table_app.js` so newly detected board cards are appended onto a future timeline slot instead of inheriting stale street timing.
+- Fixed `maybeLaunchStreetRevealFx(...)` delay calculation to be elapsed-aware (`landAt/flipAt - elapsed`) and cleanup to use remaining timeline duration, preventing reveal/hide/re-reveal artifacts.
+- Kept action-lock gating during reveal windows intact.
+- Bumped `/Users/abishek/Documents/poker-buyins/online-table.html` bundle to `v=147`.
+
+Update (2026-03-10: board reveal underlay sync):
+- Added animation-phase timers in `/Users/abishek/Documents/poker-buyins/online/table_app.js` to mark each board card as settled right when its flip completes, independent of polling cadence.
+- `getStreetRevealMeta(...)` now reads per-card `revealedIndices` so the static board underlay appears exactly when each card lands/flips, preventing the temporary hide/re-show flicker.
+- Added cleanup for these phase timers in `clearStreetRevealFx(...)`.
+- Bumped `/Users/abishek/Documents/poker-buyins/online-table.html` bundle to `v=148`.
+
+Update (2026-03-11: showdown card overlap from stale action labels):
+- Fixed persistent seat action chips in `/Users/abishek/Documents/poker-buyins/online/table_app.js` so contribution labels (`Check/Call/Bet/Raise`) no longer render during `showdown` or `settled` states.
+- This prevents last-action labels from covering revealed showdown cards on side seats.
+- Bumped `/Users/abishek/Documents/poker-buyins/online-table.html` bundle to `v=162`.
+
+Validation:
+- `node --check /Users/abishek/Documents/poker-buyins/online/table_app.js` (pass)
+- Ran web-game Playwright client against local server (`http://127.0.0.1:8000/online-table.html`) and reviewed latest capture:
+  - `/Users/abishek/Documents/poker-buyins/output/web-game/shot-0.png`
+
+Update (2026-03-11: host-initiated group voice call flow):
+- Reworked table voice UX in `/Users/abishek/Documents/poker-buyins/online/table_app.js` from push-to-talk to host-controlled group call behavior:
+  - Host now gets `Start table call` / `End table call`.
+  - Other seated human players get incoming-ring state and can join any time.
+  - Joined players stay in the same Daily call while remaining players continue seeing ringing/join prompts.
+  - Added incoming call panel with `Answer` / `Later`.
+  - Added periodic ring tone cues for incoming call (respects sound preference).
+- Updated `/Users/abishek/Documents/poker-buyins/online-table.html`:
+  - Phone-style call icon/button states.
+  - Floating incoming-call panel UI.
+  - Cache-buster bumped to `v=163`.
+- Updated `/Users/abishek/Documents/poker-buyins/online/client.js` with new RPC wrappers:
+  - `startVoiceCall(...)`
+  - `endVoiceCall(...)`
+- Extended DB/API in `/Users/abishek/Documents/poker-buyins/supabase/online_poker_schema.sql`:
+  - `online_table_voice_state` now carries call state (`call_status`, caller, started_at).
+  - `online_get_table_state_viewer(...)` now returns call-state fields.
+  - Added host-only RPCs:
+    - `online_start_voice_call(...)`
+    - `online_end_voice_call(...)`
+- Added migration:
+  - `/Users/abishek/Documents/poker-buyins/supabase/migrations/20260311142000_add_group_call_mode.sql`
+
+Validation:
+- `node --check /Users/abishek/Documents/poker-buyins/online/table_app.js` (pass)
+- `node --check /Users/abishek/Documents/poker-buyins/online/client.js` (pass)
+- Playwright smoke against local table page completed (no new runtime crash): `/Users/abishek/Documents/poker-buyins/output/web-game/shot-0.png`

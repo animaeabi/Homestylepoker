@@ -2319,11 +2319,30 @@
         box-shadow: 0 10px 22px rgba(0,0,0,0.28), 0 0 18px rgba(65,198,152,0.12);
       }
 
+      .voice-fab[data-state="start_call"] {
+        border-color: rgba(90,224,186,0.28);
+        color: rgba(176,255,225,0.94);
+        box-shadow: 0 10px 22px rgba(0,0,0,0.28), 0 0 18px rgba(65,198,152,0.12);
+      }
+
       .voice-fab[data-state="speaking"] {
         border-color: rgba(240,208,120,0.38);
         color: var(--gold-bright);
         box-shadow: 0 12px 24px rgba(0,0,0,0.28), 0 0 22px rgba(240,208,120,0.18);
         animation: voiceFabPulse 1.15s ease-in-out infinite;
+      }
+
+      .voice-fab[data-state="incoming"] {
+        border-color: rgba(255,169,128,0.42);
+        color: #ffd8ba;
+        box-shadow: 0 12px 24px rgba(0,0,0,0.28), 0 0 24px rgba(255,153,102,0.22);
+        animation: voiceFabPulse 1.1s ease-in-out infinite;
+      }
+
+      .voice-fab[data-state="end_call"] {
+        border-color: rgba(248,113,113,0.36);
+        color: #ffc1c1;
+        box-shadow: 0 12px 24px rgba(0,0,0,0.28), 0 0 22px rgba(248,113,113,0.2);
       }
 
       .voice-fab[data-state="busy"] {
@@ -2351,8 +2370,20 @@
         background: #55e2a0;
       }
 
+      .voice-fab-status[data-state="start_call"] {
+        background: #55e2a0;
+      }
+
       .voice-fab-status[data-state="speaking"] {
         background: var(--gold-bright);
+      }
+
+      .voice-fab-status[data-state="incoming"] {
+        background: #ffb58a;
+      }
+
+      .voice-fab-status[data-state="end_call"] {
+        background: #ff8080;
       }
 
       .voice-fab-status[data-state="busy"] {
@@ -2362,6 +2393,67 @@
       @keyframes voiceFabPulse {
         0%, 100% { transform: translateY(0); }
         50% { transform: translateY(-1px); }
+      }
+
+      .voice-call-panel {
+        position: fixed;
+        right: max(14px, calc(env(safe-area-inset-right) + 14px));
+        bottom: calc(env(safe-area-inset-bottom) + 92px);
+        width: min(250px, calc(100vw - 24px));
+        border-radius: 15px;
+        border: 1px solid rgba(228,205,146,0.2);
+        background:
+          linear-gradient(180deg, rgba(11,17,21,0.68), rgba(7,12,16,0.62)),
+          radial-gradient(circle at top, rgba(72,221,214,0.14), transparent 60%);
+        backdrop-filter: blur(18px) saturate(1.08);
+        box-shadow: 0 14px 30px rgba(0,0,0,0.34);
+        padding: 10px 12px;
+        z-index: 62;
+      }
+
+      .voice-call-panel.hidden {
+        display: none;
+      }
+
+      .voice-call-title {
+        color: var(--gold-bright);
+        font-size: 12px;
+        font-weight: 900;
+        letter-spacing: 0.09em;
+        text-transform: uppercase;
+      }
+
+      .voice-call-subtitle {
+        margin-top: 4px;
+        color: rgba(217,225,235,0.86);
+        font-size: 12px;
+        line-height: 1.3;
+      }
+
+      .voice-call-actions {
+        margin-top: 10px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .voice-call-btn {
+        height: 34px;
+        border-radius: 999px;
+        border: 1px solid rgba(228,205,146,0.24);
+        padding: 0 12px;
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+        color: var(--gold-bright);
+        background: rgba(8,13,18,0.62);
+      }
+
+      .voice-call-btn.answer {
+        background: linear-gradient(180deg, rgba(73,176,118,0.38), rgba(40,121,76,0.3));
+        border-color: rgba(90,224,186,0.3);
+        color: #d6ffe8;
       }
 
       .chat-fab-badge {
@@ -4633,7 +4725,7 @@
     <div class="utility-fab-row">
       <button class="voice-fab hidden" id="voiceFab" type="button" aria-label="Voice chat" aria-pressed="false">
         <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M12 15.25a3.76 3.76 0 0 0 3.75-3.75V7.75a3.75 3.75 0 0 0-7.5 0v3.75A3.76 3.76 0 0 0 12 15.25Zm6.25-3.75a.75.75 0 0 0-1.5 0 4.75 4.75 0 0 1-9.5 0 .75.75 0 0 0-1.5 0 6.2 6.2 0 0 0 5.5 6.17v2.08H9.5a.75.75 0 0 0 0 1.5h5a.75.75 0 0 0 0-1.5h-1.75v-2.08a6.2 6.2 0 0 0 5.5-6.17Z"/>
+          <path d="M6.6 3.4a2.8 2.8 0 0 1 3.96 0l1.62 1.62a2.8 2.8 0 0 1 .7 2.78l-.45 1.66a1 1 0 0 0 .27.96l1.4 1.4a1 1 0 0 0 .96.27l1.66-.45a2.8 2.8 0 0 1 2.78.7l1.62 1.62a2.8 2.8 0 0 1 0 3.96l-1.28 1.28c-.94.94-2.27 1.4-3.58 1.23-2.3-.3-5.6-1.35-8.73-4.48S4.7 9.75 4.4 7.45c-.17-1.31.3-2.64 1.23-3.58L6.6 3.4Z"/>
         </svg>
         <span class="voice-fab-status hidden" id="voiceFabDot"></span>
       </button>
@@ -4642,6 +4734,15 @@
         Chat
         <span class="chat-fab-badge hidden" id="chatFabBadge">0</span>
       </button>
+    </div>
+
+    <div class="voice-call-panel hidden" id="voiceCallPanel" aria-live="polite">
+      <div class="voice-call-title" id="voiceCallTitle">Incoming table call</div>
+      <div class="voice-call-subtitle" id="voiceCallSubtitle">Host is calling. Join when you're ready.</div>
+      <div class="voice-call-actions">
+        <button class="voice-call-btn answer" id="voiceCallAnswer" type="button">Answer</button>
+        <button class="voice-call-btn" id="voiceCallDismiss" type="button">Later</button>
+      </div>
     </div>
 
     <div class="chat-panel hidden" id="chatPanel" aria-live="polite">
@@ -4667,6 +4768,6 @@
     <div class="voice-audio-rack" id="voiceAudioRack" aria-hidden="true"></div>
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
-    <script type="module" src="./online/table_app.js?v=162"></script>
+    <script type="module" src="./online/table_app.js?v=163"></script>
   </body>
 </html>
