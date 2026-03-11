@@ -254,6 +254,7 @@ const state = {
   voiceUsageLimit: 9000,
   voiceFloorHeartbeatTimer: null,
   voiceAudioElements: new Map(),
+  voiceAudioPlaybackWarned: false,
   voicePermissionPrimed: false,
   voicePermissionDenied: false,
   voicePressTimer: null,
@@ -392,6 +393,7 @@ function resetVoiceState() {
     }
     state.voiceAudioElements.clear();
   }
+  state.voiceAudioPlaybackWarned = false;
 }
 
 function getServerVoiceState() {
@@ -625,6 +627,47 @@ function getParticipantAudioTrack(participant) {
   return null;
 }
 
+function upsertVoiceAudioElement(participantKey, track) {
+  const rack = el.voiceAudioRack;
+  if (!rack || !participantKey || !isUsableAudioTrack(track)) return null;
+  let audio = state.voiceAudioElements.get(participantKey);
+  if (!audio) {
+    audio = document.createElement("audio");
+    audio.autoplay = true;
+    audio.playsInline = true;
+    audio.muted = false;
+    audio.volume = 1;
+    audio.dataset.participantId = participantKey;
+    rack.appendChild(audio);
+    state.voiceAudioElements.set(participantKey, audio);
+  }
+
+  const trackId = String(track.id || "");
+  if (audio.dataset.trackId !== trackId) {
+    try {
+      const stream = new MediaStream([track]);
+      audio.dataset.trackId = trackId;
+      audio.srcObject = stream;
+    } catch (error) {
+      console.warn("Failed to attach remote audio track", error);
+      return audio;
+    }
+  }
+  audio.muted = false;
+  audio.volume = 1;
+  const playResult = audio.play?.();
+  if (playResult && typeof playResult.catch === "function") {
+    playResult.catch((error) => {
+      const name = String(error?.name || "");
+      if (!state.voiceAudioPlaybackWarned && /NotAllowedError|AbortError/i.test(name)) {
+        state.voiceAudioPlaybackWarned = true;
+        toast("Audio output is blocked. Tap the Voice button once to enable speaker.", "error");
+      }
+    });
+  }
+  return audio;
+}
+
 function syncVoiceAudioRack() {
   const rack = el.voiceAudioRack;
   const call = state.voiceCall;
@@ -644,36 +687,7 @@ function syncVoiceAudioRack() {
     if (!track) continue;
     keep.add(key);
 
-    let audio = state.voiceAudioElements.get(key);
-    if (!audio) {
-      audio = document.createElement("audio");
-      audio.autoplay = true;
-      audio.playsInline = true;
-      audio.muted = false;
-      audio.volume = 1;
-      audio.dataset.participantId = key;
-      rack.appendChild(audio);
-      state.voiceAudioElements.set(key, audio);
-    }
-
-    const trackId = String(track.id || "");
-    if (audio.dataset.trackId !== trackId) {
-      try {
-        const stream = new MediaStream([track]);
-        audio.dataset.trackId = trackId;
-        audio.srcObject = stream;
-      } catch (error) {
-        console.warn("Failed to attach remote audio track", error);
-        continue;
-      }
-    }
-    audio.muted = false;
-    audio.volume = 1;
-
-    const playResult = audio.play?.();
-    if (playResult && typeof playResult.catch === "function") {
-      playResult.catch(() => {});
-    }
+    upsertVoiceAudioElement(key, track);
   }
 
   for (const [key, audio] of state.voiceAudioElements.entries()) {
@@ -715,7 +729,16 @@ async function ensureVoiceCallObject() {
   call.on("participant-joined", syncVoiceAudioRack);
   call.on("participant-updated", syncVoiceAudioRack);
   call.on("participant-left", syncVoiceAudioRack);
-  call.on("track-started", syncVoiceAudioRack);
+  call.on("track-started", (event) => {
+    const participant = event?.participant;
+    const track = event?.track;
+    if (!participant || participant.local) return;
+    if (!isUsableAudioTrack(track)) return;
+    const key = String(participant.session_id || participant.sessionId || participant.user_id || participant.id || "");
+    if (!key) return;
+    upsertVoiceAudioElement(key, track);
+    syncVoiceAudioRack();
+  });
   call.on("track-stopped", syncVoiceAudioRack);
 
   call.on("error", (event) => {
@@ -771,6 +794,15 @@ async function ensureVoiceConnected({ unmute = false } = {}) {
       joinPayload.url = session.room_url;
       joinPayload.token = session.meeting_token;
       await call.join(joinPayload);
+    }
+    if (typeof call.updateReceiveSettings === "function") {
+      try {
+        await call.updateReceiveSettings({
+          "*": { audio: true, video: false, screenVideo: false },
+        });
+      } catch (error) {
+        console.warn("Failed to update voice receive settings", error);
+      }
     }
     try { await call.setLocalAudio(Boolean(unmute)); } catch {}
     if (unmute) {
