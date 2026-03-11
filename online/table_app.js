@@ -254,6 +254,8 @@ const state = {
   voiceUsageLimit: 9000,
   voiceFloorHeartbeatTimer: null,
   voiceAudioElements: new Map(),
+  voiceAudioNodes: new Map(),
+  voiceAudioContext: null,
   voiceAudioPlaybackWarned: false,
   voicePermissionPrimed: false,
   voicePermissionDenied: false,
@@ -602,6 +604,18 @@ function clearVoiceAudioRack() {
     }
     state.voiceAudioElements.clear();
   }
+  if (state.voiceAudioNodes?.size) {
+    for (const entry of state.voiceAudioNodes.values()) {
+      try { entry?.source?.disconnect?.(); } catch {}
+      try { entry?.gain?.disconnect?.(); } catch {}
+    }
+    state.voiceAudioNodes.clear();
+  }
+  if (state.voiceAudioContext && state.voiceAudioContext.state !== "closed") {
+    try { state.voiceAudioContext.close(); } catch {}
+  }
+  state.voiceAudioContext = null;
+  state.voiceAudioPlaybackWarned = false;
 }
 
 function isUsableAudioTrack(track) {
@@ -625,6 +639,52 @@ function getParticipantAudioTrack(participant) {
     if (isUsableAudioTrack(candidate)) return candidate;
   }
   return null;
+}
+
+function isAudioPlaybackBlocked(error) {
+  const name = String(error?.name || "");
+  return /NotAllowedError|AbortError/i.test(name);
+}
+
+async function ensureVoiceAudioContextUnlocked() {
+  const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextCtor) return null;
+  if (!state.voiceAudioContext || state.voiceAudioContext.state === "closed") {
+    state.voiceAudioContext = new AudioContextCtor();
+  }
+  if (state.voiceAudioContext.state === "suspended") {
+    try {
+      await state.voiceAudioContext.resume();
+    } catch {}
+  }
+  return state.voiceAudioContext;
+}
+
+function routeTrackToVoiceAudioContext(participantKey, track) {
+  const ctx = state.voiceAudioContext;
+  if (!ctx || ctx.state !== "running" || !participantKey || !isUsableAudioTrack(track)) return false;
+  const nextTrackId = String(track.id || "");
+  const current = state.voiceAudioNodes.get(participantKey);
+  if (current?.trackId === nextTrackId) return true;
+  if (current) {
+    try { current.source.disconnect(); } catch {}
+    try { current.gain.disconnect(); } catch {}
+    state.voiceAudioNodes.delete(participantKey);
+  }
+
+  try {
+    const stream = new MediaStream([track]);
+    const source = ctx.createMediaStreamSource(stream);
+    const gain = ctx.createGain();
+    gain.gain.value = 1;
+    source.connect(gain);
+    gain.connect(ctx.destination);
+    state.voiceAudioNodes.set(participantKey, { source, gain, trackId: nextTrackId });
+    return true;
+  } catch (error) {
+    console.warn("Failed to route remote audio through AudioContext", error);
+    return false;
+  }
 }
 
 function upsertVoiceAudioElement(participantKey, track) {
@@ -653,13 +713,17 @@ function upsertVoiceAudioElement(participantKey, track) {
       return audio;
     }
   }
+  if (routeTrackToVoiceAudioContext(participantKey, track)) {
+    audio.muted = true;
+    audio.volume = 0;
+    return audio;
+  }
   audio.muted = false;
   audio.volume = 1;
   const playResult = audio.play?.();
   if (playResult && typeof playResult.catch === "function") {
     playResult.catch((error) => {
-      const name = String(error?.name || "");
-      if (!state.voiceAudioPlaybackWarned && /NotAllowedError|AbortError/i.test(name)) {
+      if (!state.voiceAudioPlaybackWarned && isAudioPlaybackBlocked(error)) {
         state.voiceAudioPlaybackWarned = true;
         toast("Audio output is blocked. Tap the Voice button once to enable speaker.", "error");
       }
@@ -692,6 +756,12 @@ function syncVoiceAudioRack() {
 
   for (const [key, audio] of state.voiceAudioElements.entries()) {
     if (keep.has(key)) continue;
+    const nodeEntry = state.voiceAudioNodes.get(key);
+    if (nodeEntry) {
+      try { nodeEntry.source.disconnect(); } catch {}
+      try { nodeEntry.gain.disconnect(); } catch {}
+      state.voiceAudioNodes.delete(key);
+    }
     try { audio.pause(); } catch {}
     try { audio.srcObject = null; } catch {}
     audio.remove();
@@ -937,6 +1007,7 @@ async function joinTableVoiceCall({ fromIncoming = false } = {}) {
   }
   try {
     await ensureMicrophonePermissionForVoiceCall();
+    await ensureVoiceAudioContextUnlocked();
     const call = await ensureVoiceConnected({ unmute: true });
     call.setLocalAudio(true);
     state.voiceSpeaking = true;
