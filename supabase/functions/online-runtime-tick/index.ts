@@ -669,62 +669,62 @@ async function processHandForRuntime({
       };
     }
 
-    if (actingSeat?.auto_check_when_available) {
-      const handState = await onlineClient.getHandState({ handId, sinceSeq: null });
-      const currentHand = handState?.hand || hand;
-      const actingPlayer = Array.isArray(handState?.players)
-        ? handState.players.find((player: any) => Number(player.seat_no) === Number(actionSeat))
-        : null;
-      const toCall = Math.max(
-        0,
-        Number(currentHand?.current_bet || 0) - Number(actingPlayer?.street_contribution || 0)
-      );
+    const handState = await onlineClient.getHandState({ handId, sinceSeq: null });
+    const currentHand = handState?.hand || hand;
+    const actingPlayer = Array.isArray(handState?.players)
+      ? handState.players.find((player: any) => Number(player.seat_no) === Number(actionSeat))
+      : null;
+    const toCall = Math.max(
+      0,
+      Number(currentHand?.current_bet || 0) - Number(actingPlayer?.street_contribution || 0)
+    );
 
-      if (toCall <= 0 && actingSeat.group_player_id && actingSeat.seat_token) {
-        await onlineClient.submitAction({
+    // Poker-correct timeout behavior: if checking is free, timeout should always resolve as check.
+    // Only a live price to call should convert the timeout into a fold.
+    if (toCall <= 0 && actingSeat?.group_player_id && actingSeat?.seat_token) {
+      await onlineClient.submitAction({
+        handId,
+        actorGroupPlayerId: actingSeat.group_player_id,
+        actionType: "check",
+        seatToken: actingSeat.seat_token,
+        clientActionId: `${actingSeat?.auto_check_when_available ? "runtime_auto_check" : "runtime_timeout_check"}:${handId}:${Date.now()}`
+      });
+
+      const postCheckState = await onlineClient.getHandState({ handId, sinceSeq: null });
+      currentState = postCheckState?.hand?.state || currentState;
+
+      if (
+        currentState === String(currentHand?.state || hand.state) &&
+        Number(postCheckState?.hand?.action_seat || 0) === Number(actionSeat) &&
+        Number(postCheckState?.hand?.current_bet || 0) <= 0 &&
+        countActionablePlayers(postCheckState?.players || []) <= 1
+      ) {
+        const advancedState = await onlineClient.advanceHand({
           handId,
-          actorGroupPlayerId: actingSeat.group_player_id,
-          actionType: "check",
-          seatToken: actingSeat.seat_token,
-          clientActionId: `runtime_auto_check:${handId}:${Date.now()}`
+          actorGroupPlayerId,
+          reason: "allin_progress"
         });
-
-        const postCheckState = await onlineClient.getHandState({ handId, sinceSeq: null });
-        currentState = postCheckState?.hand?.state || currentState;
-
-        if (
-          currentState === String(currentHand?.state || hand.state) &&
-          Number(postCheckState?.hand?.action_seat || 0) === Number(actionSeat) &&
-          Number(postCheckState?.hand?.current_bet || 0) <= 0 &&
-          countActionablePlayers(postCheckState?.players || []) <= 1
-        ) {
-          const advancedState = await onlineClient.advanceHand({
-            handId,
-            actorGroupPlayerId,
-            reason: "allin_progress"
-          });
-          currentState = advancedState?.state || currentState;
-        }
-
-        if (currentState === "showdown") {
-          await settleShowdownFromState({
-            onlineClient,
-            handId,
-            actorGroupPlayerId,
-            note: settleNote
-          });
-          settled = true;
-          currentState = "settled";
-        }
-
-        return {
-          handId,
-          state: currentState,
-          advanced,
-          settled,
-          skipped: false
-        };
+        currentState = advancedState?.state || currentState;
       }
+
+      if (currentState === "showdown") {
+        await settleShowdownFromState({
+          onlineClient,
+          handId,
+          actorGroupPlayerId,
+          note: settleNote
+        });
+        settled = true;
+        currentState = "settled";
+      }
+
+      return {
+        handId,
+        state: currentState,
+        advanced,
+        settled,
+        skipped: false
+      };
     }
 
     if (!actingSeat?.group_player_id || !actingSeat?.seat_token) {
