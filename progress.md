@@ -1438,3 +1438,6 @@ Validation:
 - Simplified table voice to shared-room semantics: host enables/disables table voice, seated players join/leave directly, no ringing/incoming-answer flow.
 - Updated client voice UI state machine in `online/table_app.js` and added migration `20260311191500_simplify_table_voice_to_shared_room.sql` so host-start marks voice active immediately.
 - Fixed host-start race in shared voice flow: host can now join immediately after enabling table voice without waiting for a table-state refresh.
+
+- Added per-hand manual card reveal for human players after settlement via `online_set_hand_cards_visibility(...)`, with `manually_shown` stored on `online_hand_players`.
+- Hero action rail now shows `Show Cards` / `Hide Cards` after a settled hand and seat rendering honors voluntary reveals even for folded players once the hand is over.

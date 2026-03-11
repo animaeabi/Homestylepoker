@@ -269,6 +269,20 @@ export function createOnlinePokerClient(supabase) {
       }
     },
 
+    setHandCardsVisibility({
+      handId,
+      actorGroupPlayerId,
+      seatToken,
+      show = true
+    }) {
+      return callRpc(supabase, "online_set_hand_cards_visibility", {
+        p_hand_id: handId,
+        p_actor_group_player_id: actorGroupPlayerId,
+        p_seat_token: seatToken,
+        p_show: show
+      });
+    },
+
     claimVoiceFloor({
       tableId,
       actorGroupPlayerId,

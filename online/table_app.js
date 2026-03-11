@@ -2100,16 +2100,57 @@ function shouldRevealShowdownSeat({
   seatNo,
   isMe = false,
   isFolded = false,
+  manuallyShown = false,
   showdownLeaderSeats = new Set(),
 }) {
   if (isMe) return true;
-  if (!hand || !["showdown", "settled"].includes(hand.state) || isFolded) return false;
+  if (!hand || !["showdown", "settled"].includes(hand.state)) return false;
+  if (hand.state === "settled" && manuallyShown) return true;
+  if (isFolded) return false;
   if (isAllInRunoutShowdown(hand, players)) {
     return players.some((player) => !player?.folded && Number(player?.seat_no || 0) === Number(seatNo || 0));
   }
   const isWinner = showdownLeaderSeats.has(seatNo);
   const isAggressor = getLastAggressor(hand) === seatNo;
   return isWinner || isAggressor;
+}
+
+function canToggleHeroShowCards(hand = getLatestHand(), hp = getMyHandPlayer()) {
+  return Boolean(
+    hand &&
+    hand.state === "settled" &&
+    getSeatToken() &&
+    hp &&
+    hp.group_player_id === state.identity?.groupPlayerId &&
+    Array.isArray(hp.hole_cards) &&
+    hp.hole_cards.length >= 2
+  );
+}
+
+async function setHeroShowCards(show) {
+  const hand = getLatestHand();
+  const hp = getMyHandPlayer();
+  const seatToken = getSeatToken();
+  if (!canToggleHeroShowCards(hand, hp) || !seatToken) return;
+  if (state.loading) return;
+
+  state.loading = true;
+  renderActions();
+  try {
+    await online.setHandCardsVisibility({
+      handId: hand.id,
+      actorGroupPlayerId: state.identity.groupPlayerId,
+      seatToken,
+      show,
+    });
+    await loadTableState();
+    toast(show ? "Cards shown" : "Cards hidden", "success");
+  } catch (err) {
+    toast(err.message || "Could not update card visibility.", "error");
+  } finally {
+    state.loading = false;
+    renderActions();
+  }
 }
 
 function getUncontestedWinner(hand = getLatestHand(), players = getHandPlayers()) {
@@ -4639,14 +4680,16 @@ function renderSeats() {
 
       if (shouldRenderHeldCards) {
         const isShowdown = contestedShowdown;
+        const manuallyShown = Boolean(hp?.manually_shown);
         let reveal = isMe;
-        if (isShowdown && !isFolded) {
+        if ((isShowdown && !isFolded) || (hand?.state === "settled" && manuallyShown)) {
           reveal = shouldRevealShowdownSeat({
             hand,
             players: handPlayers,
             seatNo: seat.seat_no,
             isMe,
             isFolded,
+            manuallyShown,
             showdownLeaderSeats,
           });
         }
@@ -4655,9 +4698,9 @@ function renderSeats() {
         if (compactMobile && !isMe) {
           const cards = document.createElement("div");
           cards.className = "seat-cards-row compact-opponent";
-          if (reveal) cards.classList.add("showdown");
+          if (reveal && (isShowdown || manuallyShown)) cards.classList.add("showdown");
           if (animateShowdownReveal) cards.classList.add("showdown-fresh");
-          if (isShowdown && reveal) {
+          if ((isShowdown || manuallyShown) && reveal) {
             const px = parseFloat(pos.x);
             const py = parseFloat(pos.y);
             const anchor = py <= 10 ? "top" : (px < 50 ? "left" : "right");
@@ -4677,7 +4720,7 @@ function renderSeats() {
         } else {
           const cards = document.createElement("div");
           cards.className = "seat-cards-row";
-          if (isShowdown && reveal && !isMe) cards.classList.add("showdown");
+          if ((isShowdown || manuallyShown) && reveal && !isMe) cards.classList.add("showdown");
           if (animateShowdownReveal) cards.classList.add("showdown-fresh");
           const winningHoleCards = resultRevealReady
             ? (showdownHighlightData.holeHighlightsBySeat.get(seat.seat_no) || new Set())
@@ -4949,6 +4992,7 @@ function renderActions() {
   const isHost = canManageHand();
   const compactActions = isLandscapeCollapseMode() || isPortraitCollapseMode();
   const actionLocked = state.pendingAction;
+  const showCardsMode = canToggleHeroShowCards(hand, hp);
 
   const revealLocked = isStreetRevealPresentationActive(hand);
   const myTurn = hand && isActionStreet(hand.state) && token && hp && !hp.folded && !hp.all_in && hand.action_seat === hp.seat_no && !actionLocked && !revealLocked;
@@ -4985,6 +5029,9 @@ function renderActions() {
 
   if (myTurn) {
     el.actionStrip.classList.remove("hidden");
+    el.foldBtn.classList.remove("hidden");
+    el.callBtn.classList.remove("hidden");
+    el.betRaiseBtn.classList.remove("hidden");
     el.foldBtn.textContent = "Fold";
     el.callBtn.textContent = "Check";
     el.betRaiseBtn.textContent = "Bet";
@@ -4993,6 +5040,8 @@ function renderActions() {
     el.betRaiseBtn.classList.remove("active");
     el.callBtn.disabled = false;
     el.callBtn.setAttribute("aria-disabled", "false");
+    el.betRaiseBtn.disabled = false;
+    el.betRaiseBtn.setAttribute("aria-disabled", "false");
 
     const { toCall, canAggress } = getBetBounds(hand, hp);
     const raiseActionType = Number(hand.current_bet || 0) > 0 ? "raise" : "bet";
@@ -5014,11 +5063,28 @@ function renderActions() {
     el.actionStrip.classList.remove("hidden");
     el.presetRow.classList.add("hidden");
     el.landscapeRaisePanelOpen = false;
+    el.foldBtn.classList.remove("hidden");
+    el.callBtn.classList.remove("hidden");
+    el.betRaiseBtn.classList.remove("hidden");
     el.allInBtn.classList.add("hidden");
     const { toCall } = getBetBounds(hand, hp);
     el.foldBtn.textContent = toCall > 0 ? "Fold" : "Check/Fold";
     el.callBtn.textContent = `Call ${fmtShort(toCall)}`;
     el.betRaiseBtn.textContent = "Call Any";
+    el.betRaiseBtn.disabled = false;
+    el.betRaiseBtn.setAttribute("aria-disabled", "false");
+  } else if (showCardsMode) {
+    state.landscapeRaisePanelOpen = false;
+    el.actionStrip.classList.remove("hidden");
+    el.presetRow.classList.add("hidden");
+    el.foldBtn.classList.add("hidden");
+    el.callBtn.classList.add("hidden");
+    el.allInBtn.classList.add("hidden");
+    el.betRaiseBtn.classList.remove("hidden");
+    el.betRaiseBtn.classList.remove("active");
+    el.betRaiseBtn.textContent = hp?.manually_shown ? "Hide Cards" : "Show Cards";
+    el.betRaiseBtn.disabled = state.loading;
+    el.betRaiseBtn.setAttribute("aria-disabled", state.loading ? "true" : "false");
   } else {
     state.landscapeRaisePanelOpen = false;
     el.actionStrip.classList.add("hidden");
@@ -5026,6 +5092,8 @@ function renderActions() {
     el.foldBtn.textContent = "Fold";
     el.callBtn.textContent = "Check";
     el.betRaiseBtn.textContent = "Bet";
+    el.foldBtn.classList.remove("hidden");
+    el.callBtn.classList.remove("hidden");
     el.allInBtn.classList.remove("hidden");
     el.betRaiseBtn.classList.remove("hidden");
     el.foldBtn.classList.remove("active");
@@ -5034,6 +5102,8 @@ function renderActions() {
     el.callBtn.classList.remove("hidden");
     el.callBtn.disabled = false;
     el.callBtn.setAttribute("aria-disabled", "false");
+    el.betRaiseBtn.disabled = false;
+    el.betRaiseBtn.setAttribute("aria-disabled", "false");
   }
 
 }
@@ -5166,6 +5236,7 @@ function describeEvent(ev) {
     case "street_advanced": return `${String(p.to || "street").toUpperCase()} ready`;
     case "pot_awarded": return "Pot awarded";
     case "hand_settled": return "Hand settled";
+    case "cards_visibility_changed": return `<strong>${actor}</strong> ${p.shown ? "showed" : "hid"} cards`;
     default: return escapeHtml(ev.event_type);
   }
 }
@@ -5437,6 +5508,10 @@ function bindEvents() {
   el.betRaiseBtn.addEventListener("click", () => {
     const hand = getLatestHand();
     const hp = getMyHandPlayer();
+    if (canToggleHeroShowCards(hand, hp)) {
+      void setHeroShowCards(!Boolean(hp?.manually_shown));
+      return;
+    }
     const actionLocked = state.pendingAction;
     const { canAggress } = getBetBounds(hand, hp);
     const myTurn = Boolean(
