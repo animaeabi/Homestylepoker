@@ -1642,6 +1642,13 @@ begin
     return null;
   end if;
 
+  -- If only one player still has chips behind, betting is closed.
+  -- The runtime should continue dealing streets / showdown without
+  -- granting that player another decision they cannot be contested on.
+  if coalesce(array_length(v_actionable_seats, 1), 0) = 1 then
+    return null;
+  end if;
+
   -- Heads-up postflop: the dealer/button acts first.
   if array_length(v_actionable_seats, 1) = 2
      and p_button_seat is not null

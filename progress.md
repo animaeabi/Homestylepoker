@@ -1357,3 +1357,5 @@ Update (dynamic bot personality + hidden personality UI):
   - add-bot toast no longer announces the archetype
   - seat badge now shows generic `AI` instead of `AI · Tight-Agg` style labels
 - Bumped `/Users/abishek/Documents/poker-buyins/online-table.html` bundle to `v=137`.
+
+- 2026-03-10: Strengthened active-turn highlight styling and lowered hero action chip for clearer turn ownership on mobile.

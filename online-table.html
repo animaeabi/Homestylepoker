@@ -1313,9 +1313,43 @@
       .seat-node:hover { border-color: rgba(255,255,255,0.15); }
 
       .seat-node.active-turn {
-        border-color: rgba(236,178,86,0.5);
-        box-shadow: 0 0 0 2px rgba(236,178,86,0.22), 0 0 20px rgba(236,178,86,0.12);
+        border-color: rgba(247,199,104,0.86);
+        background: linear-gradient(180deg, rgba(28,20,10,0.98), rgba(15,11,7,0.98));
+        box-shadow:
+          0 0 0 2px rgba(247,199,104,0.34),
+          0 0 0 5px rgba(247,199,104,0.1),
+          0 0 28px rgba(247,199,104,0.22),
+          0 8px 22px rgba(0,0,0,0.34);
         animation: turnPulse 2s ease-in-out infinite;
+      }
+
+      .seat-node.active-turn .seat-avatar,
+      .my-hand-area.active-turn .my-hand-avatar {
+        box-shadow:
+          0 0 0 3px rgba(247,199,104,0.38),
+          0 0 22px rgba(247,199,104,0.34),
+          0 0 34px rgba(247,199,104,0.18);
+        filter: brightness(1.06);
+      }
+
+      .seat-node.active-turn .seat-name,
+      .my-hand-area.active-turn .my-hand-name {
+        color: #fff4dd;
+      }
+
+      .seat-node.active-turn .seat-stack,
+      .my-hand-area.active-turn .my-hand-stack {
+        color: #ffd98d;
+      }
+
+      .my-hand-area.active-turn .my-hand-nameplate {
+        border-color: rgba(247,199,104,0.82);
+        background: linear-gradient(180deg, rgba(27,20,10,0.98), rgba(15,11,7,0.99));
+        box-shadow:
+          0 0 0 2px rgba(247,199,104,0.32),
+          0 0 0 5px rgba(247,199,104,0.08),
+          0 0 28px rgba(247,199,104,0.18),
+          0 10px 26px rgba(0,0,0,0.34);
       }
 
       .seat-node.voice-speaking {
@@ -1332,8 +1366,20 @@
       }
 
       @keyframes turnPulse {
-        0%, 100% { box-shadow: 0 0 0 2px rgba(236,178,86,0.22), 0 0 20px rgba(236,178,86,0.12); }
-        50% { box-shadow: 0 0 0 3px rgba(236,178,86,0.34), 0 0 30px rgba(236,178,86,0.2); }
+        0%, 100% {
+          box-shadow:
+            0 0 0 2px rgba(247,199,104,0.34),
+            0 0 0 5px rgba(247,199,104,0.1),
+            0 0 28px rgba(247,199,104,0.22),
+            0 8px 22px rgba(0,0,0,0.34);
+        }
+        50% {
+          box-shadow:
+            0 0 0 3px rgba(247,199,104,0.46),
+            0 0 0 7px rgba(247,199,104,0.14),
+            0 0 40px rgba(247,199,104,0.28),
+            0 10px 28px rgba(0,0,0,0.38);
+        }
       }
 
       .seat-node.active-turn.overtime,
@@ -1651,7 +1697,7 @@
 
       .seat-bet--hero {
         left: 50%;
-        bottom: calc(100% + 30px);
+        bottom: calc(100% + 16px);
         transform: translateX(-50%);
       }
 
@@ -3283,7 +3329,12 @@
           margin-top: -20px;
           font-size: 10px;
         }
-        .seat-node.active-turn { border-color: rgba(236,178,86,0.56) !important; box-shadow: 0 0 14px rgba(236,178,86,0.26) !important; }
+        .seat-node.active-turn {
+          border-color: rgba(247,199,104,0.88) !important;
+          box-shadow:
+            0 0 0 2px rgba(247,199,104,0.32),
+            0 0 18px rgba(247,199,104,0.24) !important;
+        }
         .seat-node.allin-seat { border-color: var(--red) !important; }
         .seat-node.winner-seat { border-color: var(--gold) !important; box-shadow: 0 0 20px rgba(212,175,85,0.3) !important; }
         .seat-node .seat-cards-row:not(.compact-opponent) { display: none !important; }
@@ -3647,6 +3698,7 @@
         .preset-chip[data-fraction="1"] { grid-area: frac4; }
 
         .seat-bet { font-size: 10px !important; padding: 2px 6px !important; }
+        .seat-bet--hero { bottom: calc(100% + 10px) !important; }
         .seat-win-amount { font-size: 14px !important; }
         .seat-rebuy-btn { font-size: 11px !important; padding: 6px 14px !important; }
         .seat-popover { z-index: 30 !important; }
@@ -3897,7 +3949,12 @@
           margin-top: -24px;
           font-size: 11px;
         }
-        .seat-node.active-turn { border-color: #f2b85f !important; box-shadow: 0 0 22px rgba(242,184,95,0.4) !important; }
+        .seat-node.active-turn {
+          border-color: #f6c56f !important;
+          box-shadow:
+            0 0 0 2px rgba(246,197,111,0.32),
+            0 0 26px rgba(246,197,111,0.3) !important;
+        }
         .seat-node.allin-seat { border-color: var(--red) !important; }
         .seat-node.winner-seat { border-color: var(--gold) !important; box-shadow: 0 0 18px rgba(212,175,85,0.28) !important; }
         .seat-node .seat-cards-row:not(.compact-opponent),
@@ -4285,6 +4342,7 @@
         .preset-chip[data-fraction="1"] { grid-area: frac4; }
 
         .seat-bet { font-size: 10px !important; padding: 2px 6px !important; }
+        .seat-bet--hero { bottom: calc(100% + 10px) !important; }
         .seat-win-amount { font-size: 13px !important; }
         .seat-rebuy-btn { font-size: 11px !important; padding: 6px 14px !important; }
         .seat-popover { z-index: 30 !important; }
@@ -4588,6 +4646,6 @@
     <div class="voice-audio-rack" id="voiceAudioRack" aria-hidden="true"></div>
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
-    <script type="module" src="./online/table_app.js?v=140"></script>
+    <script type="module" src="./online/table_app.js?v=141"></script>
   </body>
 </html>
