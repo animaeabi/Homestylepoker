@@ -17,6 +17,8 @@ const BOARD_REVEAL_LAND_MS = 500;
 const BOARD_REVEAL_FLIP_MS = 380;
 const BOARD_REVEAL_CARD_BREATH_MS = 130;
 const BOARD_REVEAL_SEQUENCE_STEP_MS = BOARD_REVEAL_LAND_MS + BOARD_REVEAL_FLIP_MS + BOARD_REVEAL_CARD_BREATH_MS;
+const BOARD_REVEAL_GHOST_OUT_DELAY_MS = 40;
+const BOARD_REVEAL_GHOST_OUT_MS = 140;
 const STREET_REVEAL_DEFER_MS = 90;
 // Hold the final street-closing action long enough that players can actually read it
 // before the next board card or showdown sequence starts.
@@ -2686,10 +2688,17 @@ function getStreetRevealMeta(index, hand = getLatestHand()) {
   if (elapsed >= getStreetRevealTotalMs(anim)) return null;
   const flipDelayMs = getStreetRevealFlipDelayMs(anim, index);
   const revealedSet = new Set(anim.revealedIndices || []);
+  const settleThresholdMs =
+    flipDelayMs +
+    BOARD_REVEAL_FLIP_MS +
+    BOARD_REVEAL_GHOST_OUT_DELAY_MS +
+    BOARD_REVEAL_GHOST_OUT_MS -
+    12;
   return {
     landDelayMs: Math.max(0, getStreetRevealLandDelayMs(anim, index) - elapsed),
     flipDelayMs: Math.max(0, flipDelayMs - elapsed),
-    showUnderlay: revealedSet.has(index) || elapsed >= (flipDelayMs + BOARD_REVEAL_FLIP_MS - 36),
+    // Prevent static-card and flight-card overlap at the handoff moment.
+    showUnderlay: revealedSet.has(index) || elapsed >= settleThresholdMs,
   };
 }
 
@@ -2901,7 +2910,12 @@ function maybeLaunchStreetRevealFx(hand = getLatestHand()) {
     inner.append(backFace, frontFace);
     flight.appendChild(inner);
 
-    const finishAt = flipAtMs + BOARD_REVEAL_FLIP_MS + 60;
+    const finishAt =
+      flipAtMs +
+      BOARD_REVEAL_FLIP_MS +
+      BOARD_REVEAL_GHOST_OUT_DELAY_MS +
+      BOARD_REVEAL_GHOST_OUT_MS -
+      12;
     flight.addEventListener("animationend", () => {
       if (Date.now() - anim.startedAt >= finishAt) flight.remove();
     });
@@ -2910,7 +2924,10 @@ function maybeLaunchStreetRevealFx(hand = getLatestHand()) {
 
     soundTimers.push(setTimeout(() => sounds.deal(), Math.max(0, landDelayMs - 10)));
     soundTimers.push(setTimeout(() => sounds.streetFlip(), Math.max(0, flipDelayMs + 40)));
-    const settleDelayMs = Math.max(0, flipDelayMs + BOARD_REVEAL_FLIP_MS - 28);
+    const settleDelayMs = Math.max(
+      0,
+      flipDelayMs + BOARD_REVEAL_FLIP_MS + BOARD_REVEAL_GHOST_OUT_DELAY_MS + BOARD_REVEAL_GHOST_OUT_MS - 12
+    );
     const settleTimer = setTimeout(() => {
       const live = state.streetRevealAnimation;
       if (!live || live.key !== anim.key) return;
