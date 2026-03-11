@@ -20,6 +20,7 @@ const BOARD_REVEAL_CARD_BREATH_MS = 130;
 const BOARD_REVEAL_SEQUENCE_STEP_MS = BOARD_REVEAL_LAND_MS + BOARD_REVEAL_FLIP_AFTER_LAND_MS + BOARD_REVEAL_FLIP_MS + BOARD_REVEAL_CARD_BREATH_MS;
 const BOARD_REVEAL_GHOST_OUT_DELAY_MS = 40;
 const BOARD_REVEAL_GHOST_OUT_MS = 140;
+const BOARD_REVEAL_SETTLE_AFTER_FLIP_MS = 10;
 const STREET_REVEAL_DEFER_MS = 90;
 // Hold the final street-closing action long enough that players can actually read it
 // before the next board card or showdown sequence starts.
@@ -2692,9 +2693,7 @@ function getStreetRevealMeta(index, hand = getLatestHand()) {
   const settleThresholdMs =
     flipDelayMs +
     BOARD_REVEAL_FLIP_MS +
-    BOARD_REVEAL_GHOST_OUT_DELAY_MS +
-    BOARD_REVEAL_GHOST_OUT_MS -
-    12;
+    BOARD_REVEAL_SETTLE_AFTER_FLIP_MS;
   return {
     landDelayMs: Math.max(0, getStreetRevealLandDelayMs(anim, index) - elapsed),
     flipDelayMs: Math.max(0, flipDelayMs - elapsed),
@@ -2929,10 +2928,7 @@ function maybeLaunchStreetRevealFx(hand = getLatestHand()) {
 
     soundTimers.push(setTimeout(() => sounds.deal(), Math.max(0, landDelayMs - 10)));
     soundTimers.push(setTimeout(() => sounds.streetFlip(), Math.max(0, flipDelayMs + 40)));
-    const settleDelayMs = Math.max(
-      0,
-      flipDelayMs + BOARD_REVEAL_FLIP_MS + BOARD_REVEAL_GHOST_OUT_DELAY_MS + BOARD_REVEAL_GHOST_OUT_MS - 12
-    );
+    const settleDelayMs = Math.max(0, flipDelayMs + BOARD_REVEAL_FLIP_MS + BOARD_REVEAL_SETTLE_AFTER_FLIP_MS);
     const settleTimer = setTimeout(() => {
       const live = state.streetRevealAnimation;
       if (!live || live.key !== anim.key) return;
