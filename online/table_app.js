@@ -628,63 +628,9 @@ function isUsableAudioTrack(track) {
 }
 
 function getParticipantAudioTrack(participant) {
-  const audioState = participant?.tracks?.audio;
-  if (!audioState) return null;
-  const candidates = [
-    audioState?.persistentTrack,
-    audioState?.track,
-    audioState,
-  ];
-  for (const candidate of candidates) {
-    if (isUsableAudioTrack(candidate)) return candidate;
-  }
-  return null;
-}
-
-function isAudioPlaybackBlocked(error) {
-  const name = String(error?.name || "");
-  return /NotAllowedError|AbortError/i.test(name);
-}
-
-async function ensureVoiceAudioContextUnlocked() {
-  const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
-  if (!AudioContextCtor) return null;
-  if (!state.voiceAudioContext || state.voiceAudioContext.state === "closed") {
-    state.voiceAudioContext = new AudioContextCtor();
-  }
-  if (state.voiceAudioContext.state === "suspended") {
-    try {
-      await state.voiceAudioContext.resume();
-    } catch {}
-  }
-  return state.voiceAudioContext;
-}
-
-function routeTrackToVoiceAudioContext(participantKey, track) {
-  const ctx = state.voiceAudioContext;
-  if (!ctx || ctx.state !== "running" || !participantKey || !isUsableAudioTrack(track)) return false;
-  const nextTrackId = String(track.id || "");
-  const current = state.voiceAudioNodes.get(participantKey);
-  if (current?.trackId === nextTrackId) return true;
-  if (current) {
-    try { current.source.disconnect(); } catch {}
-    try { current.gain.disconnect(); } catch {}
-    state.voiceAudioNodes.delete(participantKey);
-  }
-
-  try {
-    const stream = new MediaStream([track]);
-    const source = ctx.createMediaStreamSource(stream);
-    const gain = ctx.createGain();
-    gain.gain.value = 1;
-    source.connect(gain);
-    gain.connect(ctx.destination);
-    state.voiceAudioNodes.set(participantKey, { source, gain, trackId: nextTrackId });
-    return true;
-  } catch (error) {
-    console.warn("Failed to route remote audio through AudioContext", error);
-    return false;
-  }
+  const audio = participant?.tracks?.audio;
+  if (!audio) return null;
+  return audio.persistentTrack || audio.track || null;
 }
 
 function upsertVoiceAudioElement(participantKey, track) {
@@ -713,21 +659,11 @@ function upsertVoiceAudioElement(participantKey, track) {
       return audio;
     }
   }
-  if (routeTrackToVoiceAudioContext(participantKey, track)) {
-    audio.muted = true;
-    audio.volume = 0;
-    return audio;
-  }
   audio.muted = false;
   audio.volume = 1;
   const playResult = audio.play?.();
   if (playResult && typeof playResult.catch === "function") {
-    playResult.catch((error) => {
-      if (!state.voiceAudioPlaybackWarned && isAudioPlaybackBlocked(error)) {
-        state.voiceAudioPlaybackWarned = true;
-        toast("Audio output is blocked. Tap the Voice button once to enable speaker.", "error");
-      }
-    });
+    playResult.catch(() => {});
   }
   return audio;
 }
@@ -756,12 +692,6 @@ function syncVoiceAudioRack() {
 
   for (const [key, audio] of state.voiceAudioElements.entries()) {
     if (keep.has(key)) continue;
-    const nodeEntry = state.voiceAudioNodes.get(key);
-    if (nodeEntry) {
-      try { nodeEntry.source.disconnect(); } catch {}
-      try { nodeEntry.gain.disconnect(); } catch {}
-      state.voiceAudioNodes.delete(key);
-    }
     try { audio.pause(); } catch {}
     try { audio.srcObject = null; } catch {}
     audio.remove();
@@ -799,16 +729,7 @@ async function ensureVoiceCallObject() {
   call.on("participant-joined", syncVoiceAudioRack);
   call.on("participant-updated", syncVoiceAudioRack);
   call.on("participant-left", syncVoiceAudioRack);
-  call.on("track-started", (event) => {
-    const participant = event?.participant;
-    const track = event?.track;
-    if (!participant || participant.local) return;
-    if (!isUsableAudioTrack(track)) return;
-    const key = String(participant.session_id || participant.sessionId || participant.user_id || participant.id || "");
-    if (!key) return;
-    upsertVoiceAudioElement(key, track);
-    syncVoiceAudioRack();
-  });
+  call.on("track-started", syncVoiceAudioRack);
   call.on("track-stopped", syncVoiceAudioRack);
 
   call.on("error", (event) => {
@@ -851,7 +772,7 @@ async function ensureVoiceConnected({ unmute = false } = {}) {
       userName: state.identity?.name || "Player",
       audioSource: true,
       videoSource: false,
-      startAudioOff: false,
+      startAudioOff: true,
       startVideoOff: true,
       subscribeToTracksAutomatically: true,
       dailyConfig: { avoidEval: true },
@@ -865,21 +786,7 @@ async function ensureVoiceConnected({ unmute = false } = {}) {
       joinPayload.token = session.meeting_token;
       await call.join(joinPayload);
     }
-    if (typeof call.updateReceiveSettings === "function") {
-      try {
-        await call.updateReceiveSettings({
-          "*": { audio: true, video: false, screenVideo: false },
-        });
-      } catch (error) {
-        console.warn("Failed to update voice receive settings", error);
-      }
-    }
     try { await call.setLocalAudio(Boolean(unmute)); } catch {}
-    if (unmute) {
-      setTimeout(() => {
-        try { call.setLocalAudio(true); } catch {}
-      }, 180);
-    }
     state.voiceSpeaking = Boolean(unmute);
     state.voiceConnected = true;
     syncVoiceAudioRack();
@@ -1007,7 +914,6 @@ async function joinTableVoiceCall({ fromIncoming = false } = {}) {
   }
   try {
     await ensureMicrophonePermissionForVoiceCall();
-    await ensureVoiceAudioContextUnlocked();
     const call = await ensureVoiceConnected({ unmute: true });
     call.setLocalAudio(true);
     state.voiceSpeaking = true;
