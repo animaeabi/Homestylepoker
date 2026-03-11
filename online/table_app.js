@@ -34,7 +34,6 @@ const SHOWDOWN_PAYOUT_FX_DELAY_MS = 180;
 const POT_BUMP_MS = 520;
 const CHIP_PUSH_MS = 760;
 const CHIP_PUSH_STAGGER_MS = 48;
-const VOICE_INCOMING_RING_COOLDOWN_MS = 4200;
 const TURN_GRACE_REQUEST_SECS = 3;
 const TURN_GRACE_REQUEST_THRESHOLD_SECS = 4;
 const TURN_GRACE_MAX_SECS = 6;
@@ -247,8 +246,6 @@ const state = {
   voiceConnected: false,
   voiceJoining: false,
   voiceSpeaking: false,
-  voiceIncomingDismissedCallKey: null,
-  voiceLastIncomingRingAt: 0,
   voiceBudgetLocked: false,
   voiceUsageMinutes: 0,
   voiceUsageLimit: 9000,
@@ -372,8 +369,6 @@ function resetVoiceState() {
   state.voiceConnected = false;
   state.voiceJoining = false;
   state.voiceSpeaking = false;
-  state.voiceIncomingDismissedCallKey = null;
-  state.voiceLastIncomingRingAt = 0;
   state.voiceBudgetLocked = false;
   state.voiceUsageMinutes = 0;
   state.voiceUsageLimit = 9000;
@@ -404,7 +399,7 @@ function getServerVoiceState() {
   const rawSpeakerName = voice?.speaker_name || voice?.speakerName || "";
   const expiresAt = voice?.floor_expires_at || voice?.floorExpiresAt || null;
   const rawCallStatus = String(voice?.call_status || voice?.callStatus || "").toLowerCase();
-  const callStatus = (rawCallStatus === "ringing" || rawCallStatus === "active") ? rawCallStatus : "idle";
+  const callStatus = rawCallStatus === "active" ? "active" : "idle";
   const rawCallerId = (
     voice?.call_started_by_player_id ||
     voice?.call_started_by_group_player_id ||
@@ -449,28 +444,16 @@ function canControlTableCall() {
   );
 }
 
-function getVoiceCallKey(serverVoice = getServerVoiceState()) {
-  if (!serverVoice.callActive) return "";
-  return `${serverVoice.callStartedByPlayerId || "?"}:${serverVoice.callStartedAt || 0}`;
-}
-
-function hasIncomingCall(serverVoice = getServerVoiceState()) {
-  if (!serverVoice.callActive || !canUseVoice() || canControlTableCall()) return false;
-  const callKey = getVoiceCallKey(serverVoice);
-  if (!callKey) return false;
-  return state.voiceIncomingDismissedCallKey !== callKey;
-}
-
 function getVoiceUiState() {
   const serverVoice = getServerVoiceState();
   if (state.voiceJoining) return "joining";
-  if (state.voiceConnected) return canControlTableCall() ? "end_call" : "connected";
   if (state.voiceBudgetLocked) return "locked";
   if (!canUseVoice()) return "disabled";
-  if (canControlTableCall()) return serverVoice.callActive ? "end_call" : "start_call";
-  if (serverVoice.callStatus === "ringing" && hasIncomingCall(serverVoice)) return "incoming";
-  if (serverVoice.callActive) return "join_call";
-  return "hidden";
+  if (!serverVoice.callActive) {
+    return canControlTableCall() ? "start_call" : "hidden";
+  }
+  if (state.voiceConnected) return canControlTableCall() ? "end_call" : "connected";
+  return "join_call";
 }
 
 function renderVoiceUi() {
@@ -478,16 +461,6 @@ function renderVoiceUi() {
   const button = el.voiceFab;
   const panel = el.voiceCallPanel;
   const serverVoice = getServerVoiceState();
-  const callKey = getVoiceCallKey(serverVoice);
-  if (callKey && state.voiceIncomingDismissedCallKey && state.voiceIncomingDismissedCallKey !== callKey) {
-    state.voiceIncomingDismissedCallKey = null;
-  }
-
-  const showIncomingPanel = Boolean(
-    hasIncomingCall(serverVoice) &&
-    !state.voiceConnected &&
-    !state.voiceJoining
-  );
   const shouldShowButton = Boolean(
     visible &&
     canUseVoice() &&
@@ -502,7 +475,7 @@ function renderVoiceUi() {
   if (!button) return;
   button.classList.toggle("hidden", !shouldShowButton);
   if (panel) {
-    panel.classList.toggle("hidden", !showIncomingPanel);
+    panel.classList.add("hidden");
   }
   if (!shouldShowButton) return;
 
@@ -512,11 +485,10 @@ function renderVoiceUi() {
   button.disabled = disabled || state.voiceJoining;
 
   let label = "Voice";
-  if (uiState === "start_call") label = "Start table call";
-  else if (uiState === "incoming") label = "Incoming call — answer";
-  else if (uiState === "join_call") label = "Join call";
-  else if (uiState === "connected") label = "Leave call";
-  else if (uiState === "end_call") label = "End table call";
+  if (uiState === "start_call") label = "Enable table voice";
+  else if (uiState === "join_call") label = "Join table voice";
+  else if (uiState === "connected") label = "Leave table voice";
+  else if (uiState === "end_call") label = "End table voice";
   else if (uiState === "joining") label = "Joining voice";
   else if (uiState === "locked") label = "Voice unavailable until next month";
   else if (uiState === "disabled") label = "Take a seat to use voice";
@@ -529,12 +501,6 @@ function renderVoiceUi() {
     const showDot = uiState !== "hidden" && uiState !== "disabled";
     el.voiceFabDot.classList.toggle("hidden", !showDot);
     el.voiceFabDot.dataset.state = uiState;
-  }
-
-  if (panel && showIncomingPanel) {
-    const caller = serverVoice.callStartedByName || "Host";
-    if (el.voiceCallTitle) el.voiceCallTitle.textContent = "Incoming table call";
-    if (el.voiceCallSubtitle) el.voiceCallSubtitle.textContent = `${caller} is calling. Answer to join the live group call.`;
   }
 }
 
@@ -894,40 +860,32 @@ async function disconnectVoice({ silent = false, destroy = false } = {}) {
   }
 }
 
-function maybeRingIncomingCall(serverVoice = getServerVoiceState()) {
-  if (!hasIncomingCall(serverVoice) || state.voiceConnected || state.voiceJoining) return;
-  if (Date.now() - Number(state.voiceLastIncomingRingAt || 0) < VOICE_INCOMING_RING_COOLDOWN_MS) return;
-  state.voiceLastIncomingRingAt = Date.now();
-  sounds.ring();
-}
-
-async function joinTableVoiceCall({ fromIncoming = false } = {}) {
+async function joinTableVoiceCall({ silentSuccess = false, allowInactiveState = false } = {}) {
   if (!canUseVoice()) {
     toast("Take a seat to use voice.", "error");
-    return;
+    return false;
   }
   const serverVoice = getServerVoiceState();
-  if (!serverVoice.callActive) {
-    toast("No active table call yet.");
+  if (!allowInactiveState && !serverVoice.callActive) {
+    toast("Table voice is not live yet.");
     renderVoiceUi();
-    return;
+    return false;
   }
   try {
     await ensureMicrophonePermissionForVoiceCall();
     const call = await ensureVoiceConnected({ unmute: true });
     call.setLocalAudio(true);
     state.voiceSpeaking = true;
-    if (fromIncoming) {
-      state.voiceIncomingDismissedCallKey = getVoiceCallKey(serverVoice);
-    }
-    toast("Joined table call", "success");
+    if (!silentSuccess) toast("Joined table voice", "success");
     renderVoiceUi();
+    return true;
   } catch (error) {
     if (state.voiceConnected || state.voiceCall) {
       await disconnectVoice({ silent: true, destroy: true });
     }
     toast(error?.message || "Voice failed", "error");
     renderVoiceUi();
+    return false;
   }
 }
 
@@ -957,8 +915,11 @@ async function startHostedVoiceCall() {
       actorGroupPlayerId: state.identity.groupPlayerId,
       seatToken,
     });
-    await joinTableVoiceCall({ fromIncoming: false });
-    toast("Calling seated players…", "success");
+    const joined = await joinTableVoiceCall({ silentSuccess: true, allowInactiveState: true });
+    toast(
+      joined ? "Table voice enabled" : "Table voice enabled. Tap again to join audio.",
+      joined ? "success" : "error"
+    );
     queueRtRefresh();
   } catch (error) {
     toast(error?.message || "Could not start table call.", "error");
@@ -1008,8 +969,8 @@ async function onVoiceFabClick(event) {
     await startHostedVoiceCall();
     return;
   }
-  if (uiState === "incoming" || uiState === "join_call") {
-    await joinTableVoiceCall({ fromIncoming: uiState === "incoming" });
+  if (uiState === "join_call") {
+    await joinTableVoiceCall();
     return;
   }
   if (uiState === "connected") {
@@ -3818,7 +3779,6 @@ async function loadTableState() {
       applyServerChatHistory(ts.chat_messages);
     }
     const voiceState = getServerVoiceState();
-    maybeRingIncomingCall(voiceState);
     if ((state.voiceConnected || state.voiceJoining) && (!canUseVoice() || !voiceState.callActive)) {
       void disconnectVoice({ silent: true, destroy: false });
     }
@@ -5692,15 +5652,6 @@ function bindEvents() {
   el.chatHeader?.addEventListener("pointercancel", endChatDrag);
 
   el.voiceFab?.addEventListener("click", onVoiceFabClick);
-  el.voiceCallAnswer?.addEventListener("click", () => {
-    void joinTableVoiceCall({ fromIncoming: true });
-  });
-  el.voiceCallDismiss?.addEventListener("click", () => {
-    const serverVoice = getServerVoiceState();
-    const callKey = getVoiceCallKey(serverVoice);
-    state.voiceIncomingDismissedCallKey = callKey || null;
-    renderVoiceUi();
-  });
 
   el.chatClose?.addEventListener("click", () => {
     toggleChat(false);

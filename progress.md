@@ -1434,3 +1434,7 @@ Validation:
 - `node --check /Users/abishek/Documents/poker-buyins/online/table_app.js` (pass)
 - `node --check /Users/abishek/Documents/poker-buyins/online/client.js` (pass)
 - Playwright smoke against local table page completed (no new runtime crash): `/Users/abishek/Documents/poker-buyins/output/web-game/shot-0.png`
+
+- Simplified table voice to shared-room semantics: host enables/disables table voice, seated players join/leave directly, no ringing/incoming-answer flow.
+- Updated client voice UI state machine in `online/table_app.js` and added migration `20260311191500_simplify_table_voice_to_shared_room.sql` so host-start marks voice active immediately.
+- Fixed host-start race in shared voice flow: host can now join immediately after enabling table voice without waiting for a table-state refresh.

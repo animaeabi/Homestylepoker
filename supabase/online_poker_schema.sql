@@ -999,7 +999,7 @@ begin
   )
   values (
     p_table_id,
-    'ringing',
+    'active',
     p_actor_group_player_id,
     v_now,
     null,
@@ -1008,7 +1008,7 @@ begin
   )
   on conflict (table_id) do update
     set
-      call_status = 'ringing',
+      call_status = 'active',
       call_started_by_group_player_id = excluded.call_started_by_group_player_id,
       call_started_at = excluded.call_started_at,
       active_speaker_group_player_id = null,
