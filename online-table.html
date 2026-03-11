@@ -566,15 +566,11 @@
 
       .board-deal-target.board-card-hidden {
         opacity: 0;
-        transform: translateY(3px) scale(0.972);
-        transition:
-          opacity 150ms ease,
-          transform 180ms cubic-bezier(0.2, 0.9, 0.2, 1);
+        transition: opacity 150ms ease;
       }
 
       .board-deal-target.board-card-hidden.board-card-settling {
         opacity: 1;
-        transform: translateY(0) scale(1);
       }
 
       @keyframes boardCardLand {
@@ -589,10 +585,6 @@
         70% {
           opacity: 1;
           transform: translate(var(--mid-x), var(--mid-y)) scale(0.94) rotate(var(--mid-rot, -4deg));
-        }
-        88% {
-          opacity: 1;
-          transform: translate(var(--to-x), calc(var(--to-y) - 8px)) scale(1.015) rotate(var(--to-rot, 0deg));
         }
         100% {
           opacity: 1;
@@ -4668,6 +4660,6 @@
     <div class="voice-audio-rack" id="voiceAudioRack" aria-hidden="true"></div>
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
-    <script type="module" src="./online/table_app.js?v=151"></script>
+    <script type="module" src="./online/table_app.js?v=152"></script>
   </body>
 </html>

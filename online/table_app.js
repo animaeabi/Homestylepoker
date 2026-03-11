@@ -2761,11 +2761,17 @@ function getDealFlightPath(fromX, fromY, toX, toY, cardIndex = 1) {
 }
 
 function getBoardRevealFlightPath(fromX, fromY, toX, toY, cardIndex = 1) {
-  const path = getDealFlightPath(fromX, fromY, toX, toY, cardIndex);
+  const dx = toX - fromX;
+  const dy = toY - fromY;
+  const distance = Math.hypot(dx, dy);
+  const arcLift = Math.max(18, Math.min(44, distance * 0.14));
+  const fromRot = dx >= 0 ? -8 : 8;
   return {
-    midX: path.midX,
-    midY: path.midY,
-    fromRot: path.fromRot * 0.5,
+    // Keep board reveals tight to the target slot so they "snap" into
+    // the board placeholder rather than drifting beside it.
+    midX: fromX + dx * 0.72,
+    midY: fromY + dy * 0.58 - arcLift,
+    fromRot,
     midRot: 0,
     toRot: 0,
   };
