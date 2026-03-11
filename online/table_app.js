@@ -17,9 +17,7 @@ const BOARD_REVEAL_LAND_MS = 520;
 const BOARD_REVEAL_FLIP_MS = 420;
 const BOARD_REVEAL_FLIP_STAGGER_MS = 80;
 const STREET_REVEAL_DEFER_MS = 90;
-// Hold the final street-closing action long enough that players can actually read it
-// before the next board card or showdown sequence starts.
-const ROUND_TRANSITION_BREATH_MS = 760;
+const ROUND_TRANSITION_BREATH_MS = 320;
 const SHOWDOWN_RESULT_BREATH_MS = 460;
 const SHOWDOWN_COMBO_REVEAL_PAUSE_MS = 520;
 const SHOWDOWN_PAYOUT_FX_DELAY_MS = 180;
