@@ -1359,3 +1359,4 @@ Update (dynamic bot personality + hidden personality UI):
 - Bumped `/Users/abishek/Documents/poker-buyins/online-table.html` bundle to `v=137`.
 
 - 2026-03-10: Strengthened active-turn highlight styling and lowered hero action chip for clearer turn ownership on mobile.
+- 2026-03-10: Cleared seat payout tags when chip-push finishes and tightened iPhone portrait winner/board stack spacing for less overlap near lower seats.

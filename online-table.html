@@ -3703,6 +3703,28 @@
         .seat-rebuy-btn { font-size: 11px !important; padding: 6px 14px !important; }
         .seat-popover { z-index: 30 !important; }
         .table-deal-btn { bottom: 22% !important; font-size: 16px !important; padding: 12px 32px !important; }
+
+        @supports (-webkit-touch-callout: none) {
+          .table-center { top: 51.8% !important; }
+          .pot-display { margin-top: 6px !important; }
+          .board-cards { margin-top: 8px !important; }
+          .victory-popup {
+            top: calc(50% - 104px) !important;
+            width: min(236px, calc(100vw - 88px)) !important;
+            padding: 9px 11px !important;
+            border-color: rgba(236,178,86,0.26) !important;
+            background:
+              radial-gradient(circle at 50% 50%, rgba(62,145,108,0.18) 0%, rgba(18,30,34,0.04) 62%),
+              linear-gradient(180deg, rgba(10,16,22,0.7), rgba(8,12,18,0.62)) !important;
+            box-shadow:
+              0 18px 40px rgba(0,0,0,0.34),
+              0 0 28px rgba(79,221,190,0.12),
+              0 0 50px rgba(236,178,86,0.12),
+              inset 0 1px 0 rgba(255,255,255,0.06) !important;
+          }
+          .victory-popup-title { font-size: 11px !important; }
+          .victory-popup-detail { font-size: 16px !important; }
+        }
       }
 
       /* ========== LANDSCAPE MODE ========== */
@@ -4646,6 +4668,6 @@
     <div class="voice-audio-rack" id="voiceAudioRack" aria-hidden="true"></div>
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
-    <script type="module" src="./online/table_app.js?v=141"></script>
+    <script type="module" src="./online/table_app.js?v=142"></script>
   </body>
 </html>

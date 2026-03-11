@@ -2941,6 +2941,7 @@ function maybeLaunchPotPushFx(hand = getLatestHand()) {
 
   anim.launched = true;
   if (!created) {
+    state.winOverlays.clear();
     state.potPushAnimation = null;
     return;
   }
@@ -2950,7 +2951,9 @@ function maybeLaunchPotPushFx(hand = getLatestHand()) {
   if (el.potAmount) el.potAmount.textContent = fmtShort(0);
   anim.cleanupTimer = setTimeout(() => {
     if (el.potDisplay) el.potDisplay.classList.remove("pot-paying");
+    state.winOverlays.clear();
     if (state.potPushAnimation?.handId === anim.handId) state.potPushAnimation = null;
+    renderAll();
   }, CHIP_PUSH_MS + anim.winners.length * 120 + 600);
 }
 
