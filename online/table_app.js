@@ -21,9 +21,9 @@ const BOARD_REVEAL_CARD_BREATH_MS = 130;
 const BOARD_REVEAL_SEQUENCE_STEP_MS = BOARD_REVEAL_LAND_MS + BOARD_REVEAL_FLIP_AFTER_LAND_MS + BOARD_REVEAL_FLIP_MS + BOARD_REVEAL_CARD_BREATH_MS;
 const BOARD_REVEAL_GHOST_OUT_DELAY_MS = 40;
 const BOARD_REVEAL_GHOST_OUT_MS = 140;
-// Negative means we reveal the static board card slightly before the flight flip
-// fully ends, preventing a visible close->open handoff gap.
-const BOARD_REVEAL_SETTLE_AFTER_FLIP_MS = -56;
+// Reveal static board card just after the flip completes to avoid
+// close->close->open overlap artifacts.
+const BOARD_REVEAL_SETTLE_AFTER_FLIP_MS = 24;
 const STREET_REVEAL_DEFER_MS = 90;
 // Hold the final street-closing action long enough that players can actually read it
 // before the next board card or showdown sequence starts.
@@ -2783,13 +2783,11 @@ function getDealFlightPath(fromX, fromY, toX, toY, cardIndex = 1) {
 
 function getBoardRevealFlightPath(fromX, fromY, toX, toY, cardIndex = 1) {
   const dx = toX - fromX;
-  const dy = toY - fromY;
-  const fromRot = dx >= 0 ? -6 : 6;
+  const fromRot = dx >= 0 ? -4 : 4;
   return {
-    // Make the slot feel magnetic: mostly straight into the board slot
-    // with almost no arc or overshoot.
-    midX: fromX + dx * 0.9,
-    midY: fromY + dy * 0.9,
+    // Hard magnetic landing: head directly to the exact slot.
+    midX: toX,
+    midY: toY,
     fromRot,
     midRot: 0,
     toRot: 0,
