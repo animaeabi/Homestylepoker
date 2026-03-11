@@ -204,6 +204,10 @@ const state = {
   equityCache: new Map(),
   dealAnimation: null,
   streetRevealAnimation: null,
+  streetRevealSettled: {
+    handId: null,
+    indices: new Set(),
+  },
   potVisual: {
     handId: null,
     chipCount: 0,
@@ -2590,6 +2594,12 @@ function clearStreetRevealFx({ keepState = false } = {}) {
 
 function maybeStartStreetRevealAnimation(oldHand, hand, hadPriorTableState = false, startDelayMs = 0) {
   if (!hand) return;
+  if (state.streetRevealSettled.handId !== hand.id) {
+    state.streetRevealSettled = {
+      handId: hand.id,
+      indices: new Set(),
+    };
+  }
 
   const oldBoard = Array.isArray(oldHand?.board_cards) ? oldHand.board_cards : [];
   const newBoard = Array.isArray(hand.board_cards) ? hand.board_cards : [];
@@ -2666,6 +2676,10 @@ function maybeStartStreetRevealAnimation(oldHand, hand, hadPriorTableState = fal
 }
 
 function getStreetRevealMeta(index, hand = getLatestHand()) {
+  if (
+    state.streetRevealSettled.handId === hand?.id &&
+    state.streetRevealSettled.indices.has(index)
+  ) return null;
   const anim = state.streetRevealAnimation;
   if (!anim || !hand || anim.handId !== hand.id || !anim.indices.includes(index)) return null;
   const elapsed = Date.now() - anim.startedAt;
@@ -2903,6 +2917,9 @@ function maybeLaunchStreetRevealFx(hand = getLatestHand()) {
       if (!Array.isArray(live.revealedIndices)) live.revealedIndices = [];
       if (!live.revealedIndices.includes(boardIndex)) {
         live.revealedIndices = [...live.revealedIndices, boardIndex].sort((a, b) => a - b);
+      }
+      if (state.streetRevealSettled.handId === live.handId) {
+        state.streetRevealSettled.indices.add(boardIndex);
       }
       renderBoard();
     }, settleDelayMs);
