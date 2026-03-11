@@ -4284,22 +4284,30 @@ function renderBoard() {
   el.boardCards.innerHTML = "";
   for (let i = 0; i < 5; i++) {
     const revealMeta = getStreetRevealMeta(i, hand);
+    const settledRevealCard = Boolean(
+      hand
+      && state.streetRevealSettled.handId === hand.id
+      && state.streetRevealSettled.indices.has(i)
+    );
     if (board[i]) {
-      const card = makeCardEl(board[i], false);
-      const boardToken = normCard(board[i]);
-      if (contestedShowdown && resultRevealReady && showdownHighlightData.boardHighlights.size) {
-        if (boardToken && showdownHighlightData.boardHighlights.has(boardToken)) {
-          card.classList.add("showdown-winning-card", "showdown-winning-board-card");
-        } else {
-          card.classList.add("showdown-dimmed-card");
+      if (revealMeta && !settledRevealCard) {
+        const hidden = document.createElement("div");
+        hidden.className = "card card-empty board-deal-target board-card-hidden";
+        hidden.dataset.boardIndex = String(i);
+        if (revealMeta.showUnderlay) hidden.classList.add("board-card-settling");
+        el.boardCards.appendChild(hidden);
+      } else {
+        const card = makeCardEl(board[i], false);
+        const boardToken = normCard(board[i]);
+        if (contestedShowdown && resultRevealReady && showdownHighlightData.boardHighlights.size) {
+          if (boardToken && showdownHighlightData.boardHighlights.has(boardToken)) {
+            card.classList.add("showdown-winning-card", "showdown-winning-board-card");
+          } else {
+            card.classList.add("showdown-dimmed-card");
+          }
         }
+        el.boardCards.appendChild(card);
       }
-      if (revealMeta) {
-        card.classList.add("board-deal-target", "board-card-hidden");
-        if (revealMeta.showUnderlay) card.classList.add("board-card-settling");
-        card.dataset.boardIndex = String(i);
-      }
-      el.boardCards.appendChild(card);
     } else if (revealMeta) {
       const hidden = document.createElement("div");
       hidden.className = "card card-empty board-deal-target board-card-hidden";
