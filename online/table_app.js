@@ -1553,6 +1553,7 @@ function getSeatContributionLabel({
   handPlayer,
   hand = getLatestHand(),
 }) {
+  if (["showdown", "settled"].includes(String(hand?.state || ""))) return "";
   const optimisticLabel = getOptimisticSeatActionLabel(seat?.seat_no, hand);
   if (optimisticLabel) return optimisticLabel;
   const street = getDisplayedActionStreet(hand);
