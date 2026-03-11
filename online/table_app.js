@@ -16,11 +16,14 @@ const BOARD_REVEAL_STAGGER_MS = 120;
 const BOARD_REVEAL_LAND_MS = 500;
 const BOARD_REVEAL_FLIP_AFTER_LAND_MS = 28;
 const BOARD_REVEAL_FLIP_MS = 380;
+const BOARD_REVEAL_FLOP_FLIP_STAGGER_MS = 140;
 const BOARD_REVEAL_CARD_BREATH_MS = 130;
 const BOARD_REVEAL_SEQUENCE_STEP_MS = BOARD_REVEAL_LAND_MS + BOARD_REVEAL_FLIP_AFTER_LAND_MS + BOARD_REVEAL_FLIP_MS + BOARD_REVEAL_CARD_BREATH_MS;
 const BOARD_REVEAL_GHOST_OUT_DELAY_MS = 40;
 const BOARD_REVEAL_GHOST_OUT_MS = 140;
-const BOARD_REVEAL_SETTLE_AFTER_FLIP_MS = 10;
+// Negative means we reveal the static board card slightly before the flight flip
+// fully ends, preventing a visible close->open handoff gap.
+const BOARD_REVEAL_SETTLE_AFTER_FLIP_MS = -56;
 const STREET_REVEAL_DEFER_MS = 90;
 // Hold the final street-closing action long enough that players can actually read it
 // before the next board card or showdown sequence starts.
@@ -2596,6 +2599,39 @@ function clearStreetRevealFx({ keepState = false } = {}) {
   if (!keepState) state.streetRevealAnimation = null;
 }
 
+function buildStreetRevealTimings(indices, baseStartMs, street) {
+  const sorted = [...new Set(indices)].sort((a, b) => a - b);
+  const timings = {};
+  const isFlopBatch = street === "flop"
+    && sorted.length === 3
+    && sorted[0] === 0
+    && sorted[1] === 1
+    && sorted[2] === 2;
+  if (isFlopBatch) {
+    const landMs = baseStartMs;
+    for (let order = 0; order < sorted.length; order += 1) {
+      const idx = sorted[order];
+      timings[idx] = {
+        landMs,
+        flipMs: landMs + BOARD_REVEAL_LAND_MS + BOARD_REVEAL_FLIP_AFTER_LAND_MS + order * BOARD_REVEAL_FLOP_FLIP_STAGGER_MS,
+      };
+    }
+    const lastIdx = sorted[sorted.length - 1];
+    const endMs = Number(timings[lastIdx].flipMs || 0) + BOARD_REVEAL_FLIP_MS + BOARD_REVEAL_CARD_BREATH_MS;
+    return { timings, endMs };
+  }
+
+  let cursorMs = baseStartMs;
+  for (const idx of sorted) {
+    timings[idx] = {
+      landMs: cursorMs,
+      flipMs: cursorMs + BOARD_REVEAL_LAND_MS + BOARD_REVEAL_FLIP_AFTER_LAND_MS,
+    };
+    cursorMs += BOARD_REVEAL_SEQUENCE_STEP_MS;
+  }
+  return { timings, endMs: cursorMs };
+}
+
 function maybeStartStreetRevealAnimation(oldHand, hand, hadPriorTableState = false, startDelayMs = 0) {
   if (!hand) return;
   if (state.streetRevealSettled.handId !== hand.id) {
@@ -2635,30 +2671,15 @@ function maybeStartStreetRevealAnimation(oldHand, hand, hadPriorTableState = fal
       elapsed + BOARD_REVEAL_CARD_BREATH_MS,
       totalMs + BOARD_REVEAL_CARD_BREATH_MS
     );
-    let cursorMs = appendStartMs;
-    existing.timings = existing.timings || {};
-    for (const idx of additions) {
-      existing.timings[idx] = {
-        landMs: cursorMs,
-        flipMs: cursorMs + BOARD_REVEAL_LAND_MS + BOARD_REVEAL_FLIP_AFTER_LAND_MS,
-      };
-      cursorMs += BOARD_REVEAL_SEQUENCE_STEP_MS;
-    }
+    const appended = buildStreetRevealTimings(additions, appendStartMs, hand.state);
+    existing.timings = { ...(existing.timings || {}), ...appended.timings };
     existing.indices = [...new Set([...(existing.indices || []), ...additions])].sort((a, b) => a - b);
     existing.pendingIndices = [...new Set([...(existing.pendingIndices || []), ...additions])].sort((a, b) => a - b);
     return;
   }
 
   const normalizedStartDelayMs = Math.max(0, Number(startDelayMs || 0));
-  const timings = {};
-  for (let order = 0; order < sortedIndices.length; order += 1) {
-    const landMs = normalizedStartDelayMs + order * BOARD_REVEAL_SEQUENCE_STEP_MS;
-    const idx = sortedIndices[order];
-    timings[idx] = {
-      landMs,
-      flipMs: landMs + BOARD_REVEAL_LAND_MS + BOARD_REVEAL_FLIP_AFTER_LAND_MS,
-    };
-  }
+  const scheduled = buildStreetRevealTimings(sortedIndices, normalizedStartDelayMs, hand.state);
 
   clearStreetRevealFx();
   state.streetRevealAnimation = {
@@ -2671,7 +2692,7 @@ function maybeStartStreetRevealAnimation(oldHand, hand, hadPriorTableState = fal
     launchedIndices: [],
     startedAt: Date.now(),
     startDelayMs: normalizedStartDelayMs,
-    timings,
+    timings: scheduled.timings,
     revealedIndices: [],
     cleanupTimer: null,
     soundTimers: [],
@@ -2862,8 +2883,27 @@ function maybeLaunchStreetRevealFx(hand = getLatestHand()) {
     ? anim.pendingIndices.filter((idx) => !launchedSet.has(idx))
     : (anim.indices || []).filter((idx) => !launchedSet.has(idx));
   if (!queue.length) return;
+  const queueOrdered = [...queue].sort((a, b) => a - b);
+  const isFlopBatchReveal = Boolean(
+    anim.street === "flop"
+    && queueOrdered.length === 3
+    && queueOrdered[0] === 0
+    && queueOrdered[1] === 1
+    && queueOrdered[2] === 2
+  );
+  const landDelayByIndex = new Map();
+  for (const boardIndex of queueOrdered) {
+    const landAtMs = getStreetRevealLandDelayMs(anim, boardIndex);
+    if (landAtMs == null) continue;
+    landDelayByIndex.set(boardIndex, Math.max(0, landAtMs - elapsed));
+  }
+  const maxLandDelayMs = landDelayByIndex.size
+    ? Math.max(...Array.from(landDelayByIndex.values()))
+    : 0;
+  const flopBaseFlipDelayMs = Math.max(0, maxLandDelayMs + BOARD_REVEAL_FLIP_AFTER_LAND_MS);
+  let maxFinishDelayMs = 0;
 
-  for (const boardIndex of queue) {
+  for (const boardIndex of queueOrdered) {
     const target = el.boardCards.querySelector(`.board-deal-target[data-board-index="${boardIndex}"]`);
     if (!target) continue;
     const targetRect = target.getBoundingClientRect();
@@ -2874,6 +2914,16 @@ function maybeLaunchStreetRevealFx(hand = getLatestHand()) {
     if (landAtMs == null || flipAtMs == null) continue;
     const landDelayMs = Math.max(0, landAtMs - elapsed);
     const flipDelayMs = Math.max(0, flipAtMs - elapsed);
+    let effectiveLandDelayMs = landDelayMs;
+    let effectiveFlipDelayMs = flipDelayMs;
+    if (isFlopBatchReveal) {
+      const flopOrder = queueOrdered.indexOf(boardIndex);
+      effectiveLandDelayMs = maxLandDelayMs;
+      effectiveFlipDelayMs = Math.max(
+        flopBaseFlipDelayMs + flopOrder * BOARD_REVEAL_FLOP_FLIP_STAGGER_MS,
+        effectiveLandDelayMs + BOARD_REVEAL_FLIP_AFTER_LAND_MS
+      );
+    }
 
     const targetX = targetRect.left - fxRect.left;
     const targetY = targetRect.top - fxRect.top;
@@ -2898,9 +2948,9 @@ function maybeLaunchStreetRevealFx(hand = getLatestHand()) {
     flight.style.setProperty("--to-rot", `${path.toRot}deg`);
     flight.style.setProperty("--card-w", `${targetRect.width}px`);
     flight.style.setProperty("--card-h", `${targetRect.height}px`);
-    flight.style.setProperty("--delay-ms", `${landDelayMs}ms`);
+    flight.style.setProperty("--delay-ms", `${effectiveLandDelayMs}ms`);
     flight.style.setProperty("--flight-ms", `${BOARD_REVEAL_LAND_MS}ms`);
-    flight.style.setProperty("--flip-delay-ms", `${flipDelayMs}ms`);
+    flight.style.setProperty("--flip-delay-ms", `${effectiveFlipDelayMs}ms`);
     flight.style.setProperty("--flip-ms", `${BOARD_REVEAL_FLIP_MS}ms`);
 
     const inner = document.createElement("div");
@@ -2926,9 +2976,9 @@ function maybeLaunchStreetRevealFx(hand = getLatestHand()) {
     el.dealFxLayer.appendChild(flight);
     created += 1;
 
-    soundTimers.push(setTimeout(() => sounds.deal(), Math.max(0, landDelayMs - 10)));
-    soundTimers.push(setTimeout(() => sounds.streetFlip(), Math.max(0, flipDelayMs + 40)));
-    const settleDelayMs = Math.max(0, flipDelayMs + BOARD_REVEAL_FLIP_MS + BOARD_REVEAL_SETTLE_AFTER_FLIP_MS);
+    soundTimers.push(setTimeout(() => sounds.deal(), Math.max(0, effectiveLandDelayMs - 10)));
+    soundTimers.push(setTimeout(() => sounds.streetFlip(), Math.max(0, effectiveFlipDelayMs + 40)));
+    const settleDelayMs = Math.max(0, effectiveFlipDelayMs + BOARD_REVEAL_FLIP_MS + BOARD_REVEAL_SETTLE_AFTER_FLIP_MS);
     const settleTimer = setTimeout(() => {
       const live = state.streetRevealAnimation;
       if (!live || live.key !== anim.key) return;
@@ -2942,6 +2992,10 @@ function maybeLaunchStreetRevealFx(hand = getLatestHand()) {
       renderBoard();
     }, settleDelayMs);
     anim.phaseTimers = [...(anim.phaseTimers || []), settleTimer];
+    maxFinishDelayMs = Math.max(
+      maxFinishDelayMs,
+      effectiveFlipDelayMs + BOARD_REVEAL_FLIP_MS + BOARD_REVEAL_CARD_BREATH_MS + 120
+    );
   }
 
   anim.launchedIndices = [...launchedSet, ...queue].sort((a, b) => a - b);
@@ -2953,7 +3007,8 @@ function maybeLaunchStreetRevealFx(hand = getLatestHand()) {
   }
 
   if (anim.cleanupTimer) clearTimeout(anim.cleanupTimer);
-  const remainingMs = Math.max(120, getStreetRevealTotalMs(anim) - (Date.now() - Number(anim.startedAt || Date.now())));
+  const remainingByScheduleMs = Math.max(120, getStreetRevealTotalMs(anim) - (Date.now() - Number(anim.startedAt || Date.now())));
+  const remainingMs = Math.max(remainingByScheduleMs, maxFinishDelayMs);
   anim.cleanupTimer = setTimeout(() => {
     if (state.streetRevealAnimation?.key === anim.key) {
       clearStreetRevealFx();
