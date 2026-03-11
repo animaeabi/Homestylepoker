@@ -869,6 +869,35 @@ function postflopSizeFraction({
   return clamp(rand(0.3, 0.44), 0.28, 0.48);
 }
 
+function shouldCallCheapPostflopPrice({
+  street,
+  toCall,
+  pot,
+  blind,
+  madeClassRank,
+  effectiveStrength,
+  drawStrength,
+}: {
+  street: string;
+  toCall: number;
+  pot: number;
+  blind: number;
+  madeClassRank: number | null;
+  effectiveStrength: number;
+  drawStrength: number;
+}) {
+  if (toCall <= 0) return false;
+  const potOdds = toCall / Math.max(1, pot + toCall);
+  const tinyBlindCall = toCall <= Math.max(blind * 4, 1);
+  const cheapPotPrice = potOdds <= 0.09;
+  if (!tinyBlindCall && !cheapPotPrice) return false;
+
+  if ((madeClassRank || 0) >= 1) return true;
+  if (drawStrength >= 0.08 && street !== "river") return true;
+  if (street === "river") return effectiveStrength >= 0.44;
+  return effectiveStrength >= 0.58;
+}
+
 function capTargetByRisk({
   desiredTarget,
   streetContribution,
@@ -1748,6 +1777,17 @@ export function decideBotAction({
     }
 
     const potOdds = toCall / Math.max(1, pot + toCall);
+    if (shouldCallCheapPostflopPrice({
+      street,
+      toCall,
+      pot,
+      blind,
+      madeClassRank,
+      effectiveStrength,
+      drawStrength,
+    })) {
+      return { actionType: "call", amount: null as number | null };
+    }
     if (effectiveStrength < potOdds * 1.1) {
       return coinFlip(0.2) ? { actionType: "call", amount: null as number | null } : { actionType: "fold", amount: null as number | null };
     }

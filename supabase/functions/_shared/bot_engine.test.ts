@@ -151,6 +151,27 @@ function run() {
     averageOpponentStackBb: 70,
   }));
   assert(topPairFlop.actionType !== "all_in", "Medium-strength postflop value should not open-jam deep");
+
+  const cheapRiverPrice = withFixedRandom(() => decideBotAction({
+    personality: "TAG",
+    holeCards: ["Qh", "8d"],
+    boardCards: ["Qs", "7c", "4d", "Ks", "2h"],
+    pot: 160,
+    currentBet: 59,
+    streetContribution: 50,
+    stackEnd: 191,
+    bigBlind: 2,
+    street: "river",
+    seatNo: 4,
+    buttonSeat: 1,
+    totalSeats: 6,
+    activeSeatCount: 2,
+    wasAggressor: false,
+    effectiveStackBb: 95,
+    startingStackBb: 100,
+    averageOpponentStackBb: 100,
+  }));
+  assert(cheapRiverPrice.actionType === "call", "Bots should not fold a tiny river price with made-hand showdown value");
 }
 
 run();
