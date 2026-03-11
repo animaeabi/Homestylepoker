@@ -1441,3 +1441,7 @@ Validation:
 
 - Added per-hand manual card reveal for human players after settlement via `online_set_hand_cards_visibility(...)`, with `manually_shown` stored on `online_hand_players`.
 - Hero action rail now shows `Show Cards` / `Hide Cards` after a settled hand and seat rendering honors voluntary reveals even for folded players once the hand is over.
+- Fixed post-hand settled-state cleanup in `/Users/abishek/Documents/poker-buyins/online/table_app.js`:
+  - winner popup now auto-dismisses at the end of the showdown hang-time instead of blocking the table indefinitely
+  - once the hang-time completes, the board, pot, showdown cards, and folded/all-in visual state clear back to an idle table shell while final stacks/history remain intact
+  - this restores manual `Deal` and empty-seat `Add Bot` usability when auto-deal is off or when a solo host is waiting for more players
