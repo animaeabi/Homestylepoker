@@ -14,9 +14,10 @@ const DEAL_REVEAL_MS = 220;
 const DEAL_REVEAL_OFFSET_MS = 95;
 const BOARD_REVEAL_STAGGER_MS = 120;
 const BOARD_REVEAL_LAND_MS = 500;
+const BOARD_REVEAL_FLIP_AFTER_LAND_MS = 28;
 const BOARD_REVEAL_FLIP_MS = 380;
 const BOARD_REVEAL_CARD_BREATH_MS = 130;
-const BOARD_REVEAL_SEQUENCE_STEP_MS = BOARD_REVEAL_LAND_MS + BOARD_REVEAL_FLIP_MS + BOARD_REVEAL_CARD_BREATH_MS;
+const BOARD_REVEAL_SEQUENCE_STEP_MS = BOARD_REVEAL_LAND_MS + BOARD_REVEAL_FLIP_AFTER_LAND_MS + BOARD_REVEAL_FLIP_MS + BOARD_REVEAL_CARD_BREATH_MS;
 const BOARD_REVEAL_GHOST_OUT_DELAY_MS = 40;
 const BOARD_REVEAL_GHOST_OUT_MS = 140;
 const STREET_REVEAL_DEFER_MS = 90;
@@ -2551,7 +2552,7 @@ function getStreetRevealFlipDelayMs(anim, index) {
   if (schedule && Number.isFinite(Number(schedule.flipMs))) return Number(schedule.flipMs);
   const landDelayMs = getStreetRevealLandDelayMs(anim, index);
   if (landDelayMs == null) return null;
-  return landDelayMs + BOARD_REVEAL_LAND_MS - 20;
+  return landDelayMs + BOARD_REVEAL_LAND_MS + BOARD_REVEAL_FLIP_AFTER_LAND_MS;
 }
 
 function getStreetRevealTotalMs(anim) {
@@ -2638,7 +2639,7 @@ function maybeStartStreetRevealAnimation(oldHand, hand, hadPriorTableState = fal
     for (const idx of additions) {
       existing.timings[idx] = {
         landMs: cursorMs,
-        flipMs: cursorMs + BOARD_REVEAL_LAND_MS - 20,
+        flipMs: cursorMs + BOARD_REVEAL_LAND_MS + BOARD_REVEAL_FLIP_AFTER_LAND_MS,
       };
       cursorMs += BOARD_REVEAL_SEQUENCE_STEP_MS;
     }
@@ -2654,7 +2655,7 @@ function maybeStartStreetRevealAnimation(oldHand, hand, hadPriorTableState = fal
     const idx = sortedIndices[order];
     timings[idx] = {
       landMs,
-      flipMs: landMs + BOARD_REVEAL_LAND_MS - 20,
+      flipMs: landMs + BOARD_REVEAL_LAND_MS + BOARD_REVEAL_FLIP_AFTER_LAND_MS,
     };
   }
 
