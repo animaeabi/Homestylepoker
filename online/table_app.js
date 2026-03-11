@@ -2763,14 +2763,12 @@ function getDealFlightPath(fromX, fromY, toX, toY, cardIndex = 1) {
 function getBoardRevealFlightPath(fromX, fromY, toX, toY, cardIndex = 1) {
   const dx = toX - fromX;
   const dy = toY - fromY;
-  const distance = Math.hypot(dx, dy);
-  const arcLift = Math.max(18, Math.min(44, distance * 0.14));
-  const fromRot = dx >= 0 ? -8 : 8;
+  const fromRot = dx >= 0 ? -6 : 6;
   return {
-    // Keep board reveals tight to the target slot so they "snap" into
-    // the board placeholder rather than drifting beside it.
-    midX: fromX + dx * 0.72,
-    midY: fromY + dy * 0.58 - arcLift,
+    // Make the slot feel magnetic: mostly straight into the board slot
+    // with almost no arc or overshoot.
+    midX: fromX + dx * 0.9,
+    midY: fromY + dy * 0.9,
     fromRot,
     midRot: 0,
     toRot: 0,
@@ -4314,11 +4312,11 @@ function renderBoard() {
     );
     if (board[i]) {
       if (revealMeta && !settledRevealCard) {
-        const hidden = document.createElement("div");
-        hidden.className = "card card-empty board-deal-target board-card-hidden";
-        hidden.dataset.boardIndex = String(i);
-        if (revealMeta.showUnderlay) hidden.classList.add("board-card-settling");
-        el.boardCards.appendChild(hidden);
+        const slot = document.createElement("div");
+        slot.className = "card card-empty board-deal-target board-slot-target";
+        slot.dataset.boardIndex = String(i);
+        if (revealMeta.showUnderlay) slot.classList.add("board-slot-target-active");
+        el.boardCards.appendChild(slot);
       } else {
         const card = makeCardEl(board[i], false);
         const boardToken = normCard(board[i]);
@@ -4332,11 +4330,11 @@ function renderBoard() {
         el.boardCards.appendChild(card);
       }
     } else if (revealMeta) {
-      const hidden = document.createElement("div");
-      hidden.className = "card card-empty board-deal-target board-card-hidden";
-      hidden.dataset.boardIndex = String(i);
-      if (revealMeta.showUnderlay) hidden.classList.add("board-card-settling");
-      el.boardCards.appendChild(hidden);
+      const slot = document.createElement("div");
+      slot.className = "card card-empty board-deal-target board-slot-target";
+      slot.dataset.boardIndex = String(i);
+      if (revealMeta.showUnderlay) slot.classList.add("board-slot-target-active");
+      el.boardCards.appendChild(slot);
     } else {
       const empty = document.createElement("div");
       empty.className = "card card-empty";

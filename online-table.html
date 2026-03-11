@@ -564,13 +564,19 @@
         transform: rotateY(180deg);
       }
 
-      .board-deal-target.board-card-hidden {
-        opacity: 0;
-        transition: opacity 150ms ease;
+      .board-slot-target {
+        transition:
+          border-color 160ms ease,
+          background 160ms ease,
+          box-shadow 160ms ease;
       }
 
-      .board-deal-target.board-card-hidden.board-card-settling {
-        opacity: 1;
+      .board-slot-target.board-slot-target-active {
+        border-color: rgba(240, 198, 112, 0.34);
+        background: rgba(255, 229, 170, 0.08);
+        box-shadow:
+          0 0 0 1px rgba(255, 218, 145, 0.2),
+          0 6px 14px rgba(0,0,0,0.2);
       }
 
       @keyframes boardCardLand {
@@ -4660,6 +4666,6 @@
     <div class="voice-audio-rack" id="voiceAudioRack" aria-hidden="true"></div>
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
-    <script type="module" src="./online/table_app.js?v=152"></script>
+    <script type="module" src="./online/table_app.js?v=153"></script>
   </body>
 </html>
