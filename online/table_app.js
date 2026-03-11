@@ -1971,6 +1971,20 @@ function isHeroPreactionMode({ hand, hp, myTurn, actionLocked }) {
   );
 }
 
+function isHeroTurnActionable(hand = getLatestHand(), hp = getMyHandPlayer()) {
+  return Boolean(
+    hand &&
+    isActionStreet(hand.state) &&
+    getSeatToken() &&
+    hp &&
+    !hp.folded &&
+    !hp.all_in &&
+    hand.action_seat === hp.seat_no &&
+    !state.pendingAction &&
+    !isStreetRevealPresentationActive(hand)
+  );
+}
+
 function syncHeroPreactionUi({ hand, hp, myTurn, actionLocked }) {
   syncHeroPreaction(hand, hp);
   const preactionMode = isHeroPreactionMode({ hand, hp, myTurn, actionLocked });
@@ -5123,14 +5137,13 @@ function renderActions() {
     el.foldBtn.textContent = "Fold";
     el.callBtn.textContent = "Check";
     el.betRaiseBtn.textContent = "Bet";
-    el.foldBtn.classList.remove("hidden");
-    el.callBtn.classList.remove("hidden");
-    el.allInBtn.classList.remove("hidden");
-    el.betRaiseBtn.classList.remove("hidden");
+    el.foldBtn.classList.add("hidden");
+    el.callBtn.classList.add("hidden");
+    el.allInBtn.classList.add("hidden");
+    el.betRaiseBtn.classList.add("hidden");
     el.foldBtn.classList.remove("active");
     el.callBtn.classList.remove("active");
     el.betRaiseBtn.classList.remove("active");
-    el.callBtn.classList.remove("hidden");
     el.callBtn.disabled = false;
     el.callBtn.setAttribute("aria-disabled", "false");
     el.betRaiseBtn.disabled = false;
@@ -5459,6 +5472,7 @@ async function submitTurnAction(label, actionType) {
   if (state.loading || state.pendingAction) return;
   const hand = getLatestHand();
   const hp = getMyHandPlayer();
+  if (!isHeroTurnActionable(hand, hp)) return;
   const payload = buildActionPayload(actionType);
   clearHeroPreaction();
   state.optimisticSeatAction = buildOptimisticSeatAction(payload, hand, hp);
@@ -5496,43 +5510,25 @@ function bindEvents() {
     const hand = getLatestHand();
     const hp = getMyHandPlayer();
     const actionLocked = state.pendingAction;
-    const myTurn = Boolean(
-      hand
-      && isActionStreet(hand.state)
-      && getSeatToken()
-      && hp
-      && !hp.folded
-      && !hp.all_in
-      && hand.action_seat === hp.seat_no
-      && !actionLocked
-      && !isStreetRevealPresentationActive(hand)
-    );
+    const myTurn = isHeroTurnActionable(hand, hp);
     if (syncHeroPreactionUi({ hand, hp, myTurn, actionLocked })) {
       setHeroPreaction("check_fold");
       return;
     }
+    if (!myTurn) return;
     submitTurnAction("Fold", "fold");
   });
   el.callBtn.addEventListener("click", () => {
     const hand = getLatestHand();
     const hp = getMyHandPlayer();
     const actionLocked = state.pendingAction;
-    const myTurn = Boolean(
-      hand
-      && isActionStreet(hand.state)
-      && getSeatToken()
-      && hp
-      && !hp.folded
-      && !hp.all_in
-      && hand.action_seat === hp.seat_no
-      && !actionLocked
-      && !isStreetRevealPresentationActive(hand)
-    );
+    const myTurn = isHeroTurnActionable(hand, hp);
     if (syncHeroPreactionUi({ hand, hp, myTurn, actionLocked })) {
       const { toCall } = getBetBounds(hand, hp);
       setHeroPreaction(toCall > 0 ? "call_current" : "check");
       return;
     }
+    if (!myTurn) return;
     const toCall = Math.max(0, Number(hand?.current_bet || 0) - Number(hp?.street_contribution || 0));
     submitTurnAction(toCall > 0 ? "Call" : "Check", toCall > 0 ? "call" : "check");
   });
@@ -5545,21 +5541,12 @@ function bindEvents() {
     }
     const actionLocked = state.pendingAction;
     const { canAggress } = getBetBounds(hand, hp);
-    const myTurn = Boolean(
-      hand
-      && isActionStreet(hand.state)
-      && getSeatToken()
-      && hp
-      && !hp.folded
-      && !hp.all_in
-      && hand.action_seat === hp.seat_no
-      && !actionLocked
-      && !isStreetRevealPresentationActive(hand)
-    );
+    const myTurn = isHeroTurnActionable(hand, hp);
     if (syncHeroPreactionUi({ hand, hp, myTurn, actionLocked })) {
       setHeroPreaction("call_any");
       return;
     }
+    if (!myTurn) return;
     if (!canAggress) {
       toast("No further betting is possible in this pot.", "error");
       return;
@@ -5576,6 +5563,7 @@ function bindEvents() {
   el.allInBtn.addEventListener("click", () => {
     const hand = getLatestHand();
     const hp = getMyHandPlayer();
+    if (!isHeroTurnActionable(hand, hp)) return;
     const { canAggress } = getBetBounds(hand, hp);
     if (!canAggress) {
       toast("No further betting is possible in this pot.", "error");

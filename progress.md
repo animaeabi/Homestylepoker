@@ -1445,3 +1445,6 @@ Validation:
   - winner popup now auto-dismisses at the end of the showdown hang-time instead of blocking the table indefinitely
   - once the hang-time completes, the board, pot, showdown cards, and folded/all-in visual state clear back to an idle table shell while final stacks/history remain intact
   - this restores manual `Deal` and empty-seat `Add Bot` usability when auto-deal is off or when a solo host is waiting for more players
+- Hardened the hero action strip idle state in `/Users/abishek/Documents/poker-buyins/online/table_app.js`:
+  - all betting buttons are explicitly hidden when the hero is not in an actionable betting state
+  - added `isHeroTurnActionable(...)` so stale clicks on Fold/Call/Raise/All-in cannot fire after the hand is over or during non-action windows
