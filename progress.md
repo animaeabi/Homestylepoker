@@ -206,6 +206,15 @@ Validation:
 - `node --check /Users/abishek/Documents/poker-buyins/online/table_app.js` (pass)
 - Local browser smoke against `http://127.0.0.1:8000/online-table.html` returned clean HTML and no new script/runtime output from the Playwright loop.
 
+Update (street-action sync guard pass):
+- Added a strict street-reveal presentation lock in `/Users/abishek/Documents/poker-buyins/online/table_app.js` so hero action controls do not appear while a new board card is still revealing.
+- Applied that lock to:
+  - turn action-rail eligibility
+  - pre-action mode eligibility
+  - "Your turn" toast timing
+- Updated street reveal cleanup to call `renderAll()` (not just `renderBoard()`) so controls re-enable exactly when reveal completes, avoiding stale hidden/action mismatch windows.
+- Bumped `/Users/abishek/Documents/poker-buyins/online-table.html` bundle to `v=145`.
+
 Validation:
 - `node --check app.js` (pass)
 - `node --check online/client.js` (pass)

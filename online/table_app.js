@@ -1350,6 +1350,23 @@ function isShowdownPresentationActive(hand = getLatestHand()) {
   );
 }
 
+function isStreetRevealPresentationActive(hand = getLatestHand()) {
+  if (!hand || !isBoardStreet(hand.state)) return false;
+  const handId = hand.id;
+  const hold = state.streetActionLabelHold;
+  const holdActive = Boolean(
+    hold
+    && hold.handId === handId
+    && hold.toStreet === hand.state
+    && Date.now() < Number(hold.until || 0)
+  );
+  return Boolean(
+    holdActive
+    || (state.streetRevealAnimation?.handId === handId)
+    || state.deferredStreetRevealTimer
+  );
+}
+
 function queueActionAnnouncement(ev, { replace = false } = {}) {
   const copy = getActionCopy(ev);
   if (!copy.detail) return;
@@ -1876,6 +1893,7 @@ function isHeroPreactionMode({ hand, hp, myTurn, actionLocked }) {
   return Boolean(
     hand &&
     isActionStreet(hand.state) &&
+    !isStreetRevealPresentationActive(hand) &&
     getSeatToken() &&
     hp &&
     !hp.folded &&
@@ -2824,7 +2842,7 @@ function maybeLaunchStreetRevealFx(hand = getLatestHand()) {
   anim.cleanupTimer = setTimeout(() => {
     if (state.streetRevealAnimation?.key === anim.key) {
       clearStreetRevealFx();
-      renderBoard();
+      renderAll();
     }
   }, getStreetRevealTotalMs(anim));
 }
@@ -3617,7 +3635,7 @@ async function loadTableState() {
       }
       if (hand.action_seat && hand.action_seat !== prevActionSeat) {
         const myHp = getMyHandPlayer();
-        if (myHp && hand.action_seat === myHp.seat_no && getSeatToken()) {
+        if (myHp && hand.action_seat === myHp.seat_no && getSeatToken() && !isStreetRevealPresentationActive(hand)) {
           sounds.yourTurn();
           toast("Your turn!");
         }
@@ -4709,7 +4727,8 @@ function renderActions() {
   const compactActions = isLandscapeCollapseMode() || isPortraitCollapseMode();
   const actionLocked = state.pendingAction;
 
-  const myTurn = hand && isActionStreet(hand.state) && token && hp && !hp.folded && !hp.all_in && hand.action_seat === hp.seat_no && !actionLocked;
+  const revealLocked = isStreetRevealPresentationActive(hand);
+  const myTurn = hand && isActionStreet(hand.state) && token && hp && !hp.folded && !hp.all_in && hand.action_seat === hp.seat_no && !actionLocked && !revealLocked;
   const noActiveHand = !hand || ["settled","canceled"].includes(hand.state);
   const presentationActive = isShowdownPresentationActive(hand);
   const nextHandEligible = Date.now() >= getNextHandEligibleAtMs(hand);
@@ -5152,7 +5171,17 @@ function bindEvents() {
     const hand = getLatestHand();
     const hp = getMyHandPlayer();
     const actionLocked = state.pendingAction;
-    const myTurn = Boolean(hand && isActionStreet(hand.state) && getSeatToken() && hp && !hp.folded && !hp.all_in && hand.action_seat === hp.seat_no && !actionLocked);
+    const myTurn = Boolean(
+      hand
+      && isActionStreet(hand.state)
+      && getSeatToken()
+      && hp
+      && !hp.folded
+      && !hp.all_in
+      && hand.action_seat === hp.seat_no
+      && !actionLocked
+      && !isStreetRevealPresentationActive(hand)
+    );
     if (syncHeroPreactionUi({ hand, hp, myTurn, actionLocked })) {
       setHeroPreaction("check_fold");
       return;
@@ -5163,7 +5192,17 @@ function bindEvents() {
     const hand = getLatestHand();
     const hp = getMyHandPlayer();
     const actionLocked = state.pendingAction;
-    const myTurn = Boolean(hand && isActionStreet(hand.state) && getSeatToken() && hp && !hp.folded && !hp.all_in && hand.action_seat === hp.seat_no && !actionLocked);
+    const myTurn = Boolean(
+      hand
+      && isActionStreet(hand.state)
+      && getSeatToken()
+      && hp
+      && !hp.folded
+      && !hp.all_in
+      && hand.action_seat === hp.seat_no
+      && !actionLocked
+      && !isStreetRevealPresentationActive(hand)
+    );
     if (syncHeroPreactionUi({ hand, hp, myTurn, actionLocked })) {
       const { toCall } = getBetBounds(hand, hp);
       setHeroPreaction(toCall > 0 ? "call_current" : "check");
@@ -5177,7 +5216,17 @@ function bindEvents() {
     const hp = getMyHandPlayer();
     const actionLocked = state.pendingAction;
     const { canAggress } = getBetBounds(hand, hp);
-    const myTurn = Boolean(hand && isActionStreet(hand.state) && getSeatToken() && hp && !hp.folded && !hp.all_in && hand.action_seat === hp.seat_no && !actionLocked);
+    const myTurn = Boolean(
+      hand
+      && isActionStreet(hand.state)
+      && getSeatToken()
+      && hp
+      && !hp.folded
+      && !hp.all_in
+      && hand.action_seat === hp.seat_no
+      && !actionLocked
+      && !isStreetRevealPresentationActive(hand)
+    );
     if (syncHeroPreactionUi({ hand, hp, myTurn, actionLocked })) {
       setHeroPreaction("call_any");
       return;
