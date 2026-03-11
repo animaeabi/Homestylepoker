@@ -2581,6 +2581,9 @@ function clearStreetRevealFx({ keepState = false } = {}) {
   if (Array.isArray(anim?.soundTimers)) {
     anim.soundTimers.forEach((timerId) => clearTimeout(timerId));
   }
+  if (Array.isArray(anim?.phaseTimers)) {
+    anim.phaseTimers.forEach((timerId) => clearTimeout(timerId));
+  }
   el.dealFxLayer?.querySelectorAll(".board-flight-card").forEach((node) => node.remove());
   if (!keepState) state.streetRevealAnimation = null;
 }
@@ -2655,8 +2658,10 @@ function maybeStartStreetRevealAnimation(oldHand, hand, hadPriorTableState = fal
     startedAt: Date.now(),
     startDelayMs: normalizedStartDelayMs,
     timings,
+    revealedIndices: [],
     cleanupTimer: null,
     soundTimers: [],
+    phaseTimers: [],
   };
 }
 
@@ -2666,10 +2671,11 @@ function getStreetRevealMeta(index, hand = getLatestHand()) {
   const elapsed = Date.now() - anim.startedAt;
   if (elapsed >= getStreetRevealTotalMs(anim)) return null;
   const flipDelayMs = getStreetRevealFlipDelayMs(anim, index);
+  const revealedSet = new Set(anim.revealedIndices || []);
   return {
     landDelayMs: Math.max(0, getStreetRevealLandDelayMs(anim, index) - elapsed),
     flipDelayMs: Math.max(0, flipDelayMs - elapsed),
-    showUnderlay: elapsed >= (flipDelayMs + BOARD_REVEAL_FLIP_MS - 36),
+    showUnderlay: revealedSet.has(index) || elapsed >= (flipDelayMs + BOARD_REVEAL_FLIP_MS - 36),
   };
 }
 
@@ -2890,6 +2896,17 @@ function maybeLaunchStreetRevealFx(hand = getLatestHand()) {
 
     soundTimers.push(setTimeout(() => sounds.deal(), Math.max(0, landDelayMs - 10)));
     soundTimers.push(setTimeout(() => sounds.streetFlip(), Math.max(0, flipDelayMs + 40)));
+    const settleDelayMs = Math.max(0, flipDelayMs + BOARD_REVEAL_FLIP_MS - 28);
+    const settleTimer = setTimeout(() => {
+      const live = state.streetRevealAnimation;
+      if (!live || live.key !== anim.key) return;
+      if (!Array.isArray(live.revealedIndices)) live.revealedIndices = [];
+      if (!live.revealedIndices.includes(boardIndex)) {
+        live.revealedIndices = [...live.revealedIndices, boardIndex].sort((a, b) => a - b);
+      }
+      renderBoard();
+    }, settleDelayMs);
+    anim.phaseTimers = [...(anim.phaseTimers || []), settleTimer];
   }
 
   anim.launchedIndices = [...launchedSet, ...queue].sort((a, b) => a - b);
