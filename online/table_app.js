@@ -2846,15 +2846,15 @@ function maybeLaunchStreetRevealFx(hand = getLatestHand()) {
   if (!anim || !hand || anim.handId !== hand.id) return;
   if (!el.dealFxLayer || !el.tableSurface || !el.boardCards) return;
 
-  const tableRect = el.tableSurface.getBoundingClientRect();
+  const fxRect = el.dealFxLayer.getBoundingClientRect();
   const deckRect = el.dealerDeck?.getBoundingClientRect();
   const boardRect = el.boardCards.getBoundingClientRect();
-  if (!tableRect.width || !boardRect.width) return;
+  if (!fxRect.width || !boardRect.width) return;
 
-  const fallbackFromX = boardRect.left + boardRect.width / 2 - tableRect.left;
-  const fallbackFromY = boardRect.top - tableRect.top - 24;
-  const fromX = deckRect?.width ? deckRect.left + deckRect.width / 2 - tableRect.left : fallbackFromX;
-  const fromY = deckRect?.height ? deckRect.top + deckRect.height / 2 - tableRect.top : fallbackFromY;
+  const fallbackFromX = boardRect.left + boardRect.width / 2 - fxRect.left;
+  const fallbackFromY = boardRect.top - fxRect.top - 24;
+  const fromX = deckRect?.width ? deckRect.left + deckRect.width / 2 - fxRect.left : fallbackFromX;
+  const fromY = deckRect?.height ? deckRect.top + deckRect.height / 2 - fxRect.top : fallbackFromY;
   const soundTimers = [];
   let created = 0;
   const elapsed = Date.now() - Number(anim.startedAt || Date.now());
@@ -2876,8 +2876,8 @@ function maybeLaunchStreetRevealFx(hand = getLatestHand()) {
     const landDelayMs = Math.max(0, landAtMs - elapsed);
     const flipDelayMs = Math.max(0, flipAtMs - elapsed);
 
-    const targetX = targetRect.left - tableRect.left;
-    const targetY = targetRect.top - tableRect.top;
+    const targetX = targetRect.left - fxRect.left;
+    const targetY = targetRect.top - fxRect.top;
     const path = getBoardRevealFlightPath(
       fromX - targetRect.width / 2,
       fromY - targetRect.height / 2,
