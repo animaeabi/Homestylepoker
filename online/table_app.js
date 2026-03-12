@@ -205,6 +205,8 @@ const state = {
     autoCheckWhenAvailable: false,
     saving: false,
   },
+  heroShowCardsPending: false,
+  heroShowCardsOverride: null,
   opponentTracker: new OpponentTracker(),
   lastTrackedEventSeq: 0,
   equityCacheKey: "",
@@ -2234,15 +2236,24 @@ function canToggleHeroShowCards(hand = getLatestHand(), hp = getMyHandPlayer()) 
   );
 }
 
+function getEffectiveHeroManualShown(hand = getLatestHand(), hp = getMyHandPlayer()) {
+  const override = state.heroShowCardsOverride;
+  if (override && hand && override.handId === hand.id) return Boolean(override.shown);
+  return Boolean(hp?.manually_shown);
+}
+
 async function setHeroShowCards(show) {
   const hand = getLatestHand();
   const hp = getMyHandPlayer();
   const seatToken = getSeatToken();
   if (!canToggleHeroShowCards(hand, hp) || !seatToken) return;
-  if (state.loading) return;
+  if (state.heroShowCardsPending) return;
 
-  state.loading = true;
-  renderActions();
+  const handId = hand.id;
+  const priorShown = getEffectiveHeroManualShown(hand, hp);
+  state.heroShowCardsPending = true;
+  state.heroShowCardsOverride = { handId, shown: Boolean(show) };
+  renderAll();
   try {
     await online.setHandCardsVisibility({
       handId: hand.id,
@@ -2253,10 +2264,19 @@ async function setHeroShowCards(show) {
     await loadTableState();
     toast(show ? "Cards shown" : "Cards hidden", "success");
   } catch (err) {
+    state.heroShowCardsOverride = { handId, shown: priorShown };
+    renderAll();
     toast(err.message || "Could not update card visibility.", "error");
   } finally {
-    state.loading = false;
-    renderActions();
+    state.heroShowCardsPending = false;
+    const latestHand = getLatestHand();
+    const latestHp = getMyHandPlayer();
+    if (!latestHand || latestHand.id !== handId) {
+      state.heroShowCardsOverride = null;
+    } else if (Boolean(latestHp?.manually_shown) === Boolean(show)) {
+      state.heroShowCardsOverride = null;
+    }
+    renderAll();
   }
 }
 
@@ -3917,6 +3937,16 @@ async function loadTableState() {
     const oldHand = getLatestHand();
     state.tableState = ts;
     const hand = getLatestHand();
+    if (state.heroShowCardsOverride) {
+      if (!hand || hand.id !== state.heroShowCardsOverride.handId) {
+        state.heroShowCardsOverride = null;
+      } else {
+        const heroHp = getMyHandPlayer();
+        if (Boolean(heroHp?.manually_shown) === Boolean(state.heroShowCardsOverride.shown)) {
+          state.heroShowCardsOverride = null;
+        }
+      }
+    }
     const optimistic = state.optimisticSeatAction;
     if (
       optimistic && (
@@ -5211,6 +5241,7 @@ function renderActions() {
     state.optimisticSeatAction = null;
     clearDisplayedActionAnnouncements();
     state.landscapeRaisePanelOpen = false;
+    const heroShown = getEffectiveHeroManualShown(hand, hp);
     el.actionStrip.classList.remove("hidden");
     el.presetRow.classList.add("hidden");
     el.foldBtn.classList.add("hidden");
@@ -5218,9 +5249,9 @@ function renderActions() {
     el.allInBtn.classList.add("hidden");
     el.betRaiseBtn.classList.remove("hidden");
     el.betRaiseBtn.classList.remove("active");
-    el.betRaiseBtn.textContent = hp?.manually_shown ? "Hide Cards" : "Show Cards";
-    el.betRaiseBtn.disabled = state.loading;
-    el.betRaiseBtn.setAttribute("aria-disabled", state.loading ? "true" : "false");
+    el.betRaiseBtn.textContent = heroShown ? "Hide Cards" : "Show Cards";
+    el.betRaiseBtn.disabled = state.heroShowCardsPending;
+    el.betRaiseBtn.setAttribute("aria-disabled", state.heroShowCardsPending ? "true" : "false");
   } else {
     state.landscapeRaisePanelOpen = false;
     el.actionStrip.classList.add("hidden");
@@ -5627,7 +5658,7 @@ function bindEvents() {
     const hand = getLatestHand();
     const hp = getMyHandPlayer();
     if (canToggleHeroShowCards(hand, hp)) {
-      void setHeroShowCards(!Boolean(hp?.manually_shown));
+      void setHeroShowCards(!getEffectiveHeroManualShown(hand, hp));
       return;
     }
     const actionLocked = state.pendingAction;

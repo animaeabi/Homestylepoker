@@ -1506,3 +1506,7 @@ Validation:
   - Fix: write the accepted action row and `action_taken` event immediately after applying the action, before any `showdown_ready` or next-street transition events.
   - Added migration `/Users/abishek/Documents/poker-buyins/supabase/migrations/20260311230000_fix_river_showdown_event_order.sql` and applied it with `supabase db push`.
   - Historical hands will still show the old wrong order; this corrects new hands going forward.
+- Fixed `Show Cards` post-hand control instability in `/Users/abishek/Documents/poker-buyins/online/table_app.js`.
+  - Root cause: the toggle was gated by the global `state.loading` flag, so background table polling could silently swallow taps; polling could also briefly repaint the button back to the pre-click state.
+  - Fix: added a dedicated `heroShowCardsPending` state plus a tiny optimistic `heroShowCardsOverride` for the settled hand, so the button remains stable and clickable while the reveal request is in flight.
+  - Bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache key to `v=172`.
