@@ -1501,3 +1501,8 @@ Validation:
   - Root cause: winner presentation timing depended too heavily on server `ended_at`, so if the client learned about settlement late, the visible banner time could already be partially consumed.
   - Fix: track a local `victoryPopupVisibleUntilMs` and keep auto-deal countdown / Deal button gated until the banner has actually been visible for the full local hang window.
   - Bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache key to `v=171`.
+- Fixed river showdown hand-log ordering regression in `/Users/abishek/Documents/poker-buyins/supabase/online_poker_schema.sql`.
+  - Root cause: `online_submit_action(...)` appended `showdown_ready` / street transition events before appending the actor’s final `action_taken`, so logs could show `Showdown` and then a trailing river `check` or `call`.
+  - Fix: write the accepted action row and `action_taken` event immediately after applying the action, before any `showdown_ready` or next-street transition events.
+  - Added migration `/Users/abishek/Documents/poker-buyins/supabase/migrations/20260311230000_fix_river_showdown_event_order.sql` and applied it with `supabase db push`.
+  - Historical hands will still show the old wrong order; this corrects new hands going forward.

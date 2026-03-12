@@ -2683,6 +2683,40 @@ begin
       and online_normalize_money(coalesce(stack_end, 0)) > 0;
   end if;
 
+  insert into online_actions(
+    hand_id,
+    table_id,
+    actor_group_player_id,
+    client_action_id,
+    action_type,
+    amount,
+    status
+  )
+  values (
+    p_hand_id,
+    v_hand.table_id,
+    p_actor_group_player_id,
+    p_client_action_id,
+    p_action_type,
+    case when p_action_type in ('call','bet','raise','all_in') then v_add else null end,
+    'accepted'
+  )
+  returning * into v_action;
+
+  perform online_append_hand_event(
+    p_hand_id,
+    v_hand.table_id,
+    'action_taken',
+    p_actor_group_player_id,
+    jsonb_build_object(
+      'action_type', p_action_type,
+      'amount', case when p_action_type in ('call','bet','raise','all_in') then v_add else null end,
+      'to_call_before', v_to_call,
+      'seat_no', v_hand_player.seat_no,
+      'street', v_action_street
+    )
+  );
+
   select count(*)
   into v_live_players
   from online_hand_players
@@ -2851,40 +2885,6 @@ begin
       returning * into v_hand;
     end if;
   end if;
-
-  insert into online_actions(
-    hand_id,
-    table_id,
-    actor_group_player_id,
-    client_action_id,
-    action_type,
-    amount,
-    status
-  )
-  values (
-    p_hand_id,
-    v_hand.table_id,
-    p_actor_group_player_id,
-    p_client_action_id,
-    p_action_type,
-    case when p_action_type in ('call','bet','raise','all_in') then v_add else null end,
-    'accepted'
-  )
-  returning * into v_action;
-
-  perform online_append_hand_event(
-    p_hand_id,
-    v_hand.table_id,
-    'action_taken',
-    p_actor_group_player_id,
-    jsonb_build_object(
-      'action_type', p_action_type,
-      'amount', case when p_action_type in ('call','bet','raise','all_in') then v_add else null end,
-      'to_call_before', v_to_call,
-      'seat_no', v_hand_player.seat_no,
-      'street', v_action_street
-    )
-  );
 
   perform online_write_hand_snapshot(p_hand_id);
   return v_action;
