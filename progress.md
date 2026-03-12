@@ -224,6 +224,10 @@ Update (post-hand action rail visibility fix):
 - Fixed a mobile CSS regression in `/Users/abishek/Documents/poker-buyins/online-table.html` where `.astrip-allin` could override the generic `.hidden` class and leak the `All-in` button during post-hand `Show Cards` mode.
 - Added explicit hidden-state enforcement for action-strip buttons/groups so only the intended post-hand controls remain visible.
 
+Update (pre-action cleanup + auto-deal countdown pass):
+- Removed the ugly `Call $0` pre-action state in `/Users/abishek/Documents/poker-buyins/online/table_app.js`; the middle pre-action slot now stays hidden unless there is an actual bet to call.
+- Added a subtle auto-deal countdown treatment on the center `Deal` button in `/Users/abishek/Documents/poker-buyins/online/table_app.js` and `/Users/abishek/Documents/poker-buyins/online-table.html`, reusing the existing showdown hang-time window with a soft fill/progress effect and `Dealing in N` label.
+
 Validation:
 - `node --check app.js` (pass)
 - `node --check online/client.js` (pass)

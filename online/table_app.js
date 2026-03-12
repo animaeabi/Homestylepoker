@@ -1658,6 +1658,20 @@ function getNextHandEligibleAtMs(hand = getLatestHand()) {
   return endedAtMs + getShowdownTimeMs() + 2000;
 }
 
+function getAutoDealCountdownMeta(hand = getLatestHand()) {
+  if (!hand || !["settled", "canceled"].includes(hand.state) || state.config.autoDeal === false) return null;
+  const eligibleAtMs = getNextHandEligibleAtMs(hand);
+  const endedAtMs = Date.parse(hand.ended_at || "");
+  const fallbackDurationMs = Math.max(1000, getShowdownTimeMs() + 2000);
+  const totalDurationMs = Number.isFinite(endedAtMs)
+    ? Math.max(1000, eligibleAtMs - endedAtMs)
+    : fallbackDurationMs;
+  const remainingMs = Math.max(0, eligibleAtMs - Date.now());
+  const progress = Math.max(0, Math.min(1, 1 - (remainingMs / totalDurationMs)));
+  const remainingSecs = Math.max(0, Math.ceil(remainingMs / 1000));
+  return { remainingMs, remainingSecs, progress };
+}
+
 function shouldClearSettledHandVisuals(hand = getLatestHand()) {
   if (!hand || !["settled", "canceled"].includes(hand.state)) return false;
   if (Date.now() < getNextHandEligibleAtMs(hand)) return false;
@@ -2016,6 +2030,40 @@ function syncHeroPreactionUi({ hand, hp, myTurn, actionLocked }) {
     el.callBtn.setAttribute("aria-disabled", "false");
   }
   return true;
+}
+
+function renderDealButton({
+  hand = getLatestHand(),
+  isHost = canManageHand(),
+  noActiveHand = !hand || ["settled", "canceled"].includes(hand.state),
+  presentationActive = isShowdownPresentationActive(hand),
+  nextHandEligible = Date.now() >= getNextHandEligibleAtMs(hand),
+} = {}) {
+  if (!el.startHandBtn) return;
+
+  const countdown = noActiveHand ? getAutoDealCountdownMeta(hand) : null;
+  el.startHandBtn.classList.remove("countdown");
+  el.startHandBtn.style.removeProperty("--deal-progress");
+
+  if (countdown) {
+    el.startHandBtn.classList.remove("hidden");
+    el.startHandBtn.disabled = true;
+    el.startHandBtn.classList.add("countdown");
+    el.startHandBtn.style.setProperty("--deal-progress", `${(countdown.progress * 100).toFixed(1)}%`);
+    el.startHandBtn.textContent = countdown.remainingMs > 0 ? `Dealing in ${countdown.remainingSecs}` : "Dealing...";
+    return;
+  }
+
+  if (isHost && noActiveHand && !presentationActive && nextHandEligible) {
+    el.startHandBtn.classList.remove("hidden");
+    el.startHandBtn.disabled = false;
+    el.startHandBtn.textContent = "Deal";
+    return;
+  }
+
+  el.startHandBtn.classList.add("hidden");
+  el.startHandBtn.disabled = false;
+  el.startHandBtn.textContent = "Deal";
 }
 
 function syncShowdownRevealState(hand = getLatestHand()) {
@@ -3799,6 +3847,7 @@ function startTurnTicker() {
     if (!state.tableState) return;
     updateTurnUI();
     updateTimerRings();
+    renderDealButton();
   }, 1000);
 }
 
@@ -5060,18 +5109,13 @@ function renderActions() {
       });
       el.actionStrip.classList.add("hidden");
       el.presetRow.classList.add("hidden");
+      renderDealButton({ hand, isHost, noActiveHand, presentationActive, nextHandEligible });
       return;
     }
     clearHeroPreaction();
   }
 
-  if (isHost && noActiveHand && !presentationActive && nextHandEligible) {
-    el.startHandBtn.classList.remove("hidden");
-    el.startHandBtn.disabled = false;
-    el.startHandBtn.textContent = "Deal";
-  } else {
-    el.startHandBtn.classList.add("hidden");
-  }
+  renderDealButton({ hand, isHost, noActiveHand, presentationActive, nextHandEligible });
 
   if (myTurn) {
     el.actionStrip.classList.remove("hidden");
@@ -5110,11 +5154,11 @@ function renderActions() {
     el.presetRow.classList.add("hidden");
     el.landscapeRaisePanelOpen = false;
     el.foldBtn.classList.remove("hidden");
-    el.callBtn.classList.remove("hidden");
     el.betRaiseBtn.classList.remove("hidden");
     el.allInBtn.classList.add("hidden");
     const { toCall } = getBetBounds(hand, hp);
     el.foldBtn.textContent = toCall > 0 ? "Fold" : "Check/Fold";
+    el.callBtn.classList.toggle("hidden", toCall <= 0);
     el.callBtn.textContent = `Call ${fmtShort(toCall)}`;
     el.betRaiseBtn.textContent = "Call Any";
     el.betRaiseBtn.disabled = false;

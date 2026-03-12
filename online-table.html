@@ -1806,10 +1806,26 @@
         letter-spacing: 0.08em;
         box-shadow: 0 4px 16px rgba(0,0,0,0.3);
         transition: all 0.2s;
+        background-image: linear-gradient(135deg, var(--gold), #c49b3a);
+        background-repeat: no-repeat;
+        background-size: 100% 100%;
       }
 
       .table-deal-btn:hover:not(:disabled) { filter: brightness(1.1); transform: translateX(-50%) scale(1.03); }
       .table-deal-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+      .table-deal-btn.countdown {
+        opacity: 0.94;
+        cursor: default;
+        background-image:
+          linear-gradient(90deg, rgba(255,255,255,0.18), rgba(255,255,255,0.08)),
+          linear-gradient(135deg, var(--gold), #c49b3a);
+        background-size: var(--deal-progress, 0%) 100%, 100% 100%;
+        transition: background-size 0.28s linear, opacity 0.2s ease;
+      }
+      .table-deal-btn.countdown:hover:not(:disabled) {
+        filter: none;
+        transform: translateX(-50%);
+      }
 
       /* Action Strip -- slim single row */
       .action-strip {
@@ -4773,6 +4789,6 @@
     <div class="voice-audio-rack" id="voiceAudioRack" aria-hidden="true"></div>
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
-    <script type="module" src="./online/table_app.js?v=167"></script>
+    <script type="module" src="./online/table_app.js?v=168"></script>
   </body>
 </html>
