@@ -1471,3 +1471,18 @@ Validation:
   - hero/live action UI now normalizes `toCall`, contribution labels, and action announcements so fake `Call $0.00` / `All-in $0.00` states do not render
   - added migration `/Users/abishek/Documents/poker-buyins/supabase/migrations/20260311214500_fix_zero_value_river_regressions.sql`
   - bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache version to `v=169`
+
+- Fixed settled-hand sequencing regression where the auto-deal countdown started at the same time as the winner banner:
+  - split `/Users/abishek/Documents/poker-buyins/online/table_app.js` hand-end timing into:
+    1. winner presentation window
+    2. auto-deal countdown window
+  - winner popup now hides when the presentation window ends instead of staying visible through the countdown
+  - auto-deal countdown now waits until showdown presentation is fully inactive before rendering
+  - aligned backend due-table timing in `/Users/abishek/Documents/poker-buyins/supabase/online_poker_schema.sql` by adding the same winner-presentation lead before auto-deal eligibility
+  - added migration `/Users/abishek/Documents/poker-buyins/supabase/migrations/20260311221500_delay_auto_deal_countdown_until_after_winner_hang.sql`
+  - bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache version to `v=170`
+  - validation:
+    - `node --check /Users/abishek/Documents/poker-buyins/online/table_app.js`
+    - `supabase db push`
+    - Playwright smoke against local server with reviewed capture:
+      - `/Users/abishek/Documents/poker-buyins/output/web-game-timing-fix/shot-0.png`

@@ -1659,23 +1659,37 @@ function getSeatContributionAnchor(pos, { hero = false } = {}) {
   return "seat-bet--left-chin";
 }
 
-function getNextHandEligibleAtMs(hand = getLatestHand()) {
+function getAutoDealCountdownMs() {
+  return 2000;
+}
+
+function getHandResultPresentationLeadMs(hand = getLatestHand()) {
+  if (!hand || hand.state !== "settled") return 0;
+  return SHOWDOWN_RESULT_BREATH_MS + SHOWDOWN_COMBO_REVEAL_PAUSE_MS + SHOWDOWN_PAYOUT_FX_DELAY_MS;
+}
+
+function getWinnerPresentationEndsAtMs(hand = getLatestHand()) {
   if (!hand || !["settled", "canceled"].includes(hand.state)) return 0;
   const endedAtMs = Date.parse(hand.ended_at || "");
-  if (!Number.isFinite(endedAtMs)) return Date.now() + getShowdownTimeMs() + 2000;
-  return endedAtMs + getShowdownTimeMs() + 2000;
+  const presentationDurationMs = getShowdownTimeMs() + getHandResultPresentationLeadMs(hand);
+  if (!Number.isFinite(endedAtMs)) return Date.now() + presentationDurationMs;
+  return endedAtMs + presentationDurationMs;
+}
+
+function getNextHandEligibleAtMs(hand = getLatestHand()) {
+  if (!hand || !["settled", "canceled"].includes(hand.state)) return 0;
+  return getWinnerPresentationEndsAtMs(hand) + getAutoDealCountdownMs();
 }
 
 function getAutoDealCountdownMeta(hand = getLatestHand()) {
   if (!hand || !["settled", "canceled"].includes(hand.state) || state.config.autoDeal === false) return null;
+  if (isShowdownPresentationActive(hand)) return null;
+  const countdownStartMs = getWinnerPresentationEndsAtMs(hand);
   const eligibleAtMs = getNextHandEligibleAtMs(hand);
-  const endedAtMs = Date.parse(hand.ended_at || "");
-  const fallbackDurationMs = Math.max(1000, getShowdownTimeMs() + 2000);
-  const totalDurationMs = Number.isFinite(endedAtMs)
-    ? Math.max(1000, eligibleAtMs - endedAtMs)
-    : fallbackDurationMs;
+  const totalDurationMs = Math.max(1000, getAutoDealCountdownMs());
+  const effectiveNow = Math.max(Date.now(), countdownStartMs);
   const remainingMs = Math.max(0, eligibleAtMs - Date.now());
-  const progress = Math.max(0, Math.min(1, 1 - (remainingMs / totalDurationMs)));
+  const progress = Math.max(0, Math.min(1, 1 - ((eligibleAtMs - effectiveNow) / totalDurationMs)));
   const remainingSecs = Math.max(0, Math.ceil(remainingMs / 1000));
   return { remainingMs, remainingSecs, progress };
 }
@@ -2380,7 +2394,7 @@ function syncVictoryPopup({ oldHand, hand, hadPriorTableState = false, shouldDel
       ...payload,
       visible: true
     };
-    const hideDelayMs = Math.max(0, getNextHandEligibleAtMs(latestHand) - Date.now());
+    const hideDelayMs = Math.max(0, getWinnerPresentationEndsAtMs(latestHand) - Date.now());
     state.victoryPopupHideTimer = setTimeout(() => {
       state.victoryPopupHideTimer = null;
       const currentHand = getLatestHand();
