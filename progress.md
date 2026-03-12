@@ -1464,3 +1464,10 @@ Validation:
 - Hardened the hero action strip idle state in `/Users/abishek/Documents/poker-buyins/online/table_app.js`:
   - all betting buttons are explicitly hidden when the hero is not in an actionable betting state
   - added `isHeroTurnActionable(...)` so stale clicks on Fold/Call/Raise/All-in cannot fire after the hand is over or during non-action windows
+
+- Fixed zero-value river action regressions in `/Users/abishek/Documents/poker-buyins/supabase/online_poker_schema.sql` and `/Users/abishek/Documents/poker-buyins/online/table_app.js`:
+  - added `online_normalize_money(...)` so betting logic, showdown settlements, everyone-folded payouts, and fresh hand setup clamp dust amounts back to real cent precision
+  - `online_betting_round_complete(...)` now compares normalized street contributions, preventing microscopic leftovers from reopening action on the river
+  - hero/live action UI now normalizes `toCall`, contribution labels, and action announcements so fake `Call $0.00` / `All-in $0.00` states do not render
+  - added migration `/Users/abishek/Documents/poker-buyins/supabase/migrations/20260311214500_fix_zero_value_river_regressions.sql`
+  - bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache version to `v=169`

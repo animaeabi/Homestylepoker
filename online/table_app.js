@@ -1288,19 +1288,27 @@ const sounds = {
 };
 
 // ============ HELPERS ============
+function normalizeMoney(value) {
+  const n = Number(value || 0);
+  if (!Number.isFinite(n)) return 0;
+  const rounded = Number(n.toFixed(2));
+  return Math.abs(rounded) < 0.005 ? 0 : rounded;
+}
+
 function fmt(v) {
-  const n = Number(v || 0);
+  const n = normalizeMoney(v);
   return Number.isFinite(n) ? `$${n.toFixed(2)}` : "$0.00";
 }
 
 function fmtShort(v) {
-  const n = Number(v || 0);
+  const n = normalizeMoney(v);
   if (!Number.isFinite(n)) return "$0";
   return n % 1 === 0 ? `$${n}` : `$${n.toFixed(2)}`;
 }
 
 function actionAmountText(amount) {
-  return amount != null ? fmtShort(amount) : "";
+  const normalized = normalizeMoney(amount);
+  return normalized > 0 ? fmtShort(normalized) : "";
 }
 
 function presetSymbol(fraction) {
@@ -1562,10 +1570,10 @@ function buildOptimisticSeatAction(payload, hand = getLatestHand(), hp = getMyHa
   const seatNo = Number(hp.seat_no || 0);
   if (!seatNo) return null;
 
-  const currentContribution = Number(hp.street_contribution || 0);
-  const currentBet = Number(hand.current_bet || 0);
-  const stackEnd = Number(hp.stack_end || 0);
-  const toCall = Math.max(0, currentBet - currentContribution);
+  const currentContribution = normalizeMoney(hp.street_contribution || 0);
+  const currentBet = normalizeMoney(hand.current_bet || 0);
+  const stackEnd = normalizeMoney(hp.stack_end || 0);
+  const toCall = normalizeMoney(Math.max(0, currentBet - currentContribution));
   let label = "";
 
   switch (payload.actionType) {
@@ -1610,7 +1618,7 @@ function getSeatContributionLabel({
   const actionType = latestAction?.payload?.action_type || "";
   if (actionType === "check") return "Check";
 
-  const contribution = Number(handPlayer?.street_contribution || 0);
+  const contribution = normalizeMoney(handPlayer?.street_contribution || 0);
   if (!(contribution > 0)) return "";
   const contributionText = fmtShort(contribution);
 
@@ -1697,12 +1705,12 @@ function getBetStep() {
 function canCreateNewAggression(hand = getLatestHand(), hp = getMyHandPlayer(), players = getHandPlayers()) {
   if (!hand || !hp) return true;
   const heroSeatNo = Number(hp.seat_no || 0);
-  const currentBet = Number(hand?.current_bet || 0);
+  const currentBet = normalizeMoney(hand?.current_bet || 0);
   return players.some((player) =>
     Number(player?.seat_no || 0) !== heroSeatNo
     && !player?.folded
     && !player?.all_in
-    && (Number(player?.stack_end || 0) + Number(player?.street_contribution || 0)) > currentBet
+    && normalizeMoney(Number(player?.stack_end || 0) + Number(player?.street_contribution || 0)) > currentBet
   );
 }
 
@@ -1713,13 +1721,15 @@ function roundToStep(value, step = 1) {
 }
 
 function getBetBounds(hand = getLatestHand(), hp = getMyHandPlayer()) {
-  const toCall = Math.max(0, Number(hand?.current_bet || 0) - Number(hp?.street_contribution || 0));
+  const currentBet = normalizeMoney(hand?.current_bet || 0);
+  const currentContribution = normalizeMoney(hp?.street_contribution || 0);
+  const toCall = normalizeMoney(Math.max(0, currentBet - currentContribution));
   const canAggress = canCreateNewAggression(hand, hp);
-  const isRaise = Number(hand?.current_bet || 0) > 0;
+  const isRaise = currentBet > 0;
   const minRaw = isRaise
-    ? Number(hand?.current_bet || 0) + Math.max(Number(hand?.min_raise || 0), Number(getTable()?.big_blind || 2))
+    ? currentBet + Math.max(normalizeMoney(hand?.min_raise || 0), normalizeMoney(getTable()?.big_blind || 2))
     : Number(getTable()?.big_blind || 2);
-  const maxRaw = Number(hp?.stack_end || 0) + Number(hp?.street_contribution || 0);
+  const maxRaw = normalizeMoney(Number(hp?.stack_end || 0) + Number(hp?.street_contribution || 0));
   const step = getBetStep();
   const maxBet = roundToStep(maxRaw, step);
   const minBet = roundToStep(Math.min(canAggress ? minRaw : maxBet, maxBet), step);
@@ -1738,10 +1748,10 @@ function normalizeBetAmount(value, minBet, maxBet, step = 1) {
 }
 
 function getPresetBetAmount(fraction, hand = getLatestHand(), hp = getMyHandPlayer()) {
-  const pot = Number(hand?.pot_total || 0);
-  const contribution = Number(hp?.street_contribution || 0);
+  const pot = normalizeMoney(hand?.pot_total || 0);
+  const contribution = normalizeMoney(hp?.street_contribution || 0);
   const { toCall, minBet, maxBet, step } = getBetBounds(hand, hp);
-  const bigBlind = Number(getTable()?.big_blind || step || 1);
+  const bigBlind = normalizeMoney(getTable()?.big_blind || step || 1);
 
   let rawTarget = 0;
   if (toCall > 0) {
@@ -3477,7 +3487,7 @@ async function maybeRequestRaiseTurnGrace(source = "interaction") {
   const seatToken = getSeatToken();
   if (!hand || !hp || !seatToken || !state.identity?.groupPlayerId) return false;
   if (!isActionStreet(hand.state) || Number(hand.action_seat || 0) !== Number(hp.seat_no || 0)) return false;
-  if (hp.folded || hp.all_in || Number(hp.stack_end || 0) <= 0) return false;
+  if (hp.folded || hp.all_in || normalizeMoney(hp.stack_end || 0) <= 0) return false;
 
   const remaining = getTurnClock(hand);
   if (remaining == null || remaining > TURN_GRACE_REQUEST_THRESHOLD_SECS) return false;
@@ -5134,7 +5144,7 @@ function renderActions() {
     el.betRaiseBtn.setAttribute("aria-disabled", "false");
 
     const { toCall, canAggress } = getBetBounds(hand, hp);
-    const raiseActionType = Number(hand.current_bet || 0) > 0 ? "raise" : "bet";
+    const raiseActionType = normalizeMoney(hand.current_bet || 0) > 0 ? "raise" : "bet";
     el.callBtn.textContent = toCall > 0 ? `Call ${fmtShort(toCall)}` : "Check";
     el.betRaiseBtn.textContent = raiseActionType === "raise" ? "Raise" : "Bet";
     el.allInBtn.textContent = `All-in`;
@@ -5574,7 +5584,7 @@ function bindEvents() {
       return;
     }
     if (!myTurn) return;
-    const toCall = Math.max(0, Number(hand?.current_bet || 0) - Number(hp?.street_contribution || 0));
+    const { toCall } = getBetBounds(hand, hp);
     submitTurnAction(toCall > 0 ? "Call" : "Check", toCall > 0 ? "call" : "check");
   });
   el.betRaiseBtn.addEventListener("click", () => {
@@ -5596,7 +5606,7 @@ function bindEvents() {
       toast("No further betting is possible in this pot.", "error");
       return;
     }
-    const actionType = Number(hand?.current_bet || 0) > 0 ? "raise" : "bet";
+    const actionType = normalizeMoney(hand?.current_bet || 0) > 0 ? "raise" : "bet";
     if ((isLandscapeCollapseMode() || isPortraitCollapseMode()) && !state.landscapeRaisePanelOpen) {
       state.landscapeRaisePanelOpen = true;
       renderActions();

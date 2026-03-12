@@ -1792,6 +1792,20 @@ begin
 end;
 $$;
 
+create or replace function online_normalize_money(
+  p_value numeric
+)
+returns numeric
+language sql
+immutable
+as $$
+  select case
+    when p_value is null then 0::numeric
+    when abs(p_value) < 0.005 then 0::numeric
+    else round(p_value::numeric, 2)
+  end;
+$$;
+
 create or replace function online_next_action_seat(
   p_hand_id uuid,
   p_after int
@@ -1808,7 +1822,7 @@ begin
   where hand_id = p_hand_id
     and not folded
     and not all_in
-    and coalesce(stack_end, 0) > 0;
+    and online_normalize_money(coalesce(stack_end, 0)) > 0;
 
   return online_next_active_seat(v_actionable_seats, p_after);
 end;
@@ -1831,7 +1845,7 @@ begin
   where hand_id = p_hand_id
     and not folded
     and not all_in
-    and coalesce(stack_end, 0) > 0;
+    and online_normalize_money(coalesce(stack_end, 0)) > 0;
 
   if coalesce(array_length(v_actionable_seats, 1), 0) = 0 then
     return null;
@@ -1869,7 +1883,9 @@ begin
   where hand_id = p_hand_id
     and not folded
     and not all_in
-    and coalesce(stack_end, 0) > 0;
+    and online_normalize_money(coalesce(stack_end, 0)) > 0;
+
+  v_target_bet := online_normalize_money(v_target_bet);
 
   select count(*)
   into v_unsettled_count
@@ -1879,7 +1895,7 @@ begin
     and not all_in
     and (
       coalesce(has_acted, false) = false
-      or coalesce(street_contribution, 0) <> v_target_bet
+      or online_normalize_money(coalesce(street_contribution, 0) - v_target_bet) <> 0
     );
 
   return v_unsettled_count = 0;
@@ -2265,8 +2281,8 @@ begin
       v_hand.id,
       v_seat.seat_no,
       v_seat.group_player_id,
-      v_seat.chip_stack,
-      v_seat.chip_stack,
+      online_normalize_money(v_seat.chip_stack),
+      online_normalize_money(v_seat.chip_stack),
       0,
       0,
       false,
@@ -2294,34 +2310,34 @@ begin
 
   update online_hand_players
   set
-    street_contribution = least(coalesce(stack_end, 0), v_table.small_blind),
-    committed = least(coalesce(stack_end, 0), v_table.small_blind),
-    stack_end = greatest(0, coalesce(stack_end, 0) - v_table.small_blind),
-    all_in = greatest(0, coalesce(stack_end, 0) - v_table.small_blind) = 0
+    street_contribution = online_normalize_money(least(coalesce(stack_end, 0), v_table.small_blind)),
+    committed = online_normalize_money(least(coalesce(stack_end, 0), v_table.small_blind)),
+    stack_end = online_normalize_money(greatest(0, coalesce(stack_end, 0) - v_table.small_blind)),
+    all_in = online_normalize_money(greatest(0, coalesce(stack_end, 0) - v_table.small_blind)) = 0
   where hand_id = v_hand.id
     and seat_no = v_small_blind_seat
   returning street_contribution into v_sb_post;
 
   update online_hand_players
   set
-    street_contribution = least(coalesce(stack_end, 0), v_table.big_blind),
-    committed = least(coalesce(stack_end, 0), v_table.big_blind),
-    stack_end = greatest(0, coalesce(stack_end, 0) - v_table.big_blind),
-    all_in = greatest(0, coalesce(stack_end, 0) - v_table.big_blind) = 0
+    street_contribution = online_normalize_money(least(coalesce(stack_end, 0), v_table.big_blind)),
+    committed = online_normalize_money(least(coalesce(stack_end, 0), v_table.big_blind)),
+    stack_end = online_normalize_money(greatest(0, coalesce(stack_end, 0) - v_table.big_blind)),
+    all_in = online_normalize_money(greatest(0, coalesce(stack_end, 0) - v_table.big_blind)) = 0
   where hand_id = v_hand.id
     and seat_no = v_big_blind_seat
   returning street_contribution into v_bb_post;
 
-  v_sb_post := coalesce(v_sb_post, 0);
-  v_bb_post := coalesce(v_bb_post, 0);
-  v_pot_total := v_sb_post + v_bb_post;
+  v_sb_post := online_normalize_money(coalesce(v_sb_post, 0));
+  v_bb_post := online_normalize_money(coalesce(v_bb_post, 0));
+  v_pot_total := online_normalize_money(v_sb_post + v_bb_post);
   v_action_seat := online_next_action_seat(v_hand.id, v_big_blind_seat);
   v_remaining := coalesce(v_deck[v_cursor:array_length(v_deck, 1)], array[]::text[]);
 
   update online_hands
   set
-    pot_total = v_pot_total,
-    current_bet = greatest(v_sb_post, v_bb_post),
+    pot_total = online_normalize_money(v_pot_total),
+    current_bet = online_normalize_money(greatest(v_sb_post, v_bb_post)),
     min_raise = greatest(1, coalesce(v_table.big_blind, 1)),
     action_seat = v_action_seat,
     deck_cards = to_jsonb(v_remaining),
@@ -2404,6 +2420,7 @@ declare
   v_add numeric := 0;
   v_raise_to numeric := 0;
   v_prev_bet numeric := 0;
+  v_current_contribution numeric := 0;
   v_new_street_contribution numeric := 0;
   v_is_full_raise boolean := false;
   v_live_players int := 0;
@@ -2486,14 +2503,15 @@ begin
   if v_hand_player.folded then
     raise exception 'actor_already_folded';
   end if;
-  if v_hand_player.all_in or coalesce(v_hand_player.stack_end, 0) <= 0 then
+  if v_hand_player.all_in or online_normalize_money(coalesce(v_hand_player.stack_end, 0)) <= 0 then
     raise exception 'actor_already_all_in';
   end if;
 
-  v_prev_bet := coalesce(v_hand.current_bet, 0);
+  v_prev_bet := online_normalize_money(coalesce(v_hand.current_bet, 0));
   v_action_street := v_hand.state;
-  v_to_call := greatest(v_prev_bet - coalesce(v_hand_player.street_contribution, 0), 0);
-  v_stack := greatest(coalesce(v_hand_player.stack_end, 0), 0);
+  v_current_contribution := online_normalize_money(coalesce(v_hand_player.street_contribution, 0));
+  v_to_call := online_normalize_money(greatest(v_prev_bet - v_current_contribution, 0));
+  v_stack := online_normalize_money(greatest(coalesce(v_hand_player.stack_end, 0), 0));
   select count(*)
   into v_other_raise_eligible_players
   from online_hand_players
@@ -2501,7 +2519,7 @@ begin
     and seat_no <> v_hand_player.seat_no
     and not folded
     and not all_in
-    and (coalesce(stack_end, 0) + coalesce(street_contribution, 0)) > v_prev_bet;
+    and online_normalize_money(coalesce(stack_end, 0) + coalesce(street_contribution, 0)) > v_prev_bet;
 
   if p_action_type not in ('fold', 'check', 'call', 'bet', 'raise', 'all_in') then
     raise exception 'invalid_action_type';
@@ -2512,7 +2530,7 @@ begin
     if p_action_type in ('bet', 'raise') then
       raise exception 'no_opponents_left_to_raise';
     end if;
-    if coalesce(v_hand_player.street_contribution, 0) + v_stack > v_prev_bet then
+    if online_normalize_money(v_current_contribution + v_stack) > v_prev_bet then
       raise exception 'no_opponents_left_to_raise';
     end if;
   end if;
@@ -2525,15 +2543,16 @@ begin
     if v_to_call <= 0 then
       raise exception 'nothing_to_call';
     end if;
-    v_add := least(v_to_call, v_stack);
+    v_add := online_normalize_money(least(v_to_call, v_stack));
   elsif p_action_type = 'bet' then
     if v_prev_bet > 0 then
       raise exception 'use_raise_not_bet';
     end if;
+    p_amount := online_normalize_money(p_amount);
     if p_amount is null or p_amount <= 0 then
       raise exception 'positive_amount_required';
     end if;
-    v_add := least(p_amount, v_stack);
+    v_add := online_normalize_money(least(p_amount, v_stack));
     if v_add < coalesce(v_table.big_blind, 1) and v_add < v_stack then
       raise exception 'bet_below_big_blind';
     end if;
@@ -2541,29 +2560,30 @@ begin
     if v_prev_bet <= 0 then
       raise exception 'use_bet_not_raise';
     end if;
+    p_amount := online_normalize_money(p_amount);
     if p_amount is null or p_amount <= v_prev_bet then
       raise exception 'raise_target_too_low';
     end if;
     v_raise_to := p_amount;
-    if v_raise_to > coalesce(v_hand_player.street_contribution, 0) + v_stack then
+    if v_raise_to > online_normalize_money(v_current_contribution + v_stack) then
       raise exception 'raise_exceeds_stack';
     end if;
-    v_add := v_raise_to - coalesce(v_hand_player.street_contribution, 0);
+    v_add := online_normalize_money(v_raise_to - v_current_contribution);
     if v_add <= 0 then
       raise exception 'raise_add_invalid';
     end if;
-    v_is_full_raise := (v_raise_to - v_prev_bet) >= greatest(coalesce(v_hand.min_raise, 0), coalesce(v_table.big_blind, 1));
+    v_is_full_raise := online_normalize_money(v_raise_to - v_prev_bet) >= greatest(coalesce(v_hand.min_raise, 0), coalesce(v_table.big_blind, 1));
     if not v_is_full_raise and v_add < v_stack then
       raise exception 'raise_below_min';
     end if;
   elsif p_action_type = 'all_in' then
-    v_add := v_stack;
+    v_add := online_normalize_money(v_stack);
     if v_add <= 0 then
       raise exception 'no_stack';
     end if;
     if v_prev_bet > 0 then
-      v_raise_to := coalesce(v_hand_player.street_contribution, 0) + v_add;
-      v_is_full_raise := (v_raise_to - v_prev_bet) >= greatest(coalesce(v_hand.min_raise, 0), coalesce(v_table.big_blind, 1));
+      v_raise_to := online_normalize_money(v_current_contribution + v_add);
+      v_is_full_raise := online_normalize_money(v_raise_to - v_prev_bet) >= greatest(coalesce(v_hand.min_raise, 0), coalesce(v_table.big_blind, 1));
     end if;
   else
     v_add := 0;
@@ -2579,23 +2599,23 @@ begin
   else
     update online_hand_players
     set
-      street_contribution = coalesce(street_contribution, 0) + v_add,
-      committed = coalesce(committed, 0) + v_add,
-      stack_end = greatest(0, coalesce(stack_end, 0) - v_add),
-      all_in = greatest(0, coalesce(stack_end, 0) - v_add) = 0,
+      street_contribution = online_normalize_money(coalesce(street_contribution, 0) + v_add),
+      committed = online_normalize_money(coalesce(committed, 0) + v_add),
+      stack_end = online_normalize_money(greatest(0, coalesce(stack_end, 0) - v_add)),
+      all_in = online_normalize_money(greatest(0, coalesce(stack_end, 0) - v_add)) = 0,
       has_acted = true
     where id = v_hand_player.id
     returning * into v_hand_player;
 
     if v_add > 0 then
       update online_hands
-      set pot_total = coalesce(pot_total, 0) + v_add
+      set pot_total = online_normalize_money(coalesce(pot_total, 0) + v_add)
       where id = p_hand_id
       returning * into v_hand;
     end if;
   end if;
 
-  v_new_street_contribution := coalesce(v_hand_player.street_contribution, 0);
+  v_new_street_contribution := online_normalize_money(coalesce(v_hand_player.street_contribution, 0));
   v_record_vpip := v_action_street = 'preflop'
     and p_action_type in ('call', 'raise', 'all_in')
     and not coalesce(v_hand_player.stat_vpip_recorded, false);
@@ -2626,8 +2646,8 @@ begin
     if p_action_type = 'bet' then
         update online_hands
         set
-          current_bet = v_new_street_contribution,
-          min_raise = greatest(coalesce(v_table.big_blind, 1), v_new_street_contribution),
+          current_bet = online_normalize_money(v_new_street_contribution),
+          min_raise = online_normalize_money(greatest(coalesce(v_table.big_blind, 1), v_new_street_contribution)),
           last_action_at = now(),
           turn_grace_used_secs = 0
         where id = p_hand_id
@@ -2635,8 +2655,8 @@ begin
     elsif v_is_full_raise then
         update online_hands
         set
-          current_bet = v_new_street_contribution,
-          min_raise = greatest(coalesce(v_table.big_blind, 1), v_new_street_contribution - v_prev_bet),
+          current_bet = online_normalize_money(v_new_street_contribution),
+          min_raise = online_normalize_money(greatest(coalesce(v_table.big_blind, 1), v_new_street_contribution - v_prev_bet)),
           last_action_at = now(),
           turn_grace_used_secs = 0
         where id = p_hand_id
@@ -2644,7 +2664,7 @@ begin
     else
         update online_hands
         set
-          current_bet = greatest(current_bet, v_new_street_contribution),
+          current_bet = online_normalize_money(greatest(current_bet, v_new_street_contribution)),
           last_action_at = now(),
           turn_grace_used_secs = 0
         where id = p_hand_id
@@ -2657,7 +2677,7 @@ begin
       and seat_no <> v_hand_player.seat_no
       and not folded
       and not all_in
-      and coalesce(stack_end, 0) > 0;
+      and online_normalize_money(coalesce(stack_end, 0)) > 0;
   end if;
 
   select count(*)
@@ -2675,16 +2695,20 @@ begin
     limit 1;
 
     update online_hand_players
-    set result_amount = case when seat_no = v_winner_seat then coalesce(v_hand.pot_total, 0) else 0 end
+    set
+      result_amount = case when seat_no = v_winner_seat then online_normalize_money(coalesce(v_hand.pot_total, 0)) else 0 end,
+      stack_end = online_normalize_money(coalesce(stack_end, 0)),
+      committed = online_normalize_money(coalesce(committed, 0)),
+      street_contribution = online_normalize_money(coalesce(street_contribution, 0))
     where hand_id = p_hand_id;
 
     update online_hand_players
-    set stack_end = coalesce(stack_end, 0) + coalesce(v_hand.pot_total, 0)
+    set stack_end = online_normalize_money(coalesce(stack_end, 0) + coalesce(v_hand.pot_total, 0))
     where hand_id = p_hand_id
       and seat_no = v_winner_seat;
 
     update online_table_seats s
-    set chip_stack = hp.stack_end
+    set chip_stack = online_normalize_money(hp.stack_end)
     from online_hand_players hp
     where hp.hand_id = p_hand_id
       and s.table_id = v_hand.table_id
@@ -2707,7 +2731,7 @@ begin
       v_hand.table_id,
       'pot_awarded',
       p_actor_group_player_id,
-      jsonb_build_object('winner_seat', v_winner_seat, 'amount', v_hand.pot_total)
+      jsonb_build_object('winner_seat', v_winner_seat, 'amount', online_normalize_money(v_hand.pot_total))
     );
 
     perform online_append_hand_event(
@@ -2914,10 +2938,10 @@ begin
       raise exception 'payout_seat_not_in_hand';
     end if;
 
-    v_sum_payouts := v_sum_payouts + v_payout.amount;
+    v_sum_payouts := online_normalize_money(v_sum_payouts + online_normalize_money(v_payout.amount));
   end loop;
 
-  if abs(v_sum_payouts - coalesce(v_hand.pot_total, 0)) > 0.01 then
+  if abs(v_sum_payouts - online_normalize_money(coalesce(v_hand.pot_total, 0))) > 0.01 then
     raise exception 'payout_sum_mismatch';
   end if;
 
@@ -2933,14 +2957,22 @@ begin
   loop
     update online_hand_players
     set
-      result_amount = v_payout.amount,
-      stack_end = coalesce(stack_end, 0) + v_payout.amount
+      result_amount = online_normalize_money(v_payout.amount),
+      stack_end = online_normalize_money(coalesce(stack_end, 0) + v_payout.amount)
     where hand_id = p_hand_id
       and seat_no = v_payout.seat_no;
   end loop;
 
+  update online_hand_players
+  set
+    stack_end = online_normalize_money(coalesce(stack_end, 0)),
+    committed = online_normalize_money(coalesce(committed, 0)),
+    street_contribution = online_normalize_money(coalesce(street_contribution, 0)),
+    result_amount = online_normalize_money(coalesce(result_amount, 0))
+  where hand_id = p_hand_id;
+
   update online_table_seats s
-  set chip_stack = hp.stack_end
+  set chip_stack = online_normalize_money(hp.stack_end)
   from online_hand_players hp
   where hp.hand_id = p_hand_id
     and s.table_id = v_hand.table_id
