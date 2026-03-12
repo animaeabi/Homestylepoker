@@ -1497,3 +1497,7 @@ Validation:
   - entering hero `Show Cards` mode now also clears stale optimistic hero action state, preventing `Show Cards` from appearing alongside leftover `Check` UI
   - validation:
     - `node --check /Users/abishek/Documents/poker-buyins/online/table_app.js`
+- Fixed winner-banner hold regression in `/Users/abishek/Documents/poker-buyins/online/table_app.js`.
+  - Root cause: winner presentation timing depended too heavily on server `ended_at`, so if the client learned about settlement late, the visible banner time could already be partially consumed.
+  - Fix: track a local `victoryPopupVisibleUntilMs` and keep auto-deal countdown / Deal button gated until the banner has actually been visible for the full local hang window.
+  - Bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache key to `v=171`.

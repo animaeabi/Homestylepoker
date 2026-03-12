@@ -232,6 +232,7 @@ const state = {
   victoryPopup: null,
   victoryPopupTimer: null,
   victoryPopupHideTimer: null,
+  victoryPopupVisibleUntilMs: 0,
   lastVictoryPopupKey: null,
   showdownResultReveal: null,
   deferredStreetRevealTimer: null,
@@ -1679,8 +1680,13 @@ function getWinnerPresentationEndsAtMs(hand = getLatestHand()) {
   if (!hand || !["settled", "canceled"].includes(hand.state)) return 0;
   const endedAtMs = Date.parse(hand.ended_at || "");
   const presentationDurationMs = getShowdownTimeMs() + getHandResultPresentationLeadMs(hand);
-  if (!Number.isFinite(endedAtMs)) return Date.now() + presentationDurationMs;
-  return endedAtMs + presentationDurationMs;
+  const serverEndsAtMs = Number.isFinite(endedAtMs)
+    ? endedAtMs + presentationDurationMs
+    : Date.now() + presentationDurationMs;
+  const localVisibleEndsAtMs = state.victoryPopup?.visible && state.victoryPopup?.handId === hand.id
+    ? Number(state.victoryPopupVisibleUntilMs || 0)
+    : 0;
+  return Math.max(serverEndsAtMs, localVisibleEndsAtMs);
 }
 
 function getNextHandEligibleAtMs(hand = getLatestHand()) {
@@ -2276,6 +2282,7 @@ function clearVictoryPopup({ preserveKey = false } = {}) {
   state.victoryPopupTimer = null;
   state.victoryPopupHideTimer = null;
   state.victoryPopup = null;
+  state.victoryPopupVisibleUntilMs = 0;
   state.showdownResultReveal = null;
   if (!preserveKey) state.lastVictoryPopupKey = null;
 }
@@ -2397,11 +2404,15 @@ function syncVictoryPopup({ oldHand, hand, hadPriorTableState = false, shouldDel
     state.victoryPopupTimer = null;
     const latestHand = getLatestHand();
     if (!latestHand || latestHand.id !== handId || latestHand.state !== "settled") return;
+    const popupVisibleUntilMs = Date.now() + getShowdownTimeMs();
     state.victoryPopup = {
       ...payload,
+      handId,
       visible: true
     };
-    const hideDelayMs = Math.max(0, getWinnerPresentationEndsAtMs(latestHand) - Date.now());
+    state.victoryPopupVisibleUntilMs = popupVisibleUntilMs;
+    const hideAtMs = Math.max(getWinnerPresentationEndsAtMs(latestHand), popupVisibleUntilMs);
+    const hideDelayMs = Math.max(0, hideAtMs - Date.now());
     state.victoryPopupHideTimer = setTimeout(() => {
       state.victoryPopupHideTimer = null;
       const currentHand = getLatestHand();
