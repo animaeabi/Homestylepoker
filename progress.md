@@ -61,6 +61,7 @@ Original prompt: ok lets do it
 - Dead-chip overcalls should not expose meaningless extra all-in controls.
 - Showdown in all-in runouts reveals all eligible all-in players, while normal showdowns stay more selective.
 - Manual `Show Cards` exists only after settlement.
+- Hand shuffles now use a cryptographically secure Fisher-Yates source, and client-facing hand state no longer exposes the live undealt deck.
 
 ### Known operational caution
 - Voice functionality exists, but cross-device/iPhone verification should always be treated as manual QA territory before assuming it is stable.
@@ -90,6 +91,13 @@ Original prompt: ok lets do it
 6. `/Users/abishek/Documents/poker-buyins/supabase/functions/online-runtime-tick/index.ts`
 
 ## Recent High-Signal Fixes
+- `local / unpushed`:
+  - upgraded `online_shuffled_deck()` to use `pgcrypto`-backed randomness instead of PostgreSQL `random()`
+  - added `online_secure_shuffle_bundle()` to stamp each hand with `deck_commitment` and `rng_seed_hash`
+  - wired those commitment fields into `online_start_hand(...)`
+  - stripped `deck_cards` from `online_get_hand_state_viewer(...)` so seated clients cannot inspect future cards
+  - added migration `/Users/abishek/Documents/poker-buyins/supabase/migrations/20260312130000_secure_shuffle_and_hide_live_deck.sql`
+  - applied with `supabase db push`
 - `4cb29a9`:
   - fixed river/showdown event ordering so the last river action is written before `showdown_ready`
   - historical bad hand logs remain bad; new hands should be correct

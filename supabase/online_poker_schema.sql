@@ -668,7 +668,7 @@ begin
     raise exception 'online_hand_not_found';
   end if;
 
-  v_hand := to_jsonb(v_hand_row);
+  v_hand := to_jsonb(v_hand_row) - 'deck_cards';
   v_reveal_all := v_hand_row.state in ('showdown', 'settled');
 
   if p_viewer_group_player_id is not null
@@ -1764,8 +1764,9 @@ alter table online_hand_players
   add column if not exists street_contribution numeric not null default 0,
   add column if not exists has_acted boolean not null default false;
 
-create or replace function online_shuffled_deck()
-returns text[]
+drop function if exists online_secure_shuffle_bundle();
+create or replace function online_secure_shuffle_bundle()
+returns jsonb
 language plpgsql
 as $$
 declare
@@ -1773,6 +1774,10 @@ declare
   v_i int;
   v_j int;
   v_tmp text;
+  v_draw bytea;
+  v_entropy bytea := ''::bytea;
+  v_u32 bigint;
+  v_limit bigint;
 begin
   select array_agg(rr.rank || ss.suit)
   into v_deck
@@ -1780,7 +1785,18 @@ begin
   cross join unnest(array['s','h','d','c']) as ss(suit);
 
   for v_i in reverse 52..2 loop
-    v_j := floor(random() * v_i) + 1;
+    v_limit := 4294967296::bigint - mod(4294967296::bigint, v_i::bigint);
+    loop
+      v_draw := gen_random_bytes(4);
+      v_entropy := v_entropy || v_draw;
+      v_u32 := (get_byte(v_draw, 0)::bigint << 24)
+             + (get_byte(v_draw, 1)::bigint << 16)
+             + (get_byte(v_draw, 2)::bigint << 8)
+             + get_byte(v_draw, 3)::bigint;
+      exit when v_u32 < v_limit;
+    end loop;
+
+    v_j := ((v_u32 % v_i::bigint)::int) + 1;
     if v_i <> v_j then
       v_tmp := v_deck[v_i];
       v_deck[v_i] := v_deck[v_j];
@@ -1788,7 +1804,25 @@ begin
     end if;
   end loop;
 
-  return v_deck;
+  return jsonb_build_object(
+    'deck', to_jsonb(v_deck),
+    'deck_commitment', encode(digest(convert_to(array_to_string(v_deck, ','), 'utf8'), 'sha256'), 'hex'),
+    'rng_seed_hash', encode(digest(v_entropy, 'sha256'), 'hex')
+  );
+end;
+$$;
+
+create or replace function online_shuffled_deck()
+returns text[]
+language plpgsql
+as $$
+declare
+  v_bundle jsonb;
+begin
+  v_bundle := online_secure_shuffle_bundle();
+  return array(
+    select jsonb_array_elements_text(coalesce(v_bundle->'deck', '[]'::jsonb))
+  );
 end;
 $$;
 
@@ -2099,7 +2133,10 @@ declare
   v_small_blind_seat int;
   v_big_blind_seat int;
   v_action_seat int;
+  v_shuffle jsonb;
   v_deck text[];
+  v_deck_commitment text;
+  v_rng_seed_hash text;
   v_remaining text[];
   v_cursor int := 1;
   v_sb_post numeric := 0;
@@ -2223,7 +2260,12 @@ begin
   from online_hands
   where table_id = p_table_id;
 
-  v_deck := online_shuffled_deck();
+  v_shuffle := online_secure_shuffle_bundle();
+  v_deck := array(
+    select jsonb_array_elements_text(coalesce(v_shuffle->'deck', '[]'::jsonb))
+  );
+  v_deck_commitment := nullif(v_shuffle->>'deck_commitment', '');
+  v_rng_seed_hash := nullif(v_shuffle->>'rng_seed_hash', '');
 
   insert into online_hands(
     table_id,
@@ -2234,6 +2276,8 @@ begin
     big_blind_seat,
     board_cards,
     pot_total,
+    deck_commitment,
+    rng_seed_hash,
     deck_cards,
     current_bet,
     min_raise,
@@ -2249,6 +2293,8 @@ begin
     v_big_blind_seat,
     '[]'::jsonb,
     0,
+    v_deck_commitment,
+    v_rng_seed_hash,
     '[]'::jsonb,
     0,
     v_table.big_blind,
