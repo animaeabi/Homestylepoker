@@ -1,7 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../config.js";
 import { createOnlinePokerClient } from "./client.js?v=121";
-import { computeSidePots, describeSevenCardHand, resolveShowdownPayouts } from "./showdown.js?v=130";
+import { computeSidePots, describeSevenCardHand, resolveShowdownPayouts } from "./showdown.js?v=175";
 import { randomPersonality, randomBotName, OpponentTracker } from "./bot_engine.js";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -34,6 +34,7 @@ const SHOWDOWN_PAYOUT_FX_DELAY_MS = 180;
 const POT_BUMP_MS = 520;
 const CHIP_PUSH_MS = 760;
 const CHIP_PUSH_STAGGER_MS = 48;
+const TABLE_FRONTEND_ASSET_VERSION = "175";
 const TURN_GRACE_REQUEST_SECS = 3;
 const TURN_GRACE_REQUEST_THRESHOLD_SECS = 4;
 const TURN_GRACE_MAX_SECS = 6;
@@ -289,6 +290,8 @@ const state = {
   landscapeCompactMode: false,
   compactTopBarMode: null,
   landscapeRaisePanelOpen: false,
+
+  queuedRenderState: false,
 };
 
 function getUrlTableId() {
@@ -1392,7 +1395,10 @@ function resetActionAnnouncements() {
 }
 
 function flushActionAnnouncementQueue() {
-  if (!state.actionAnnouncementQueue.length) return;
+  if (!state.actionAnnouncementQueue.length) {
+    checkQueuedRender();
+    return;
+  }
   const next = state.actionAnnouncementQueue.shift();
   if (!next) return;
   clearTimeout(state.actionAnnouncementHideTimer);
@@ -2305,11 +2311,13 @@ function clearVictoryPopup({ preserveKey = false } = {}) {
   state.victoryPopupVisibleUntilMs = 0;
   state.showdownResultReveal = null;
   if (!preserveKey) state.lastVictoryPopupKey = null;
+  checkQueuedRender();
 }
 
 function clearPendingSettlementFx() {
   if (state.settlementFxTimer) clearTimeout(state.settlementFxTimer);
   state.settlementFxTimer = null;
+  checkQueuedRender();
 }
 
 function escapeHtml(value) {
@@ -2753,6 +2761,8 @@ function clearDealFx() {
   if (el.dealFxLayer) el.dealFxLayer.innerHTML = "";
   if (el.potDisplay) el.potDisplay.classList.remove("pot-paying");
   state.potPushAnimation = null;
+  state.dealAnimation = null;
+  checkQueuedRender();
 }
 
 function maybeStartDealAnimation(oldHand, hand, hadPriorTableState = false) {
@@ -2827,7 +2837,10 @@ function clearStreetRevealFx({ keepState = false } = {}) {
     anim.phaseTimers.forEach((timerId) => clearTimeout(timerId));
   }
   el.dealFxLayer?.querySelectorAll(".board-flight-card").forEach((node) => node.remove());
-  if (!keepState) state.streetRevealAnimation = null;
+  if (!keepState) {
+    state.streetRevealAnimation = null;
+    checkQueuedRender();
+  }
 }
 
 function buildStreetRevealTimings(indices, baseStartMs, street) {
@@ -2993,38 +3006,6 @@ function markDealCardTarget(cardEl, seatNo, cardIndex, hand = getLatestHand(), t
   return cardEl;
 }
 
-function getDealFlightPath(fromX, fromY, toX, toY, cardIndex = 1) {
-  const dx = toX - fromX;
-  const dy = toY - fromY;
-  const distance = Math.hypot(dx, dy);
-  const direction = Math.abs(dx) > 8 ? Math.sign(dx) : (Number(cardIndex || 1) % 2 === 0 ? 1 : -1);
-  const arcLift = Math.max(24, Math.min(68, distance * 0.18));
-  const sideDrift = Math.max(8, Math.min(22, Math.abs(dx) * 0.08 + 6)) * direction;
-  const roundDrop = Number(cardIndex || 1) === 2 ? 5 : 0;
-  const fromRot = direction >= 0 ? -20 : 18;
-  const midRot = direction >= 0 ? -7 : 6;
-
-  return {
-    midX: fromX + dx * 0.54 + sideDrift,
-    midY: fromY + dy * 0.46 - arcLift - roundDrop,
-    fromRot,
-    midRot,
-  };
-}
-
-function getBoardRevealFlightPath(fromX, fromY, toX, toY, cardIndex = 1) {
-  const dx = toX - fromX;
-  const fromRot = dx >= 0 ? -4 : 4;
-  return {
-    // Hard magnetic landing: head directly to the exact slot.
-    midX: toX,
-    midY: toY,
-    fromRot,
-    midRot: 0,
-    toRot: 0,
-  };
-}
-
 function maybeLaunchDealFx(hand = getLatestHand()) {
   const anim = state.dealAnimation;
   if (!anim || anim.launched || !hand || anim.handId !== hand.id) return;
@@ -3040,46 +3021,50 @@ function maybeLaunchDealFx(hand = getLatestHand()) {
   const soundTimers = [];
   let created = 0;
 
+  const readQueue = [];
   for (const seatNo of anim.seatOrder) {
     for (let cardIndex = 1; cardIndex <= 2; cardIndex++) {
       const target = document.querySelector(`.deal-target[data-deal-seat="${seatNo}"][data-deal-card="${cardIndex}"]`);
       if (!target) continue;
-      const delayMs = getDealCardDelayMs(anim, seatNo, cardIndex);
-      if (delayMs == null) continue;
-
       const targetRect = target.getBoundingClientRect();
       if (!targetRect.width || !targetRect.height) continue;
-
-      const flight = document.createElement("div");
-      const toX = targetRect.left - tableRect.left;
-      const toY = targetRect.top - tableRect.top;
-      const path = getDealFlightPath(
-        fromX - targetRect.width / 2,
-        fromY - targetRect.height / 2,
-        toX,
-        toY,
-        cardIndex
-      );
-      flight.className = "deal-flight-card";
-      flight.style.setProperty("--from-x", `${fromX - targetRect.width / 2}px`);
-      flight.style.setProperty("--from-y", `${fromY - targetRect.height / 2}px`);
-      flight.style.setProperty("--to-x", `${toX}px`);
-      flight.style.setProperty("--to-y", `${toY}px`);
-      flight.style.setProperty("--mid-x", `${path.midX}px`);
-      flight.style.setProperty("--mid-y", `${path.midY}px`);
-      flight.style.setProperty("--from-rot", `${path.fromRot}deg`);
-      flight.style.setProperty("--mid-rot", `${path.midRot}deg`);
-      flight.style.setProperty("--to-rot", `${Number(target.dataset.dealTilt || 0)}deg`);
-      flight.style.setProperty("--card-w", `${targetRect.width}px`);
-      flight.style.setProperty("--card-h", `${targetRect.height}px`);
-      flight.style.setProperty("--delay-ms", `${delayMs}ms`);
-      flight.style.setProperty("--flight-ms", `${DEAL_ANIMATION_MS}ms`);
-      flight.addEventListener("animationend", () => flight.remove(), { once: true });
-      el.dealFxLayer.appendChild(flight);
-      created += 1;
-
-      soundTimers.push(setTimeout(() => sounds.deal(), Math.max(0, delayMs - 12)));
+      readQueue.push({ seatNo, cardIndex, target, targetRect });
     }
+  }
+
+  for (const { seatNo, cardIndex, target, targetRect } of readQueue) {
+    const delayMs = getDealCardDelayMs(anim, seatNo, cardIndex);
+    if (delayMs == null) continue;
+
+    const flight = document.createElement("div");
+    const toX = targetRect.left - tableRect.left;
+    const toY = targetRect.top - tableRect.top;
+    const path = getDealFlightPath(
+      fromX - targetRect.width / 2,
+      fromY - targetRect.height / 2,
+      toX,
+      toY,
+      cardIndex
+    );
+    flight.className = "deal-flight-card";
+    flight.style.setProperty("--from-x", `${fromX - targetRect.width / 2}px`);
+    flight.style.setProperty("--from-y", `${fromY - targetRect.height / 2}px`);
+    flight.style.setProperty("--to-x", `${toX}px`);
+    flight.style.setProperty("--to-y", `${toY}px`);
+    flight.style.setProperty("--mid-x", `${path.midX}px`);
+    flight.style.setProperty("--mid-y", `${path.midY}px`);
+    flight.style.setProperty("--from-rot", `${path.fromRot}deg`);
+    flight.style.setProperty("--mid-rot", `${path.midRot}deg`);
+    flight.style.setProperty("--to-rot", `${Number(target.dataset.dealTilt || 0)}deg`);
+    flight.style.setProperty("--card-w", `${targetRect.width}px`);
+    flight.style.setProperty("--card-h", `${targetRect.height}px`);
+    flight.style.setProperty("--delay-ms", `${delayMs}ms`);
+    flight.style.setProperty("--flight-ms", `${DEAL_ANIMATION_MS}ms`);
+    flight.addEventListener("animationend", () => flight.remove(), { once: true });
+    el.dealFxLayer.appendChild(flight);
+    created += 1;
+
+    soundTimers.push(setTimeout(() => sounds.deal(), Math.max(0, delayMs - 12)));
   }
 
   if (!created) return;
@@ -3132,12 +3117,16 @@ function maybeLaunchStreetRevealFx(hand = getLatestHand()) {
   const flopBaseFlipDelayMs = Math.max(0, maxLandDelayMs + BOARD_REVEAL_FLIP_AFTER_LAND_MS);
   let maxFinishDelayMs = 0;
 
+  const readQueue = [];
   for (const boardIndex of queueOrdered) {
     const target = el.boardCards.querySelector(`.board-deal-target[data-board-index="${boardIndex}"]`);
     if (!target) continue;
     const targetRect = target.getBoundingClientRect();
     if (!targetRect.width || !targetRect.height) continue;
+    readQueue.push({ boardIndex, targetRect });
+  }
 
+  for (const { boardIndex, targetRect } of readQueue) {
     const landAtMs = getStreetRevealLandDelayMs(anim, boardIndex);
     const flipAtMs = getStreetRevealFlipDelayMs(anim, boardIndex);
     if (landAtMs == null || flipAtMs == null) continue;
@@ -3329,11 +3318,16 @@ function maybeLaunchPotPushFx(hand = getLatestHand()) {
   const colorOrder = ["charcoal", "red", "green", "gold", "ivory"];
   let created = 0;
 
+  const readQueue = [];
   anim.winners.forEach((winner, winnerIndex) => {
     const targetEl = getSeatTargetElement(winner.seatNo);
     if (!targetEl) return;
     const targetRect = targetEl.getBoundingClientRect();
     if (!targetRect.width) return;
+    readQueue.push({ winner, winnerIndex, targetRect });
+  });
+
+  for (const { winner, winnerIndex, targetRect } of readQueue) {
     const chipCount = Math.min(8, Math.max(4, 2 + Math.round(Math.sqrt(Number(winner.amount || 0) / bigBlind) * 1.4)));
 
     for (let i = 0; i < chipCount; i++) {
@@ -3352,7 +3346,7 @@ function maybeLaunchPotPushFx(hand = getLatestHand()) {
       el.dealFxLayer.appendChild(chip);
       created += 1;
     }
-  });
+  }
 
   anim.launched = true;
   if (!created) {
@@ -3370,148 +3364,6 @@ function maybeLaunchPotPushFx(hand = getLatestHand()) {
     if (state.potPushAnimation?.handId === anim.handId) state.potPushAnimation = null;
     renderAll();
   }, CHIP_PUSH_MS + anim.winners.length * 120 + 600);
-}
-
-// Fixed seat positions at the table edge for portrait mode.
-// Each slot is { x%, y% } placing the seat right on the rail.
-const PORTRAIT_SEATS = {
-  2: [
-    { x: 50, y: 4 }, { x: 50, y: 86 },
-  ],
-  3: [
-    { x: 50, y: 4 },
-    { x: 8, y: 44 }, { x: 92, y: 44 },
-  ],
-  4: [
-    { x: 30, y: 4 }, { x: 70, y: 4 },
-    { x: 8, y: 52 }, { x: 92, y: 52 },
-  ],
-  5: [
-    { x: 50, y: 4 },
-    { x: 6, y: 30 }, { x: 94, y: 30 },
-    { x: 8, y: 75 }, { x: 92, y: 75 },
-  ],
-  6: [
-    { x: 30, y: 4 }, { x: 70, y: 4 },
-    { x: 4, y: 40 }, { x: 96, y: 40 },
-    { x: 20, y: 80 }, { x: 80, y: 80 },
-  ],
-  7: [
-    { x: 50, y: 3 },
-    { x: 12, y: 16 }, { x: 88, y: 16 },
-    { x: 11, y: 45 }, { x: 89, y: 45 },
-    { x: 10, y: 85 }, { x: 90, y: 85 },
-  ],
-  8: [
-    { x: 30, y: 2 }, { x: 70, y: 2 },
-    { x: 11, y: 25 }, { x: 89, y: 25 },
-    { x: 12, y: 62 }, { x: 88, y: 62 },
-    { x: 18, y: 90 }, { x: 82, y: 90 },
-  ],
-  9: [
-    { x: 50, y: 2 },
-    { x: 12, y: 13 }, { x: 88, y: 13 },
-    { x: 2, y: 38 }, { x: 98, y: 38 },
-    { x: 2, y: 62 }, { x: 98, y: 62 },
-    { x: 14, y: 88 }, { x: 86, y: 88 },
-  ],
-  10: [
-    { x: 30, y: 3 }, { x: 70, y: 3 },
-    { x: 6, y: 18 }, { x: 94, y: 18 },
-    { x: 4, y: 40 }, { x: 96, y: 40 },
-    { x: 4, y: 62 }, { x: 96, y: 62 },
-    { x: 22, y: 82 }, { x: 78, y: 82 },
-  ],
-};
-
-// Hand-tuned landscape slots (table seats only; my-seat remains in hand area).
-// Goal: mirrored rows with no direct seat opposite hero.
-const LANDSCAPE_SEATS = {
-  1: [{ x: 36, y: 9 }],
-  2: [{ x: 36, y: 9 }, { x: 64, y: 9 }],
-  3: [{ x: 36, y: 9 }, { x: 64, y: 9 }, { x: 88, y: 27 }],
-  4: [{ x: 36, y: 9 }, { x: 64, y: 9 }, { x: 12, y: 27 }, { x: 88, y: 27 }],
-  5: [{ x: 36, y: 9 }, { x: 64, y: 9 }, { x: 12, y: 27 }, { x: 88, y: 27 }, { x: 94, y: 56 }],
-  6: [{ x: 36, y: 9 }, { x: 64, y: 9 }, { x: 12, y: 27 }, { x: 88, y: 27 }, { x: 6, y: 56 }, { x: 94, y: 56 }],
-  7: [{ x: 36, y: 9 }, { x: 64, y: 9 }, { x: 12, y: 27 }, { x: 88, y: 27 }, { x: 6, y: 56 }, { x: 94, y: 56 }, { x: 80, y: 82 }],
-  8: [{ x: 36, y: 9 }, { x: 64, y: 9 }, { x: 12, y: 27 }, { x: 88, y: 27 }, { x: 6, y: 56 }, { x: 94, y: 56 }, { x: 20, y: 82 }, { x: 80, y: 82 }],
-  9: [{ x: 36, y: 9 }, { x: 64, y: 9 }, { x: 12, y: 27 }, { x: 88, y: 27 }, { x: 6, y: 56 }, { x: 94, y: 56 }, { x: 20, y: 82 }, { x: 80, y: 82 }, { x: 86, y: 86 }],
-};
-
-function portraitSeatTemplate(total) {
-  const clamped = Math.max(2, Math.min(10, total));
-  const positions = PORTRAIT_SEATS[clamped] || PORTRAIT_SEATS[6];
-  return positions.slice(0, Math.max(1, total));
-}
-
-function landscapeSeatTemplate(total) {
-  const clamped = Math.max(1, Math.min(9, total));
-  const positions = LANDSCAPE_SEATS[clamped] || LANDSCAPE_SEATS[8];
-  return positions.slice(0, Math.max(1, total));
-}
-
-function compactSeatTemplate(total) {
-  return isLandscape() ? landscapeSeatTemplate(total) : portraitSeatTemplate(total);
-}
-
-function compactClockwiseSortKey(position) {
-  const angle = Math.atan2(position.y - 50, position.x - 50);
-  return (Math.PI / 2 - angle + Math.PI * 2) % (Math.PI * 2);
-}
-
-function compactSlotOrder(total) {
-  return compactSeatTemplate(total)
-    .map((position, index) => ({ index, sortKey: compactClockwiseSortKey(position) }))
-    .sort((a, b) => a.sortKey - b.sortKey || a.index - b.index)
-    .map(({ index }) => index);
-}
-
-function compactSeatsFromHeroPerspective(seats, mySeat) {
-  if (!mySeat) return seats.slice();
-  const myIdx = seats.findIndex((seat) => seat.seat_no === mySeat.seat_no);
-  if (myIdx < 0) return seats.slice();
-  return seats.slice(myIdx + 1).concat(seats.slice(0, myIdx));
-}
-
-function portraitSeatPosition(index, total) {
-  const positions = portraitSeatTemplate(total);
-  const idx = Math.max(0, Math.min(index - 1, positions.length - 1));
-  const p = positions[idx];
-  return { x: `${p.x}%`, y: `${p.y}%` };
-}
-
-function landscapeSeatPosition(index, total) {
-  const positions = landscapeSeatTemplate(total);
-  const idx = Math.max(0, Math.min(index - 1, positions.length - 1));
-  const p = positions[idx];
-  return { x: `${p.x}%`, y: `${p.y}%` };
-}
-
-function isPortraitMobile() {
-  return window.innerWidth <= 768 && window.innerHeight > window.innerWidth;
-}
-
-function isCompactMobileLayout() {
-  return isPortraitMobile() || isLandscape();
-}
-
-function seatPosition(index, total) {
-  const landscape = isLandscape();
-  const portrait = isPortraitMobile();
-  const angle = Math.PI / 2 + ((index - 1) / total) * Math.PI * 2;
-  let xR, yR;
-  if (landscape) {
-    return landscapeSeatPosition(index, total);
-  } else if (portrait) {
-    return portraitSeatPosition(index, total);
-  } else if (window.innerWidth <= 768) {
-    xR = total >= 8 ? 39 : 37;
-    yR = total >= 8 ? 40 : 38;
-  } else {
-    xR = 41;
-    yR = 37;
-  }
-  return { x: `${50 + Math.cos(angle) * xR}%`, y: `${50 - Math.sin(angle) * yR}%` };
 }
 
 function getTurnClock(hand) {
@@ -3581,49 +3433,44 @@ async function maybeRequestRaiseTurnGrace(source = "interaction") {
 }
 
 // ============ EQUITY CALC ============
-function calcEquity(hand, handPlayers) {
-  const contenders = (handPlayers || [])
-    .filter(hp => !hp.folded && Array.isArray(hp.hole_cards) && hp.hole_cards.length === 2)
-    .map(hp => ({ seatNo: hp.seat_no, holeCards: hp.hole_cards.map(normCard).filter(Boolean) }))
-    .filter(hp => hp.holeCards.length === 2);
-  if (contenders.length < 2) return new Map();
+let equityWorker = null;
+let currentEquityReqId = 0;
 
-  const boardKnown = (hand?.board_cards || []).map(normCard).filter(Boolean);
-  const unknownCount = Math.max(0, 5 - boardKnown.length);
-  const knownSet = new Set(boardKnown);
-  for (const hp of handPlayers || []) {
-    if (Array.isArray(hp.hole_cards)) hp.hole_cards.forEach(t => { const c = normCard(t); if (c) knownSet.add(c); });
+function getEquityWorker() {
+  if (!equityWorker) {
+    equityWorker = new Worker(
+      new URL(`./table_equity_worker.js?v=${TABLE_FRONTEND_ASSET_VERSION}`, import.meta.url),
+      { type: "module" }
+    );
+    equityWorker.onmessage = (e) => {
+      const { reqId, reqKey, reqTableId, equityResult } = e.data || {};
+      if (reqId !== currentEquityReqId) return;
+      if ((reqTableId || null) !== (state.tableId || null)) return;
+      if ((reqKey || "") !== (state.equityCacheKey || "")) return;
+      state.equityCache = new Map(equityResult || []);
+      const hand = getLatestHand();
+      if (!hand || !isActionStreet(hand.state)) return;
+      if (getPresentationState() === "idle") {
+        renderSeats();
+      } else {
+        state.queuedRenderState = true;
+      }
+    };
+    equityWorker.onerror = (err) => console.warn("[equityWorker]", err);
   }
-  const deck = FULL_DECK.filter(t => !knownSet.has(t));
-  const eq = new Map(contenders.map(p => [p.seatNo, 0]));
-  let trials = 0;
+  return equityWorker;
+}
 
-  const run = (board) => {
-    const payouts = resolveShowdownPayouts({
-      boardCards: board,
-      players: contenders.map(p => ({ seatNo: p.seatNo, folded: false, committed: 1, holeCards: p.holeCards }))
-    });
-    for (const po of payouts) eq.set(po.seat_no, (eq.get(po.seat_no) || 0) + po.amount / contenders.length);
-    trials++;
-  };
-
-  if (unknownCount === 0) { run(boardKnown); }
-  else if (unknownCount <= 2) {
-    for (let i = 0; i < deck.length; i++) {
-      if (unknownCount === 1) { run([...boardKnown, deck[i]]); }
-      else { for (let j = i + 1; j < deck.length; j++) run([...boardKnown, deck[i], deck[j]]); }
-    }
-  } else {
-    for (let n = 0; n < 600; n++) {
-      const shuffled = deck.slice();
-      for (let i = shuffled.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]; }
-      run([...boardKnown, ...shuffled.slice(0, unknownCount)]);
-    }
-  }
-
-  const pct = new Map();
-  for (const [seat, units] of eq) pct.set(seat, trials > 0 ? Number(((units / trials) * 100).toFixed(1)) : 0);
-  return pct;
+function requestEquityCalc(hand, handPlayers, key = state.equityCacheKey) {
+  const worker = getEquityWorker();
+  currentEquityReqId += 1;
+  worker.postMessage({
+    reqId: currentEquityReqId,
+    reqKey: key,
+    reqTableId: state.tableId || null,
+    hand,
+    handPlayers,
+  });
 }
 
 // ============ LOBBY ============
@@ -3920,6 +3767,28 @@ function syncTableRuntimeConfig(table) {
   state.config.turnTime = Math.max(10, Number(table.decision_time_secs || 25));
 }
 
+
+function getPresentationState() {
+  const hand = getLatestHand();
+  if (state.actionAnnouncementCurrent != null || state.actionAnnouncementQueue.length > 0) return "action_announcement";
+  if (state.streetActionLabelHoldTimer) return "street_breath";
+  if (isStreetRevealPresentationActive(hand)) return "street_reveal";
+  if (state.dealAnimation?.launched && state.dealAnimation.handId === hand?.id) return "deal_reveal";
+  if (state.potPushAnimation?.launched && state.potPushAnimation.handId === hand?.id) return "showdown_reveal";
+  if (state.settlementFxTimer) return "showdown_breath";
+  if (state.victoryPopupTimer || (state.victoryPopup && state.victoryPopup.handId === hand?.id && state.victoryPopup.visible)) return "winner_banner";
+  const countdown = getAutoDealCountdownMeta(hand);
+  if (countdown && countdown.remainingMs > 0) return "autodeal_countdown";
+  return "idle";
+}
+
+function checkQueuedRender() {
+  if (state.queuedRenderState && !state.loading && state.tableState && getPresentationState() === "idle") {
+    state.queuedRenderState = false;
+    renderAll();
+  }
+}
+
 // ============ LOAD STATE ============
 let prevHandState = null;
 let prevActionSeat = null;
@@ -4052,8 +3921,15 @@ async function loadTableState() {
     prevActionSeat = hand?.action_seat || null;
     trackOpponentActions();
 
-    renderAll();
+    const pState = getPresentationState();
+    if (pState !== "idle") {
+      state.queuedRenderState = true;
+    } else {
+      state.queuedRenderState = false;
+      renderAll();
+    }
   } catch (err) {
+
     console.error("[loadTableState]", err);
     if (state.pendingAction) {
       state.pendingAction = false;
@@ -4657,10 +4533,11 @@ function renderSeats() {
   if (showEquity) {
     const key = `${hand.id}|${hand.state}|${JSON.stringify(hand.board_cards)}`;
     if (key !== state.equityCacheKey) {
-      state.equityCache = calcEquity(hand, handPlayers);
+      state.equityCache = new Map();
       state.equityCacheKey = key;
+      requestEquityCalc(hand, handPlayers, key);
     }
-    equityMap = state.equityCache;
+    equityMap = state.equityCache || new Map();
   }
 
   el.seatsLayer.innerHTML = "";

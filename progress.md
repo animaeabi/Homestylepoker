@@ -1617,3 +1617,33 @@ Validation:
   - Root cause: the toggle was gated by the global `state.loading` flag, so background table polling could silently swallow taps; polling could also briefly repaint the button back to the pre-click state.
   - Fix: added a dedicated `heroShowCardsPending` state plus a tiny optimistic `heroShowCardsOverride` for the settled hand, so the button remains stable and clickable while the reveal request is in flight.
   - Bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache key to `v=172`.
+- Reviewed an uncommitted frontend performance refactor and kept the good parts while hardening the risky edges.
+  - Verified the refactor added:
+    - a queued render gate inside `/Users/abishek/Documents/poker-buyins/online/table_app.js`
+    - a new worker at `/Users/abishek/Documents/poker-buyins/online/table_equity_worker.js`
+    - geometry extraction to `/Users/abishek/Documents/poker-buyins/online/table_fx_geometry.js`
+  - Fixed the biggest regression in the worker bootstrap:
+    - replaced `document.currentScript`-based worker URL construction with `new URL(..., import.meta.url)` in `/Users/abishek/Documents/poker-buyins/online/table_app.js`
+    - aligned cache busting for `/Users/abishek/Documents/poker-buyins/online-table.html`, `/Users/abishek/Documents/poker-buyins/online/table_app.js`, and `/Users/abishek/Documents/poker-buyins/online/table_equity_worker.js` to `v=174`
+  - Hardened async equity updates:
+    - worker responses now echo `reqKey` and `reqTableId`
+    - UI only accepts results for the current table and current equity cache key
+    - stale equity cache is cleared before requesting a fresh calculation so old percentages do not linger across streets
+    - worker completion no longer repaints seats immediately during active presentation phases; it defers by setting the queued render flag
+  - Tightened queued-render flushing:
+    - `checkQueuedRender()` now refuses to flush while a load is still in progress or before table state exists
+    - `clearPendingSettlementFx()` now also attempts a queued render flush so the queue cannot get stranded behind a canceled settlement timer
+  - Validation:
+    - `node --check /Users/abishek/Documents/poker-buyins/online/table_app.js`
+    - `node --check /Users/abishek/Documents/poker-buyins/online/table_equity_worker.js`
+    - `node --check /Users/abishek/Documents/poker-buyins/online/table_fx_geometry.js`
+- Follow-up live QA on the refactor caught two real browser/runtime regressions and fixed them before commit.
+  - Problem 1: the refactored deal-animation loop in `/Users/abishek/Documents/poker-buyins/online/table_app.js` had an extra closing brace, which caused a browser parse failure (`Illegal return statement`) and prevented the lobby submit handler from attaching. The page rendered, but `Create Table` fell back to raw form submission.
+  - Fix 1: removed the stray brace and revalidated with `esbuild` bundling plus browser playback.
+  - Problem 2: `/Users/abishek/Documents/poker-buyins/online/table_fx_geometry.js` still depended on `isLandscape()` from the old monolithic file scope, so live table rendering threw `ReferenceError: isLandscape is not defined` on first state load.
+  - Fix 2: added a local `isLandscape()` helper inside the geometry file and bumped asset versions to `v=175` in `/Users/abishek/Documents/poker-buyins/online-table.html`, `/Users/abishek/Documents/poker-buyins/online/table_app.js`, and `/Users/abishek/Documents/poker-buyins/online/table_equity_worker.js`.
+  - Live validation after fixes:
+    - created a real online table from the lobby in browser
+    - added a bot successfully from an empty seat
+    - dealt live hands successfully
+    - confirmed hand log, showdown banner, and `Show Cards` still function on the fixed bundle
