@@ -228,6 +228,9 @@ Update (pre-action cleanup + auto-deal countdown pass):
 - Removed the ugly `Call $0` pre-action state in `/Users/abishek/Documents/poker-buyins/online/table_app.js`; the middle pre-action slot now stays hidden unless there is an actual bet to call.
 - Added a subtle auto-deal countdown treatment on the center `Deal` button in `/Users/abishek/Documents/poker-buyins/online/table_app.js` and `/Users/abishek/Documents/poker-buyins/online-table.html`, reusing the existing showdown hang-time window with a soft fill/progress effect and `Dealing in N` label.
 
+Update (countdown tone-down pass):
+- Reduced the visual prominence of the auto-deal countdown label in `/Users/abishek/Documents/poker-buyins/online-table.html`, especially for portrait/iPhone layouts, by shrinking the countdown text size and tightening the letter spacing while keeping the normal `Deal` button unchanged.
+
 Validation:
 - `node --check app.js` (pass)
 - `node --check online/client.js` (pass)
