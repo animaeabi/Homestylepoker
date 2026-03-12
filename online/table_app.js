@@ -1683,11 +1683,12 @@ function getBetStep() {
 function canCreateNewAggression(hand = getLatestHand(), hp = getMyHandPlayer(), players = getHandPlayers()) {
   if (!hand || !hp) return true;
   const heroSeatNo = Number(hp.seat_no || 0);
+  const currentBet = Number(hand?.current_bet || 0);
   return players.some((player) =>
     Number(player?.seat_no || 0) !== heroSeatNo
     && !player?.folded
     && !player?.all_in
-    && Number(player?.stack_end || 0) > 0
+    && (Number(player?.stack_end || 0) + Number(player?.street_contribution || 0)) > currentBet
   );
 }
 

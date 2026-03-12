@@ -2419,7 +2419,7 @@ declare
   v_action_street text;
   v_record_vpip boolean := false;
   v_record_pfr boolean := false;
-  v_other_actionable_players int := 0;
+  v_other_raise_eligible_players int := 0;
 begin
   select * into v_hand
   from online_hands
@@ -2495,19 +2495,19 @@ begin
   v_to_call := greatest(v_prev_bet - coalesce(v_hand_player.street_contribution, 0), 0);
   v_stack := greatest(coalesce(v_hand_player.stack_end, 0), 0);
   select count(*)
-  into v_other_actionable_players
+  into v_other_raise_eligible_players
   from online_hand_players
   where hand_id = p_hand_id
     and seat_no <> v_hand_player.seat_no
     and not folded
     and not all_in
-    and coalesce(stack_end, 0) > 0;
+    and (coalesce(stack_end, 0) + coalesce(street_contribution, 0)) > v_prev_bet;
 
   if p_action_type not in ('fold', 'check', 'call', 'bet', 'raise', 'all_in') then
     raise exception 'invalid_action_type';
   end if;
 
-  if v_other_actionable_players = 0
+  if v_other_raise_eligible_players = 0
      and p_action_type in ('bet', 'raise', 'all_in') then
     if p_action_type in ('bet', 'raise') then
       raise exception 'no_opponents_left_to_raise';

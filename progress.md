@@ -215,6 +215,11 @@ Update (street-action sync guard pass):
 - Updated street reveal cleanup to call `renderAll()` (not just `renderBoard()`) so controls re-enable exactly when reveal completes, avoiding stale hidden/action mismatch windows.
 - Bumped `/Users/abishek/Documents/poker-buyins/online-table.html` bundle to `v=145`.
 
+Update (capped all-in control pass):
+- Tightened dead-chip aggression rules in `/Users/abishek/Documents/poker-buyins/online/table_app.js` and `/Users/abishek/Documents/poker-buyins/supabase/online_poker_schema.sql` so a player only gets bet/raise/all-in controls when another live player can actually contest chips above the current bet.
+- Added migration `/Users/abishek/Documents/poker-buyins/supabase/migrations/20260311201000_disallow_dead_allin_overcalls.sql`.
+- Result: when a shorter stack has already capped the action, deeper stacks only get `Call`, not a meaningless extra `All-in`.
+
 Validation:
 - `node --check app.js` (pass)
 - `node --check online/client.js` (pass)
