@@ -113,12 +113,16 @@ const el = {
   actionAnnouncement: document.getElementById("actionAnnouncement"),
   actionAnnouncementActor: document.getElementById("actionAnnouncementActor"),
   actionAnnouncementText: document.getElementById("actionAnnouncementText"),
+  turnIndicator: document.getElementById("turnIndicator"),
+  turnIndicatorLabel: document.getElementById("turnIndicatorLabel"),
+  turnIndicatorName: document.getElementById("turnIndicatorName"),
   streetLabel: document.getElementById("streetLabel"),
   boardCards: document.getElementById("boardCards"),
   winReason: document.getElementById("winReason"),
   victoryPopup: document.getElementById("victoryPopup"),
   victoryPopupTitle: document.getElementById("victoryPopupTitle"),
   victoryPopupDetail: document.getElementById("victoryPopupDetail"),
+  reactionTray: document.getElementById("reactionTray"),
   startHandBtn: document.getElementById("startHandBtn"),
   actionStrip: document.getElementById("actionStrip"),
   presetRow: document.getElementById("presetRow"),
@@ -279,6 +283,9 @@ const state = {
     offsetX: 0,
     offsetY: 0,
   },
+  reactionOverlays: new Map(),
+  reactionCleanupTimer: null,
+  reactionCooldownUntil: 0,
   turnGrace: {
     pending: false,
     lastRequestedAt: 0,
@@ -293,6 +300,29 @@ const state = {
 
   queuedRenderState: false,
 };
+
+const DEFAULT_TABLE_REACTIONS = Object.freeze([
+  { key: "well_played", emoji: "👏", text: "Well played" },
+  { key: "nice_bluff", emoji: "🔥", text: "Nice bluff" },
+  { key: "laugh", emoji: "😂", text: "Laugh" },
+  { key: "angry", emoji: "😡", text: "Angry" },
+]);
+
+const HERO_WIN_HIDDEN_REACTIONS = Object.freeze([
+  { key: "ha_bluffed", emoji: "😏", text: "Ha! bluffed" },
+  { key: "good_game", emoji: "🤝", text: "Good game" },
+  { key: "good_fold", emoji: "👌", text: "Good fold" },
+  { key: "laugh", emoji: "😂", text: "Laugh" },
+]);
+
+const HERO_WIN_SHOWN_REACTIONS = Object.freeze([
+  { key: "good_game", emoji: "🤝", text: "Good game" },
+  { key: "good_fold", emoji: "👌", text: "Good fold" },
+  { key: "laugh", emoji: "😂", text: "Laugh" },
+  { key: "angry", emoji: "😡", text: "Angry" },
+]);
+const REACTION_BUBBLE_MS = 2600;
+const REACTION_SEND_COOLDOWN_MS = 1200;
 
 function getUrlTableId() {
   return new URLSearchParams(window.location.search).get("table") || "";
@@ -2011,7 +2041,10 @@ function resolveHeroPreaction(hand = getLatestHand(), hp = getMyHandPlayer()) {
     case "call_current":
       return toCall > 0 ? { label: `Call ${fmtShort(toCall)}`, actionType: "call" } : null;
     case "call_any":
-      return { label: toCall > 0 ? `Call ${fmtShort(toCall)}` : "Check", actionType: toCall > 0 ? "call" : "check" };
+      // "Call Any" should only auto-fire when there is an actual bet to call.
+      // If action checks around unopened, clear the preaction and give the hero
+      // the real betting decision instead of silently auto-checking.
+      return toCall > 0 ? { label: `Call ${fmtShort(toCall)}`, actionType: "call" } : null;
     default:
       return null;
   }
@@ -2392,6 +2425,16 @@ function renderVictoryPopup() {
   el.victoryPopup.classList.toggle("visible", Boolean(popup?.visible));
 }
 
+function renderTurnIndicator() {
+  if (!el.turnIndicator || !el.turnIndicatorLabel || !el.turnIndicatorName) return;
+  // Use seat-first turn emphasis instead of a floating banner, which pulls
+  // attention away from the actual acting player and feels visually heavy.
+  el.turnIndicator.classList.remove("visible");
+  el.turnIndicatorLabel.textContent = "";
+  el.turnIndicatorName.textContent = "";
+  delete el.turnIndicator.dataset.tone;
+}
+
 function syncVictoryPopup({ oldHand, hand, hadPriorTableState = false, shouldDelayStreetReveal = false, revealDelayMs = null }) {
   if (!hand) {
     clearVictoryPopup();
@@ -2488,6 +2531,16 @@ function getActionPopupAnchor(pos = {}) {
   return "above";
 }
 
+function getReactionPopupAnchor(pos = {}) {
+  const px = Number.parseFloat(pos.x);
+  const py = Number.parseFloat(pos.y);
+  if (Number.isFinite(py) && py <= 20) return "above";
+  if (Number.isFinite(py) && py >= 70) return "below";
+  if (Number.isFinite(px) && px <= 32) return "left";
+  if (Number.isFinite(px) && px >= 68) return "right";
+  return "above";
+}
+
 function buildActionPopup(copy, { hero = false, anchor = "above" } = {}) {
   if (!copy?.detail) return null;
   const popup = document.createElement("div");
@@ -2500,6 +2553,175 @@ function buildActionPopup(copy, { hero = false, anchor = "above" } = {}) {
   text.textContent = copy.detail;
   popup.appendChild(text);
   return popup;
+}
+
+function buildReactionPopup(reaction, { hero = false, anchor = "above" } = {}) {
+  if (!reaction?.emoji && !reaction?.text) return null;
+  const popup = document.createElement("div");
+  popup.className = hero
+    ? "seat-reaction-popup hero-reaction-popup"
+    : `seat-reaction-popup seat-reaction-popup--${anchor}`;
+  const emoji = document.createElement("span");
+  emoji.className = "reaction-emoji";
+  emoji.textContent = reaction?.emoji || "";
+  popup.appendChild(emoji);
+  if (reaction?.text) {
+    const text = document.createElement("span");
+    text.className = "reaction-text";
+    text.textContent = reaction.text;
+    popup.appendChild(text);
+  }
+  return popup;
+}
+
+function canUseReactionTray(hand = getLatestHand(), hp = getMyHandPlayer()) {
+  const mySeat = getMySeat();
+  return Boolean(
+    hand &&
+    hand.state === "settled" &&
+    !shouldClearSettledHandVisuals(hand) &&
+    getSeatToken() &&
+    mySeat &&
+    hp &&
+    hp.group_player_id === state.identity?.groupPlayerId &&
+    !seatLooksBot(mySeat)
+  );
+}
+
+function didHeroWinSettledHand(hand = getLatestHand(), hp = getMyHandPlayer()) {
+  const mySeat = getMySeat();
+  if (!hand || hand.state !== "settled" || !hp || !mySeat) return false;
+
+  const players = getHandPlayers();
+  const uncontestedWinner = getUncontestedWinner(hand, players);
+  if (uncontestedWinner) {
+    return Number(uncontestedWinner.seat_no || 0) === Number(mySeat.seat_no || 0);
+  }
+
+  const showdownLeaders = getShowdownLeaders(hand, players);
+  return showdownLeaders.some(({ player }) => Number(player?.seat_no || 0) === Number(mySeat.seat_no || 0));
+}
+
+function getReactionOptions(hand = getLatestHand(), hp = getMyHandPlayer()) {
+  if (!didHeroWinSettledHand(hand, hp)) return DEFAULT_TABLE_REACTIONS;
+  const heroShown = getEffectiveHeroManualShown(hand, hp);
+  return heroShown ? HERO_WIN_SHOWN_REACTIONS : HERO_WIN_HIDDEN_REACTIONS;
+}
+
+function pruneReactionOverlays(hand = getLatestHand()) {
+  const currentHandId = hand?.id || null;
+  const now = Date.now();
+  for (const [seatNo, overlay] of state.reactionOverlays.entries()) {
+    if (!overlay || now >= Number(overlay.until || 0) || (currentHandId && overlay.handId !== currentHandId)) {
+      state.reactionOverlays.delete(seatNo);
+    }
+  }
+}
+
+function scheduleReactionCleanup() {
+  if (state.reactionCleanupTimer) {
+    clearTimeout(state.reactionCleanupTimer);
+    state.reactionCleanupTimer = null;
+  }
+  let nextExpiry = Infinity;
+  for (const overlay of state.reactionOverlays.values()) {
+    const until = Number(overlay?.until || 0);
+    if (until > Date.now() && until < nextExpiry) nextExpiry = until;
+  }
+  if (!Number.isFinite(nextExpiry)) return;
+  state.reactionCleanupTimer = setTimeout(() => {
+    state.reactionCleanupTimer = null;
+    pruneReactionOverlays();
+    renderSeats();
+    renderMyHand();
+    renderReactionTray();
+  }, Math.max(30, nextExpiry - Date.now() + 24));
+}
+
+function addReactionOverlay(payload, { self = false } = {}) {
+  const handId = payload?.handId || payload?.hand_id || null;
+  const seatNo = Number(payload?.seatNo || payload?.seat_no || 0);
+  if (!handId || !seatNo) return;
+  const emoji = String(payload?.emoji || "").trim();
+  const text = String(payload?.text || "").trim();
+  if (!emoji && !text) return;
+  state.reactionOverlays.set(seatNo, {
+    handId,
+    seatNo,
+    playerId: payload?.playerId || payload?.player_id || null,
+    emoji,
+    text,
+    self,
+    until: Date.now() + REACTION_BUBBLE_MS,
+  });
+  scheduleReactionCleanup();
+  renderSeats();
+  renderMyHand();
+}
+
+async function sendReaction(reactionKey) {
+  const hand = getLatestHand();
+  const hp = getMyHandPlayer();
+  const mySeat = getMySeat();
+  if (!canUseReactionTray(hand, hp) || !mySeat) return;
+  const reaction = new Map(getReactionOptions(hand, hp).map((item) => [item.key, item])).get(reactionKey);
+  if (!reaction) return;
+  const now = Date.now();
+  if (now < state.reactionCooldownUntil) return;
+
+  state.reactionCooldownUntil = now + REACTION_SEND_COOLDOWN_MS;
+  const payload = {
+    id: `r_${now}_${Math.random().toString(36).slice(2, 7)}`,
+    tableId: state.tableId,
+    handId: hand.id,
+    playerId: state.identity?.groupPlayerId || null,
+    seatNo: mySeat.seat_no,
+    name: seatName(state.identity?.groupPlayerId),
+    emoji: reaction.emoji,
+    text: reaction.text,
+    at: now,
+  };
+
+  addReactionOverlay(payload, { self: true });
+  renderReactionTray();
+
+  try {
+    if (!state.chatChannel || !state.chatHealthy) throw new Error("Reaction channel unavailable.");
+    const status = await state.chatChannel.send({
+      type: "broadcast",
+      event: "table_reaction",
+      payload,
+    });
+    if (status !== "ok") throw new Error("Could not send reaction.");
+  } catch (err) {
+    toast(err.message || "Could not send reaction.", "error");
+  } finally {
+    setTimeout(() => renderReactionTray(), REACTION_SEND_COOLDOWN_MS + 40);
+  }
+}
+
+function renderReactionTray() {
+  if (!el.reactionTray) return;
+  const hand = getLatestHand();
+  const hp = getMyHandPlayer();
+  const canReact = canUseReactionTray(hand, hp);
+  el.reactionTray.classList.toggle("hidden", !canReact);
+  if (!canReact) return;
+
+  const reactions = getReactionOptions(hand, hp);
+  const disabled = Date.now() < state.reactionCooldownUntil || !state.chatHealthy;
+  el.reactionTray.querySelectorAll("[data-reaction]").forEach((btn, index) => {
+    const reaction = reactions[index] || null;
+    const emojiEl = btn.querySelector(".reaction-chip-emoji");
+    const labelEl = btn.querySelector(".reaction-chip-label");
+    btn.classList.toggle("hidden", !reaction);
+    if (!reaction) return;
+    btn.dataset.reaction = reaction.key;
+    if (emojiEl) emojiEl.textContent = reaction.emoji || "";
+    if (labelEl) labelEl.textContent = reaction.text || "";
+    btn.disabled = disabled;
+    btn.setAttribute("aria-disabled", disabled ? "true" : "false");
+  });
 }
 
 function hashString(value = "") {
@@ -3017,9 +3239,10 @@ function maybeLaunchDealFx(hand = getLatestHand()) {
 
   const fromX = deckRect.left + deckRect.width / 2 - tableRect.left;
   const fromY = deckRect.top + deckRect.height / 2 - tableRect.top;
-  const totalCards = anim.seatOrder.length * 2;
   const soundTimers = [];
   let created = 0;
+  let maxRemainingMs = 0;
+  const elapsed = Date.now() - Number(anim.startedAt || Date.now());
 
   const readQueue = [];
   for (const seatNo of anim.seatOrder) {
@@ -3035,6 +3258,8 @@ function maybeLaunchDealFx(hand = getLatestHand()) {
   for (const { seatNo, cardIndex, target, targetRect } of readQueue) {
     const delayMs = getDealCardDelayMs(anim, seatNo, cardIndex);
     if (delayMs == null) continue;
+    const effectiveDelayMs = delayMs - elapsed;
+    if (effectiveDelayMs <= -DEAL_ANIMATION_MS) continue;
 
     const flight = document.createElement("div");
     const toX = targetRect.left - tableRect.left;
@@ -3058,21 +3283,29 @@ function maybeLaunchDealFx(hand = getLatestHand()) {
     flight.style.setProperty("--to-rot", `${Number(target.dataset.dealTilt || 0)}deg`);
     flight.style.setProperty("--card-w", `${targetRect.width}px`);
     flight.style.setProperty("--card-h", `${targetRect.height}px`);
-    flight.style.setProperty("--delay-ms", `${delayMs}ms`);
+    flight.style.setProperty("--delay-ms", `${effectiveDelayMs}ms`);
     flight.style.setProperty("--flight-ms", `${DEAL_ANIMATION_MS}ms`);
     flight.addEventListener("animationend", () => flight.remove(), { once: true });
     el.dealFxLayer.appendChild(flight);
     created += 1;
-
-    soundTimers.push(setTimeout(() => sounds.deal(), Math.max(0, delayMs - 12)));
+    const remainingMs = effectiveDelayMs >= 0
+      ? effectiveDelayMs + DEAL_ANIMATION_MS
+      : Math.max(0, DEAL_ANIMATION_MS + effectiveDelayMs);
+    maxRemainingMs = Math.max(maxRemainingMs, remainingMs);
+    if (effectiveDelayMs > 0) {
+      soundTimers.push(setTimeout(() => sounds.deal(), Math.max(0, effectiveDelayMs - 12)));
+    }
   }
 
-  if (!created) return;
+  if (!created) {
+    clearDealFx();
+    return;
+  }
   anim.launched = true;
   anim.soundTimers = soundTimers;
   anim.cleanupTimer = setTimeout(() => {
     if (state.dealAnimation?.handId === anim.handId) clearDealFx();
-  }, totalCards * DEAL_STAGGER_MS + DEAL_ANIMATION_MS + 220);
+  }, Math.max(120, maxRemainingMs + 180));
 }
 
 function maybeLaunchStreetRevealFx(hand = getLatestHand()) {
@@ -3647,6 +3880,11 @@ function enterTable(tableId) {
 async function stopRealtime() {
   if (state.rtRefreshTimer) { clearTimeout(state.rtRefreshTimer); state.rtRefreshTimer = null; }
   state.rtRefreshQueued = false;
+  if (state.reactionCleanupTimer) {
+    clearTimeout(state.reactionCleanupTimer);
+    state.reactionCleanupTimer = null;
+  }
+  state.reactionOverlays.clear();
   if (state.realtimeChannel) {
     try { await supabase.removeChannel(state.realtimeChannel); } catch { /* ignore */ }
   }
@@ -3698,6 +3936,13 @@ async function startRealtime(tableId) {
       const selfPlayerId = payload?.playerId || payload?.player_id || null;
       const self = selfPlayerId && selfPlayerId === state.identity?.groupPlayerId;
       addChatMessage(payload, { self });
+    })
+    .on("broadcast", { event: "table_reaction" }, ({ payload }) => {
+      const payloadTableId = payload?.tableId || payload?.table_id || null;
+      if (!payload || payloadTableId !== state.tableId) return;
+      const seatNo = Number(payload?.seatNo || payload?.seat_no || 0);
+      if (!seatNo || isBotSeat(seatNo)) return;
+      addReactionOverlay(payload, { self: false });
     });
 
   state.realtimeChannel = ch;
@@ -4303,11 +4548,14 @@ function loadBotSeats() {
 
 // ============ RENDER ============
 function renderAll() {
+  pruneReactionOverlays();
   renderTopBar();
   renderBoard();
   renderSeats();
   renderMyHand();
   renderActions();
+  renderTurnIndicator();
+  renderReactionTray();
   renderHandLog();
   renderConfigPlayers();
   renderVoiceUi();
@@ -4802,6 +5050,14 @@ function renderSeats() {
         node.appendChild(winAmt);
       }
 
+      const reactionData = state.reactionOverlays.get(seat.seat_no);
+      if (reactionData && Date.now() < reactionData.until && (!hand?.id || reactionData.handId === hand.id)) {
+        const reactionBubble = buildReactionPopup(reactionData, {
+          anchor: getReactionPopupAnchor(pos),
+        });
+        if (reactionBubble) node.appendChild(reactionBubble);
+      }
+
       const contributionLabel = getSeatContributionLabel({
         seat,
         handPlayer: hp,
@@ -4860,6 +5116,7 @@ function renderMyHand() {
   el.myHandCards.innerHTML = "";
   if (badgesEl) badgesEl.innerHTML = "";
   el.myHandArea?.querySelector(".seat-bet--hero")?.remove();
+  el.myHandArea?.querySelector(".hero-reaction-popup")?.remove();
   el.myHandArea?.classList.add("no-hole-cards");
 
   const hand = getLatestHand();
@@ -4876,6 +5133,7 @@ function renderMyHand() {
     el.myHandArea?.classList.remove("folded");
     el.myHandArea?.classList.remove("voice-speaking");
     el.myHandArea?.classList.remove("active-turn");
+    el.myHandArea?.classList.remove("winner-seat");
     if (el.myHandAvatar) delete el.myHandAvatar.dataset.seat;
     return;
   }
@@ -4887,6 +5145,8 @@ function renderMyHand() {
   el.myHandArea?.classList.toggle("folded", Boolean(!clearedSettledHand && hp?.folded));
   el.myHandArea?.classList.toggle("voice-speaking", Boolean(activeVoiceSpeakerId && mySeat.group_player_id === activeVoiceSpeakerId));
   el.myHandArea?.classList.toggle("active-turn", Boolean(!clearedSettledHand && hand?.action_seat && hand.action_seat === mySeat.seat_no && !hp?.folded));
+  const heroWinData = state.winOverlays.get(mySeat.seat_no);
+  el.myHandArea?.classList.toggle("winner-seat", Boolean(heroWinData && Date.now() < heroWinData.until));
   applyAvatarTheme(el.myHandAvatar, {
     seed: `${state.identity?.groupPlayerId || mySeat.group_player_id || mySeat.seat_no}:${state.identity?.name || "You"}`,
     name: state.identity?.name || "You",
@@ -4948,6 +5208,12 @@ function renderMyHand() {
     heroBet.className = `seat-bet ${getSeatContributionAnchor(null, { hero: true })}`;
     heroBet.textContent = heroContributionLabel;
     el.myHandArea?.appendChild(heroBet);
+  }
+
+  const heroReactionData = state.reactionOverlays.get(mySeat.seat_no);
+  if (heroReactionData && Date.now() < heroReactionData.until && (!hand?.id || heroReactionData.handId === hand.id)) {
+    const heroReaction = buildReactionPopup(heroReactionData, { hero: true });
+    if (heroReaction) el.myHandArea?.appendChild(heroReaction);
   }
 
   // Rebuy button in my-hand area -- create once, show/hide
@@ -5653,6 +5919,13 @@ function bindEvents() {
       state.selectedSeatNo = null;
       renderSeats();
     }
+  });
+
+  el.reactionTray?.querySelectorAll("[data-reaction]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      void sendReaction(button.dataset.reaction || "");
+    });
   });
 
   // Config panel

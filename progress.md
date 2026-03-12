@@ -66,6 +66,21 @@ Original prompt: ok lets do it
 - Voice functionality exists, but cross-device/iPhone verification should always be treated as manual QA territory before assuming it is stable.
 - No RLS is enabled yet; security is still RPC-check driven.
 
+### New UI/social polish (2026-03-12)
+- Added stronger turn prominence in the online table:
+  - global turn indicator banner
+  - stronger active-turn seat/hero glow
+- Added stronger winner prominence:
+  - richer winner popup glow
+  - stronger winner seat/hero highlight treatment
+- Added ephemeral post-hand reactions for seated human players only:
+  - no bot reactions
+  - no DB/schema change
+  - reactions are broadcast-only over the existing table chat realtime channel
+  - current presets: `Well played`, `Nice bluff`, `Laugh`, `Angry`
+  - reaction tray is shown only to human players who were live in the settled hand
+  - reaction bubbles are short-lived and intentionally not stored in chat/history
+
 ### Best files for a new AI to read first
 1. `/Users/abishek/Documents/poker-buyins/AGENTS.md`
 2. `/Users/abishek/Documents/poker-buyins/progress.md`
@@ -87,9 +102,17 @@ Original prompt: ok lets do it
 - `920dc86`:
   - fixed settled-hand hero UI leak where `Show Cards` could coexist with stale `Check`
   - made `Show Cards` an exclusive settled render path
+- local uncommitted changes:
+  - turn indicator + stronger winner emphasis + ephemeral player reactions added to the online table UI
+  - cache buster advanced to `v=177`
+  - validated with:
+    - `node --check /Users/abishek/Documents/poker-buyins/online/table_app.js`
+    - `node --check /Users/abishek/Documents/poker-buyins/online/table_fx_geometry.js`
+    - local browser smoke with no console errors
+    - develop-web-game harness output at `/Users/abishek/Documents/poker-buyins/output/web-game-reactions/shot-0.png`
 
 ### Current online bundle note
-- `/Users/abishek/Documents/poker-buyins/online-table.html` currently loads `/Users/abishek/Documents/poker-buyins/online/table_app.js?v=173`
+- `/Users/abishek/Documents/poker-buyins/online-table.html` currently loads `/Users/abishek/Documents/poker-buyins/online/table_app.js?v=177`
 - If online UI changes do not appear on device, check the cache-buster first
 
 - Added online poker MVP blueprint: /Users/abishek/Documents/poker-buyins/docs/ONLINE_POKER_MVP.md

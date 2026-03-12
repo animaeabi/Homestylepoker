@@ -8,15 +8,16 @@ function getDealFlightPath(fromX, fromY, toX, toY, cardIndex = 1) {
   const dy = toY - fromY;
   const distance = Math.hypot(dx, dy);
   const direction = Math.abs(dx) > 8 ? Math.sign(dx) : (Number(cardIndex || 1) % 2 === 0 ? 1 : -1);
-  const arcLift = Math.max(24, Math.min(68, distance * 0.18));
-  const sideDrift = Math.max(8, Math.min(22, Math.abs(dx) * 0.08 + 6)) * direction;
-  const roundDrop = Number(cardIndex || 1) === 2 ? 5 : 0;
-  const fromRot = direction >= 0 ? -20 : 18;
-  const midRot = direction >= 0 ? -7 : 6;
+  const arcLift = Math.max(18, Math.min(42, distance * 0.12));
+  const cardOffset = Number(cardIndex || 1) === 2 ? 4 : -2;
+  const fromRot = direction >= 0 ? -14 : 12;
+  const midRot = direction >= 0 ? -4 : 4;
 
   return {
-    midX: fromX + dx * 0.54 + sideDrift,
-    midY: fromY + dy * 0.46 - arcLift - roundDrop,
+    // Keep the hole-card flight magnetized to the target seat instead of
+    // arcing outward past edge seats.
+    midX: fromX + dx * 0.52,
+    midY: fromY + dy * 0.48 - arcLift + cardOffset,
     fromRot,
     midRot,
   };
