@@ -220,6 +220,10 @@ Update (capped all-in control pass):
 - Added migration `/Users/abishek/Documents/poker-buyins/supabase/migrations/20260311201000_disallow_dead_allin_overcalls.sql`.
 - Result: when a shorter stack has already capped the action, deeper stacks only get `Call`, not a meaningless extra `All-in`.
 
+Update (post-hand action rail visibility fix):
+- Fixed a mobile CSS regression in `/Users/abishek/Documents/poker-buyins/online-table.html` where `.astrip-allin` could override the generic `.hidden` class and leak the `All-in` button during post-hand `Show Cards` mode.
+- Added explicit hidden-state enforcement for action-strip buttons/groups so only the intended post-hand controls remain visible.
+
 Validation:
 - `node --check app.js` (pass)
 - `node --check online/client.js` (pass)
