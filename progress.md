@@ -1486,3 +1486,14 @@ Validation:
     - `supabase db push`
     - Playwright smoke against local server with reviewed capture:
       - `/Users/abishek/Documents/poker-buyins/output/web-game-timing-fix/shot-0.png`
+
+- Fixed hero fold-label regression in `/Users/abishek/Documents/poker-buyins/online/table_app.js`:
+  - `buildOptimisticSeatAction(...)` now maps `fold` to `Fold` instead of falling through, which was allowing the hero seat label to incorrectly keep showing `Check`
+  - validation:
+    - `node --check /Users/abishek/Documents/poker-buyins/online/table_app.js`
+
+- Fixed post-hand hero control overlap in `/Users/abishek/Documents/poker-buyins/online/table_app.js`:
+  - added `clearDisplayedActionAnnouncements()` so settled-hand `Show Cards` mode clears stale live-action announcements without resetting hand-announcement history
+  - entering hero `Show Cards` mode now also clears stale optimistic hero action state, preventing `Show Cards` from appearing alongside leftover `Check` UI
+  - validation:
+    - `node --check /Users/abishek/Documents/poker-buyins/online/table_app.js`

@@ -1369,19 +1369,23 @@ function hideActionAnnouncement() {
   renderMyHand();
 }
 
-function resetActionAnnouncements() {
-  state.actionAnnouncementQueue = [];
-  state.actionAnnouncementCurrent = null;
+function clearDisplayedActionAnnouncements() {
   clearTimeout(state.actionAnnouncementHideTimer);
   clearTimeout(state.actionAnnouncementNextTimer);
   state.actionAnnouncementHideTimer = null;
   state.actionAnnouncementNextTimer = null;
-  state.lastAnnouncedActionHandId = null;
-  state.lastAnnouncedActionSeq = 0;
+  state.actionAnnouncementQueue = [];
+  state.actionAnnouncementCurrent = null;
+  el.actionAnnouncement?.classList.remove("visible");
   if (el.actionAnnouncement) delete el.actionAnnouncement.dataset.action;
   if (el.actionAnnouncementActor) el.actionAnnouncementActor.textContent = "";
   if (el.actionAnnouncementText) el.actionAnnouncementText.textContent = "";
-  hideActionAnnouncement();
+}
+
+function resetActionAnnouncements() {
+  clearDisplayedActionAnnouncements();
+  state.lastAnnouncedActionHandId = null;
+  state.lastAnnouncedActionSeq = 0;
 }
 
 function flushActionAnnouncementQueue() {
@@ -1577,6 +1581,9 @@ function buildOptimisticSeatAction(payload, hand = getLatestHand(), hp = getMyHa
   let label = "";
 
   switch (payload.actionType) {
+    case "fold":
+      label = "Fold";
+      break;
     case "check":
       label = "Check";
       break;
@@ -5188,6 +5195,10 @@ function renderActions() {
     el.betRaiseBtn.disabled = false;
     el.betRaiseBtn.setAttribute("aria-disabled", "false");
   } else if (showCardsMode) {
+    clearHeroPreaction();
+    state.heroPreactionExecuting = false;
+    state.optimisticSeatAction = null;
+    clearDisplayedActionAnnouncements();
     state.landscapeRaisePanelOpen = false;
     el.actionStrip.classList.remove("hidden");
     el.presetRow.classList.add("hidden");
