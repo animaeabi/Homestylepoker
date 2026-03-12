@@ -1,5 +1,97 @@
 Original prompt: ok lets do it
 
+## Current Project Map (2026-03-12)
+
+### Product shape
+- This codebase supports two products:
+  - in-person poker buy-in / settlement tracking
+  - online multiplayer Texas Hold'em
+- The online mode must not break or pollute the in-person tracker.
+- `__online_lobby__` is a hidden system group and must stay filtered from the in-person UI.
+
+### Current architecture boundaries
+- In-person app:
+  - `/Users/abishek/Documents/poker-buyins/index.html`
+  - `/Users/abishek/Documents/poker-buyins/app.js`
+  - `/Users/abishek/Documents/poker-buyins/styles.css`
+- Online frontend:
+  - `/Users/abishek/Documents/poker-buyins/online-table.html`
+  - `/Users/abishek/Documents/poker-buyins/online/table_app.js`
+  - `/Users/abishek/Documents/poker-buyins/online/client.js`
+  - `/Users/abishek/Documents/poker-buyins/online/showdown.js`
+- Online backend:
+  - `/Users/abishek/Documents/poker-buyins/supabase/online_poker_schema.sql`
+  - `/Users/abishek/Documents/poker-buyins/supabase/functions/online-runtime-tick/index.ts`
+  - `/Users/abishek/Documents/poker-buyins/supabase/functions/online-voice-session/index.ts`
+  - `/Users/abishek/Documents/poker-buyins/supabase/functions/_shared/bot_engine.ts`
+  - `/Users/abishek/Documents/poker-buyins/supabase/functions/_shared/showdown.ts`
+
+### Production authority model
+- Production gameplay is server-driven.
+- `online-runtime-tick` is authoritative for:
+  - bot actions
+  - timeout folds/checks
+  - all-in board runouts
+  - showdown settlement
+  - due-table auto-deal starts
+- `/Users/abishek/Documents/poker-buyins/online/runtime_worker.js` is legacy/dev-only now.
+- Viewer-safe table reads come from `online_get_table_state_viewer(...)`.
+- Seat tokens remain required for all player mutations.
+
+### Current online UX features
+- Landing page Online accordion creates and seats a player directly.
+- Join-by-link flow works through `online-table.html?table=UUID`.
+- Host can add bots, remove bots, transfer host, and manage seated players.
+- Hero has:
+  - compact action rail
+  - pre-actions
+  - manual post-hand `Show Cards`
+  - rebuy / top-up CTAs
+- Hand log is floating, narrow, scrollable, and detailed.
+- Table chat persists by table and late joiners can see earlier messages.
+- Voice is currently shared-room table voice:
+  - host enables/ends table voice
+  - seated humans join/leave
+  - Daily-backed room/tokens via `online-voice-session`
+- Bots are server-side and use opponent profiling.
+
+### Current high-signal behavior guarantees
+- Winner banner should appear, hang, then auto-deal countdown starts.
+- Timeout checks are automatic when checking is free; only facing a live bet causes timeout fold.
+- Dead-chip overcalls should not expose meaningless extra all-in controls.
+- Showdown in all-in runouts reveals all eligible all-in players, while normal showdowns stay more selective.
+- Manual `Show Cards` exists only after settlement.
+
+### Known operational caution
+- Voice functionality exists, but cross-device/iPhone verification should always be treated as manual QA territory before assuming it is stable.
+- No RLS is enabled yet; security is still RPC-check driven.
+
+### Best files for a new AI to read first
+1. `/Users/abishek/Documents/poker-buyins/AGENTS.md`
+2. `/Users/abishek/Documents/poker-buyins/progress.md`
+3. `/Users/abishek/Documents/poker-buyins/online/table_app.js`
+4. `/Users/abishek/Documents/poker-buyins/online-table.html`
+5. `/Users/abishek/Documents/poker-buyins/supabase/online_poker_schema.sql`
+6. `/Users/abishek/Documents/poker-buyins/supabase/functions/online-runtime-tick/index.ts`
+
+## Recent High-Signal Fixes
+- `4cb29a9`:
+  - fixed river/showdown event ordering so the last river action is written before `showdown_ready`
+  - historical bad hand logs remain bad; new hands should be correct
+- `7b97772`:
+  - winner banner timing now uses a local visible hold
+  - prevents the banner from “using up” its hang time before the client sees it
+- `d15a78e`:
+  - stabilized post-hand `Show Cards` with dedicated pending/override state
+  - stopped the button from blinking and swallowing taps during background polling
+- `920dc86`:
+  - fixed settled-hand hero UI leak where `Show Cards` could coexist with stale `Check`
+  - made `Show Cards` an exclusive settled render path
+
+### Current online bundle note
+- `/Users/abishek/Documents/poker-buyins/online-table.html` currently loads `/Users/abishek/Documents/poker-buyins/online/table_app.js?v=173`
+- If online UI changes do not appear on device, check the cache-buster first
+
 - Added online poker MVP blueprint: /Users/abishek/Documents/poker-buyins/docs/ONLINE_POKER_MVP.md
 - Added additive Supabase schema for online mode: /Users/abishek/Documents/poker-buyins/supabase/online_poker_schema.sql
 - Added deterministic authoritative-engine scaffold: /Users/abishek/Documents/poker-buyins/online/holdem_engine.js
@@ -123,6 +215,16 @@ Update (show-cards settled UI cleanup):
 - Fixed a settled-hand hero UI leak where `Show Cards` could still coexist with a stale `Check` button after all-in / everyone-folded finishes.
 - Made `Show Cards` an exclusive early render path in `/Users/abishek/Documents/poker-buyins/online/table_app.js` so live-action and pre-action button state can no longer re-expose the hero call/check control during settled hands.
 - Bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache key to `v=173`.
+
+Update (handoff documentation refresh):
+- Rewrote `/Users/abishek/Documents/poker-buyins/AGENTS.md` to match the current production project shape instead of older assumptions.
+- Added a current-state project map and recent high-signal fixes section near the top of `/Users/abishek/Documents/poker-buyins/progress.md`.
+- The refreshed docs now correctly describe:
+  - server-side runtime authority
+  - viewer-safe state reads
+  - shared-room table voice
+  - hero pre-actions and post-hand `Show Cards`
+  - current online entry points and guardrails
 
 Update (showdown payout UX pass):
 - Adjusted `/Users/abishek/Documents/poker-buyins/online/table_app.js` so settlement seat tags show net winnings (`result_amount - committed`) instead of gross payout returns, preventing false positive tags for players who only received their own chips back from side-pot resolution.
