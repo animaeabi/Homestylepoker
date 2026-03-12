@@ -5166,7 +5166,7 @@ function renderActions() {
   const noActiveHand = !hand || ["settled","canceled"].includes(hand.state);
   const presentationActive = isShowdownPresentationActive(hand);
   const nextHandEligible = Date.now() >= getNextHandEligibleAtMs(hand);
-  const preactionMode = syncHeroPreactionUi({ hand, hp, myTurn, actionLocked });
+  const preactionMode = showCardsMode ? false : syncHeroPreactionUi({ hand, hp, myTurn, actionLocked });
   el.tableView.classList.toggle("landscape-actions-visible", Boolean(myTurn));
   el.tableView.classList.toggle("landscape-vertical-actions", compactActions);
   el.actionStrip.classList.toggle("preaction-mode", preactionMode);
@@ -5188,6 +5188,27 @@ function renderActions() {
   }
 
   renderDealButton({ hand, isHost, noActiveHand, presentationActive, nextHandEligible });
+
+  if (showCardsMode) {
+    clearHeroPreaction();
+    state.heroPreactionExecuting = false;
+    state.optimisticSeatAction = null;
+    clearDisplayedActionAnnouncements();
+    state.landscapeRaisePanelOpen = false;
+    const heroShown = getEffectiveHeroManualShown(hand, hp);
+    el.actionStrip.classList.remove("hidden");
+    el.actionStrip.classList.remove("preaction-mode");
+    el.presetRow.classList.add("hidden");
+    el.foldBtn.classList.add("hidden");
+    el.callBtn.classList.add("hidden");
+    el.allInBtn.classList.add("hidden");
+    el.betRaiseBtn.classList.remove("hidden");
+    el.betRaiseBtn.classList.remove("active");
+    el.betRaiseBtn.textContent = heroShown ? "Hide Cards" : "Show Cards";
+    el.betRaiseBtn.disabled = state.heroShowCardsPending;
+    el.betRaiseBtn.setAttribute("aria-disabled", state.heroShowCardsPending ? "true" : "false");
+    return;
+  }
 
   if (myTurn) {
     el.actionStrip.classList.remove("hidden");
@@ -5235,23 +5256,6 @@ function renderActions() {
     el.betRaiseBtn.textContent = "Call Any";
     el.betRaiseBtn.disabled = false;
     el.betRaiseBtn.setAttribute("aria-disabled", "false");
-  } else if (showCardsMode) {
-    clearHeroPreaction();
-    state.heroPreactionExecuting = false;
-    state.optimisticSeatAction = null;
-    clearDisplayedActionAnnouncements();
-    state.landscapeRaisePanelOpen = false;
-    const heroShown = getEffectiveHeroManualShown(hand, hp);
-    el.actionStrip.classList.remove("hidden");
-    el.presetRow.classList.add("hidden");
-    el.foldBtn.classList.add("hidden");
-    el.callBtn.classList.add("hidden");
-    el.allInBtn.classList.add("hidden");
-    el.betRaiseBtn.classList.remove("hidden");
-    el.betRaiseBtn.classList.remove("active");
-    el.betRaiseBtn.textContent = heroShown ? "Hide Cards" : "Show Cards";
-    el.betRaiseBtn.disabled = state.heroShowCardsPending;
-    el.betRaiseBtn.setAttribute("aria-disabled", state.heroShowCardsPending ? "true" : "false");
   } else {
     state.landscapeRaisePanelOpen = false;
     el.actionStrip.classList.add("hidden");

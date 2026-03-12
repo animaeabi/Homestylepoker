@@ -119,6 +119,11 @@ Update (mobile online table polish pass):
 - Mobile layout cleanup in `/online-table.html`:
   - Reduced seat panel/card sizes, hid verbose seat footer/showdown rows on mobile, compacted center chips and board cards.
 
+Update (show-cards settled UI cleanup):
+- Fixed a settled-hand hero UI leak where `Show Cards` could still coexist with a stale `Check` button after all-in / everyone-folded finishes.
+- Made `Show Cards` an exclusive early render path in `/Users/abishek/Documents/poker-buyins/online/table_app.js` so live-action and pre-action button state can no longer re-expose the hero call/check control during settled hands.
+- Bumped `/Users/abishek/Documents/poker-buyins/online-table.html` cache key to `v=173`.
+
 Update (showdown payout UX pass):
 - Adjusted `/Users/abishek/Documents/poker-buyins/online/table_app.js` so settlement seat tags show net winnings (`result_amount - committed`) instead of gross payout returns, preventing false positive tags for players who only received their own chips back from side-pot resolution.
 - Delayed settlement FX (win overlays, pot push, victory popup) until pending street reveal animation finishes, so turn/river board cards are visually dealt and flipped before chips/results appear.
