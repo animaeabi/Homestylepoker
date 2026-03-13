@@ -1,0 +1,13 @@
+{
+  "name": "poker-buyins",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check:runtime": "node scripts/check_online_runtime_health.mjs",
+    "smoke:web": "node scripts/web_smoke.mjs",
+    "smoke:all": "npm run check:runtime && npm run smoke:web"
+  },
+  "devDependencies": {
+    "playwright": "^1.53.0"
+  }
+}

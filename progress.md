@@ -64,6 +64,7 @@ Original prompt: ok lets do it
 - Hand shuffles now use a cryptographically secure Fisher-Yates source.
 - Client-facing hand state no longer exposes the live undealt deck.
 - Remaining undealt deck state can now be stored encrypted at rest while keeping the one-shuffle physical dealing model and deck commitment metadata.
+- Online ops now have a dedicated runtime health probe and a repeatable browser smoke harness for quick regression checks.
 
 ### Known operational caution
 - Voice functionality exists, but cross-device/iPhone verification should always be treated as manual QA territory before assuming it is stable.
@@ -94,6 +95,32 @@ Original prompt: ok lets do it
 6. `/Users/abishek/Documents/poker-buyins/supabase/functions/online-runtime-tick/index.ts`
 
 ## Recent High-Signal Fixes
+- `local / applied + validated`:
+  - added `online_runtime_health_check(limit, grace_secs)` in `/Users/abishek/Documents/poker-buyins/supabase/online_poker_schema.sql`
+  - added migration `/Users/abishek/Documents/poker-buyins/supabase/migrations/20260313101000_add_runtime_health_check.sql`
+  - validated live with a service-role RPC call showing:
+    - `dispatch_ready: true`
+    - `processable_count: 0`
+    - `due_table_count: 0`
+    - `stale_hand_count: 0`
+- `local / automation harness`:
+  - added `/Users/abishek/Documents/poker-buyins/scripts/check_online_runtime_health.mjs`
+    - service-role CLI check for runtime dispatch readiness and stale hands
+    - optional `--repair` path dispatches one runtime tick and rechecks
+  - added `/Users/abishek/Documents/poker-buyins/scripts/web_smoke.mjs`
+    - launches Chromium
+    - opens the landing page
+    - creates an online table
+    - verifies the table boots with `Deal`
+    - leaves the table
+    - verifies `Online Games` still opens
+    - stores screenshots under `/Users/abishek/Documents/poker-buyins/output/web-smoke/`
+  - added `/Users/abishek/Documents/poker-buyins/docs/ONLINE_AUTOMATION.md`
+  - added `/Users/abishek/Documents/poker-buyins/package.json` with:
+    - `npm run check:runtime`
+    - `npm run smoke:web`
+    - `npm run smoke:all`
+  - local validation run completed successfully for both scripts
 - `local / unpushed`:
   - fixed hero pre-action gating so `Check/Fold` / `Call Any` do not reappear after the hero has already acted on the current street
   - suppressed active-turn highlight during presentation beats so the ring does not jump early to the next actor during action acknowledgment / street reveal
