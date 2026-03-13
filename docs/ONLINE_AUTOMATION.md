@@ -66,7 +66,32 @@ Screenshots are written to:
 /Users/abishek/Documents/poker-buyins/output/web-smoke/
 ```
 
-## 3) Combined run
+## 3) Online table UI smoke run
+
+This is the second automation lane focused only on online poker UI elements. It:
+
+- creates an online table
+- verifies the top bar shell
+- opens/closes Settings
+- opens/closes Hand Log
+- opens Chat and sends a test message
+- adds a bot to an open seat
+- clicks `Deal`
+- waits for the hero action rail to appear
+
+Run it with:
+
+```bash
+npm run smoke:online-ui
+```
+
+Screenshots are written to:
+
+```text
+/Users/abishek/Documents/poker-buyins/output/online-ui-smoke/
+```
+
+## 4) Combined run
 
 ```bash
 SUPABASE_SERVICE_ROLE_KEY=... npm run smoke:all
@@ -81,6 +106,10 @@ SUPABASE_SERVICE_ROLE_KEY=... npm run smoke:all
 - core table shell and `Deal` button appear
 - leaving the table returns to the landing page
 - Online Games panel opens from the landing page
+- online table UI shell is interactable end-to-end
+- settings, hand log, and chat panels open/close correctly
+- bot add flow works from an open seat
+- live hero action rail appears after `Deal`
 - runtime health reports stale-hands / dispatcher issues
 
 ## What this does not cover yet

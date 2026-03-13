@@ -115,12 +115,19 @@ Original prompt: ok lets do it
     - leaves the table
     - verifies `Online Games` still opens
     - stores screenshots under `/Users/abishek/Documents/poker-buyins/output/web-smoke/`
+  - added `/Users/abishek/Documents/poker-buyins/scripts/online_ui_smoke.mjs`
+    - dedicated online poker UI smoke run
+    - validates top-bar shell, settings, hand log, chat, bot add flow, `Deal`, and the hero action rail
+    - stores screenshots under `/Users/abishek/Documents/poker-buyins/output/online-ui-smoke/`
   - added `/Users/abishek/Documents/poker-buyins/docs/ONLINE_AUTOMATION.md`
   - added `/Users/abishek/Documents/poker-buyins/package.json` with:
     - `npm run check:runtime`
     - `npm run smoke:web`
+    - `npm run smoke:online-ui`
     - `npm run smoke:all`
-  - local validation run completed successfully for both scripts
+  - local validation run completed successfully for:
+    - `npm run smoke:web`
+    - `npm run smoke:online-ui`
 - `local / unpushed`:
   - fixed hero pre-action gating so `Check/Fold` / `Call Any` do not reappear after the hero has already acted on the current street
   - suppressed active-turn highlight during presentation beats so the ring does not jump early to the next actor during action acknowledgment / street reveal
