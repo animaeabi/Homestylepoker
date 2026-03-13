@@ -61,7 +61,9 @@ Original prompt: ok lets do it
 - Dead-chip overcalls should not expose meaningless extra all-in controls.
 - Showdown in all-in runouts reveals all eligible all-in players, while normal showdowns stay more selective.
 - Manual `Show Cards` exists only after settlement.
-- Hand shuffles now use a cryptographically secure Fisher-Yates source, and client-facing hand state no longer exposes the live undealt deck.
+- Hand shuffles now use a cryptographically secure Fisher-Yates source.
+- Client-facing hand state no longer exposes the live undealt deck.
+- Remaining undealt deck state can now be stored encrypted at rest while keeping the one-shuffle physical dealing model and deck commitment metadata.
 
 ### Known operational caution
 - Voice functionality exists, but cross-device/iPhone verification should always be treated as manual QA territory before assuming it is stable.
@@ -92,12 +94,25 @@ Original prompt: ok lets do it
 
 ## Recent High-Signal Fixes
 - `local / unpushed`:
-  - upgraded `online_shuffled_deck()` to use `pgcrypto`-backed randomness instead of PostgreSQL `random()`
-  - added `online_secure_shuffle_bundle()` to stamp each hand with `deck_commitment` and `rng_seed_hash`
-  - wired those commitment fields into `online_start_hand(...)`
-  - stripped `deck_cards` from `online_get_hand_state_viewer(...)` so seated clients cannot inspect future cards
-  - added migration `/Users/abishek/Documents/poker-buyins/supabase/migrations/20260312130000_secure_shuffle_and_hide_live_deck.sql`
+  - fixed hero pre-action gating so `Check/Fold` / `Call Any` do not reappear after the hero has already acted on the current street
+  - suppressed active-turn highlight during presentation beats so the ring does not jump early to the next actor during action acknowledgment / street reveal
+  - validated with:
+    - `node --check /Users/abishek/Documents/poker-buyins/online/table_app.js`
+- `dd2a6a0`:
+  - upgraded the per-hand shuffle path to a `pgcrypto`-backed Fisher-Yates source
+  - stamped each hand with `deck_commitment` and `rng_seed_hash`
+  - removed `deck_cards` from viewer-safe hand payloads so clients cannot inspect the undealt deck
+- `local / applied to Supabase, not yet pushed in git`:
+  - added encrypted undealt-deck storage at rest via `online_private.pack_remaining_deck(...)` / `online_private.unpack_remaining_deck(...)`
+  - added `online_hands.deck_cards_encrypted`
+  - updated `online_start_hand(...)`, `online_submit_action(...)`, and `online_advance_hand(...)` to pack/decrypt/repack the remaining deck while preserving one-shuffle + burn-card dealing
+  - updated `online_get_hand_state_viewer(...)` to strip both `deck_cards` and `deck_cards_encrypted`
+  - added migration `/Users/abishek/Documents/poker-buyins/supabase/migrations/20260312154500_encrypt_remaining_deck_at_rest.sql`
   - applied with `supabase db push`
+  - rollout note:
+    - full at-rest protection requires a trusted secret named `online_deck_crypto_key`
+    - lookup order is `vault.decrypted_secrets` first, then `app.settings.online_deck_crypto_key`
+    - if no key is configured, runtime falls back to plaintext `deck_cards` for compatibility
 - `4cb29a9`:
   - fixed river/showdown event ordering so the last river action is written before `showdown_ready`
   - historical bad hand logs remain bad; new hands should be correct

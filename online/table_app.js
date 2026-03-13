@@ -2050,6 +2050,11 @@ function resolveHeroPreaction(hand = getLatestHand(), hp = getMyHandPlayer()) {
   }
 }
 
+function hasHeroActedThisStreet(hand = getLatestHand(), hp = getMyHandPlayer()) {
+  if (!hand || !hp || !isActionStreet(hand.state)) return false;
+  return Boolean(hp.has_acted);
+}
+
 function isHeroPreactionMode({ hand, hp, myTurn, actionLocked }) {
   return Boolean(
     hand &&
@@ -2059,6 +2064,7 @@ function isHeroPreactionMode({ hand, hp, myTurn, actionLocked }) {
     hp &&
     !hp.folded &&
     !hp.all_in &&
+    !hasHeroActedThisStreet(hand, hp) &&
     !myTurn &&
     !actionLocked
   );
@@ -2082,7 +2088,14 @@ function syncHeroPreactionUi({ hand, hp, myTurn, actionLocked }) {
   syncHeroPreaction(hand, hp);
   const preactionMode = isHeroPreactionMode({ hand, hp, myTurn, actionLocked });
   if (!preactionMode) {
-    if (!hand || !isActionStreet(hand?.state) || !hp || hp.folded || hp.all_in) clearHeroPreaction();
+    if (
+      !hand ||
+      !isActionStreet(hand?.state) ||
+      !hp ||
+      hp.folded ||
+      hp.all_in ||
+      hasHeroActedThisStreet(hand, hp)
+    ) clearHeroPreaction();
     el.foldBtn?.classList.remove("active");
     el.callBtn?.classList.remove("active");
     el.betRaiseBtn?.classList.remove("active");
@@ -5250,6 +5263,8 @@ function updateTimerRings() {
     ...el.seatsLayer.querySelectorAll(".seat-avatar"),
     ...(el.myHandAvatar ? [el.myHandAvatar] : []),
   ];
+  const presentationState = getPresentationState();
+  const suppressTurnHighlight = presentationState !== "idle";
 
   const applyClockState = (avatar, active, remainingSecs) => {
     if (!avatar) return;
@@ -5265,7 +5280,7 @@ function updateTimerRings() {
     else if (remainingSecs <= 10) avatar.classList.add("warn");
   };
 
-  if (!hand || !hand.action_seat) {
+  if (!hand || !hand.action_seat || suppressTurnHighlight) {
     avatars.forEach((avatar) => applyClockState(avatar, false, null));
     el.myHandArea?.classList.remove("active-turn");
     el.myHandArea?.classList.remove("overtime");

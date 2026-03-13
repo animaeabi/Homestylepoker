@@ -135,6 +135,7 @@ create table if not exists online_hands (
   pot_total numeric not null default 0,
   deck_commitment text,
   rng_seed_hash text,
+  deck_cards_encrypted text,
   started_at timestamptz not null default now(),
   ended_at timestamptz,
   turn_grace_used_secs int not null default 0,
@@ -668,7 +669,7 @@ begin
     raise exception 'online_hand_not_found';
   end if;
 
-  v_hand := to_jsonb(v_hand_row) - 'deck_cards';
+  v_hand := to_jsonb(v_hand_row) - 'deck_cards' - 'deck_cards_encrypted';
   v_reveal_all := v_hand_row.state in ('showdown', 'settled');
 
   if p_viewer_group_player_id is not null
@@ -1754,6 +1755,7 @@ $$;
 
 alter table online_hands
   add column if not exists deck_cards jsonb not null default '[]'::jsonb,
+  add column if not exists deck_cards_encrypted text,
   add column if not exists current_bet numeric not null default 0,
   add column if not exists min_raise numeric not null default 0,
   add column if not exists action_seat int,
@@ -1825,6 +1827,105 @@ begin
   );
 end;
 $$;
+
+create schema if not exists online_private;
+
+drop function if exists online_private.get_deck_crypto_key();
+create or replace function online_private.get_deck_crypto_key()
+returns text
+language plpgsql
+security definer
+stable
+set search_path = public, pg_temp
+as $$
+declare
+  v_key text;
+begin
+  begin
+    execute $vault$
+      select secret
+      from vault.decrypted_secrets
+      where name = 'online_deck_crypto_key'
+      order by created_at desc
+      limit 1
+    $vault$
+    into v_key;
+  exception
+    when invalid_schema_name or undefined_table or insufficient_privilege then
+      v_key := null;
+  end;
+
+  if coalesce(v_key, '') = '' then
+    v_key := nullif(current_setting('app.settings.online_deck_crypto_key', true), '');
+  end if;
+
+  return v_key;
+end;
+$$;
+
+drop function if exists online_private.pack_remaining_deck(jsonb);
+create or replace function online_private.pack_remaining_deck(p_deck jsonb)
+returns jsonb
+language plpgsql
+security definer
+stable
+set search_path = public, pg_temp
+as $$
+declare
+  v_key text;
+  v_payload jsonb := coalesce(p_deck, '[]'::jsonb);
+begin
+  v_key := online_private.get_deck_crypto_key();
+  if coalesce(v_key, '') = '' then
+    return jsonb_build_object(
+      'deck_cards', v_payload,
+      'deck_cards_encrypted', null
+    );
+  end if;
+
+  return jsonb_build_object(
+    'deck_cards', '[]'::jsonb,
+    'deck_cards_encrypted', encode(
+      pgp_sym_encrypt(v_payload::text, v_key, 'cipher-algo=aes256,compress-algo=0'),
+      'base64'
+    )
+  );
+end;
+$$;
+
+drop function if exists online_private.unpack_remaining_deck(jsonb, text);
+create or replace function online_private.unpack_remaining_deck(
+  p_deck_cards jsonb,
+  p_deck_cards_encrypted text
+)
+returns jsonb
+language plpgsql
+security definer
+stable
+set search_path = public, pg_temp
+as $$
+declare
+  v_key text;
+  v_plain text;
+begin
+  if coalesce(nullif(trim(p_deck_cards_encrypted), ''), '') = '' then
+    return coalesce(p_deck_cards, '[]'::jsonb);
+  end if;
+
+  v_key := online_private.get_deck_crypto_key();
+  if coalesce(v_key, '') = '' then
+    raise exception 'online_deck_crypto_key_not_configured';
+  end if;
+
+  v_plain := pgp_sym_decrypt(decode(p_deck_cards_encrypted, 'base64'), v_key);
+  return coalesce(v_plain::jsonb, '[]'::jsonb);
+end;
+$$;
+
+grant usage on schema online_private to anon, authenticated, service_role;
+grant execute on function online_private.get_deck_crypto_key() to anon, authenticated, service_role;
+grant execute on function online_private.pack_remaining_deck(jsonb) to anon, authenticated, service_role;
+grant execute on function online_private.unpack_remaining_deck(jsonb, text) to anon, authenticated, service_role;
 
 create or replace function online_normalize_money(
   p_value numeric
@@ -2138,6 +2239,7 @@ declare
   v_deck_commitment text;
   v_rng_seed_hash text;
   v_remaining text[];
+  v_deck_payload jsonb;
   v_cursor int := 1;
   v_sb_post numeric := 0;
   v_bb_post numeric := 0;
@@ -2279,6 +2381,7 @@ begin
     deck_commitment,
     rng_seed_hash,
     deck_cards,
+    deck_cards_encrypted,
     current_bet,
     min_raise,
     action_seat,
@@ -2296,6 +2399,7 @@ begin
     v_deck_commitment,
     v_rng_seed_hash,
     '[]'::jsonb,
+    null,
     0,
     v_table.big_blind,
     null,
@@ -2382,6 +2486,7 @@ begin
   v_pot_total := online_normalize_money(v_sb_post + v_bb_post);
   v_action_seat := online_next_action_seat(v_hand.id, v_big_blind_seat);
   v_remaining := coalesce(v_deck[v_cursor:array_length(v_deck, 1)], array[]::text[]);
+  v_deck_payload := online_private.pack_remaining_deck(to_jsonb(v_remaining));
 
   update online_hands
   set
@@ -2389,7 +2494,8 @@ begin
     current_bet = online_normalize_money(greatest(v_sb_post, v_bb_post)),
     min_raise = greatest(1, coalesce(v_table.big_blind, 1)),
     action_seat = v_action_seat,
-    deck_cards = to_jsonb(v_remaining),
+    deck_cards = coalesce(v_deck_payload->'deck_cards', '[]'::jsonb),
+    deck_cards_encrypted = nullif(v_deck_payload->>'deck_cards_encrypted', ''),
     state = case when v_action_seat is null then 'showdown' else 'preflop' end
   where id = v_hand.id
   returning * into v_hand;
@@ -2477,7 +2583,9 @@ declare
   v_round_done boolean := false;
   v_next_state text;
   v_board jsonb;
+  v_deck_json jsonb;
   v_deck text[];
+  v_deck_payload jsonb;
   v_deal_count int := 0;
   v_burn_card text;
   v_winner_seat int;
@@ -2866,8 +2974,9 @@ begin
         end;
 
         v_board := coalesce(v_hand.board_cards, '[]'::jsonb);
+        v_deck_json := online_private.unpack_remaining_deck(v_hand.deck_cards, v_hand.deck_cards_encrypted);
         v_deck := array(
-          select jsonb_array_elements_text(coalesce(v_hand.deck_cards, '[]'::jsonb))
+          select jsonb_array_elements_text(coalesce(v_deck_json, '[]'::jsonb))
         );
 
         -- Real table dealing: burn one card before every board reveal.
@@ -2894,12 +3003,14 @@ begin
           and not folded;
 
         v_next_actor := online_first_postflop_action_seat(p_hand_id, v_hand.button_seat);
+        v_deck_payload := online_private.pack_remaining_deck(to_jsonb(v_deck));
 
         update online_hands
         set
           state = v_next_state,
           board_cards = v_board,
-          deck_cards = to_jsonb(v_deck),
+          deck_cards = coalesce(v_deck_payload->'deck_cards', '[]'::jsonb),
+          deck_cards_encrypted = nullif(v_deck_payload->>'deck_cards_encrypted', ''),
           current_bet = 0,
           min_raise = greatest(coalesce(v_table.big_blind, 1), 1),
           action_seat = v_next_actor,
@@ -3228,7 +3339,9 @@ declare
   v_prev_state text;
   v_next_state text;
   v_board jsonb;
+  v_deck_json jsonb;
   v_deck text[];
+  v_deck_payload jsonb;
   v_next_actor int;
   v_deal_count int := 0;
   v_burn_card text;
@@ -3336,8 +3449,9 @@ begin
   end;
 
   v_board := coalesce(v_hand.board_cards, '[]'::jsonb);
+  v_deck_json := online_private.unpack_remaining_deck(v_hand.deck_cards, v_hand.deck_cards_encrypted);
   v_deck := array(
-    select jsonb_array_elements_text(coalesce(v_hand.deck_cards, '[]'::jsonb))
+    select jsonb_array_elements_text(coalesce(v_deck_json, '[]'::jsonb))
   );
 
   v_deal_count := case v_next_state
@@ -3371,12 +3485,14 @@ begin
       and not folded;
 
     v_next_actor := online_first_postflop_action_seat(p_hand_id, v_hand.button_seat);
+    v_deck_payload := online_private.pack_remaining_deck(to_jsonb(v_deck));
 
     update online_hands
     set
       state = v_next_state,
       board_cards = v_board,
-      deck_cards = to_jsonb(v_deck),
+      deck_cards = coalesce(v_deck_payload->'deck_cards', '[]'::jsonb),
+      deck_cards_encrypted = nullif(v_deck_payload->>'deck_cards_encrypted', ''),
       current_bet = 0,
       min_raise = greatest(coalesce(v_table.big_blind, 1), 1),
       action_seat = v_next_actor,
@@ -3385,11 +3501,13 @@ begin
     where id = p_hand_id
     returning * into v_hand;
   elsif v_next_state = 'showdown' then
+    v_deck_payload := online_private.pack_remaining_deck(to_jsonb(v_deck));
     update online_hands
     set
       state = v_next_state,
       board_cards = v_board,
-      deck_cards = to_jsonb(v_deck),
+      deck_cards = coalesce(v_deck_payload->'deck_cards', '[]'::jsonb),
+      deck_cards_encrypted = nullif(v_deck_payload->>'deck_cards_encrypted', ''),
       action_seat = null,
       last_action_at = now(),
       turn_grace_used_secs = 0
