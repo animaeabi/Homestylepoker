@@ -128,6 +128,12 @@ Original prompt: ok lets do it
   - local validation run completed successfully for:
     - `npm run smoke:web`
     - `npm run smoke:online-ui`
+- `local / poker rules alignment`:
+  - patched `/Users/abishek/Documents/poker-buyins/supabase/online_poker_schema.sql` so actual hole-card assignment now follows real clockwise dealing order from the proper starting seat:
+    - 3+ players: first card goes to the first active seat left of the dealer/button
+    - heads-up: dealer/button receives the first card
+  - removed the incorrect heads-up postflop special case so first action now correctly starts left of the button (the non-dealer / big blind)
+  - added rollout migration `/Users/abishek/Documents/poker-buyins/supabase/migrations/20260313114000_fix_real_poker_deal_and_headsup_order.sql`
 - `local / unpushed`:
   - fixed hero pre-action gating so `Check/Fold` / `Call Any` do not reappear after the hero has already acted on the current street
   - suppressed active-turn highlight during presentation beats so the ring does not jump early to the next actor during action acknowledgment / street reveal

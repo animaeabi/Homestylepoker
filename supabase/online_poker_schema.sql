@@ -2141,13 +2141,6 @@ begin
     return null;
   end if;
 
-  -- Heads-up postflop: the dealer/button acts first.
-  if array_length(v_actionable_seats, 1) = 2
-     and p_button_seat is not null
-     and p_button_seat = any(v_actionable_seats) then
-    return p_button_seat;
-  end if;
-
   return online_next_active_seat(v_actionable_seats, p_button_seat);
 end;
 $$;
@@ -2484,6 +2477,7 @@ declare
   v_small_blind_seat int;
   v_big_blind_seat int;
   v_action_seat int;
+  v_deal_order int[];
   v_shuffle jsonb;
   v_deck text[];
   v_deck_commitment text;
@@ -2602,9 +2596,20 @@ begin
     -- Heads-up: dealer posts SB, other player posts BB
     v_small_blind_seat := v_button_seat;
     v_big_blind_seat := online_next_active_seat(v_active_seats, v_button_seat);
+    v_deal_order := array[v_button_seat, v_big_blind_seat];
   else
     v_small_blind_seat := online_next_active_seat(v_active_seats, v_button_seat);
     v_big_blind_seat := online_next_active_seat(v_active_seats, v_small_blind_seat);
+    v_deal_order := array[]::int[];
+    v_seat_no := online_next_active_seat(v_active_seats, v_button_seat);
+    while v_seat_no is not null and not (v_seat_no = any(v_deal_order)) loop
+      v_deal_order := array_append(v_deal_order, v_seat_no);
+      v_seat_no := online_next_active_seat(v_active_seats, v_seat_no);
+    end loop;
+  end if;
+
+  if coalesce(array_length(v_deal_order, 1), 0) <> coalesce(array_length(v_active_seats, 1), 0) then
+    v_deal_order := v_active_seats;
   end if;
 
   select coalesce(max(hand_no), 0) + 1
@@ -2702,7 +2707,7 @@ begin
 
   -- Deal hole cards like a real table: one card per seat, two rounds.
   for v_round in 1..2 loop
-    foreach v_seat_no in array v_active_seats loop
+    foreach v_seat_no in array v_deal_order loop
       update online_hand_players
       set hole_cards = coalesce(hole_cards, '[]'::jsonb) || to_jsonb(v_deck[v_cursor])
       where hand_id = v_hand.id
