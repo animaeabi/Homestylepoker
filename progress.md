@@ -68,6 +68,7 @@ Original prompt: ok lets do it
 ### Known operational caution
 - Voice functionality exists, but cross-device/iPhone verification should always be treated as manual QA territory before assuming it is stable.
 - No RLS is enabled yet; security is still RPC-check driven.
+- Runtime cron dispatch is now intended to use a vault-backed anon key plus a private `ONLINE_RUNTIME_DISPATCH_SECRET` header; direct public invocation of the runtime edge function should be treated as a bug.
 
 ### New UI/social polish (2026-03-12)
 - Added stronger turn prominence in the online table:
@@ -113,6 +114,13 @@ Original prompt: ok lets do it
     - full at-rest protection requires a trusted secret named `online_deck_crypto_key`
     - lookup order is `vault.decrypted_secrets` first, then `app.settings.online_deck_crypto_key`
     - if no key is configured, runtime falls back to plaintext `deck_cards` for compatibility
+- `local / rolling out now`:
+  - removed the hardcoded anon JWT from `online_dispatch_edge_runtime()`
+  - runtime cron dispatch now pulls `SUPABASE_ANON_KEY` from Supabase secrets / vault
+  - added a private header gate using `ONLINE_RUNTIME_DISPATCH_SECRET`
+  - `online-runtime-tick` now rejects requests without that secret
+  - added migration `/Users/abishek/Documents/poker-buyins/supabase/migrations/20260312164000_harden_runtime_dispatch_secret.sql`
+  - old bootstrap migration `/Users/abishek/Documents/poker-buyins/supabase/migrations/20260309200000_move_online_runtime_off_host.sql` was also sanitized so fresh installs do not reintroduce the hardcoded token
 - `4cb29a9`:
   - fixed river/showdown event ordering so the last river action is written before `showdown_ready`
   - historical bad hand logs remain bad; new hands should be correct

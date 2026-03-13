@@ -293,6 +293,8 @@ as $dispatch$
 declare
   v_request_id bigint;
   v_should_run boolean := false;
+  v_anon_key text;
+  v_dispatch_secret text;
 begin
   if coalesce(online_request_role(), '') <> 'service_role'
      and current_user not in ('postgres', 'supabase_admin')
@@ -315,12 +317,53 @@ begin
     return null;
   end if;
 
+  begin
+    execute $vault$
+      select secret
+      from vault.decrypted_secrets
+      where name = 'SUPABASE_ANON_KEY'
+      order by created_at desc
+      limit 1
+    $vault$
+    into v_anon_key;
+  exception
+    when invalid_schema_name or undefined_table or insufficient_privilege then
+      v_anon_key := null;
+  end;
+  if coalesce(v_anon_key, '') = '' then
+    v_anon_key := nullif(current_setting('app.settings.supabase_anon_key', true), '');
+  end if;
+  if coalesce(v_anon_key, '') = '' then
+    raise exception 'supabase_anon_key_not_configured';
+  end if;
+
+  begin
+    execute $vault$
+      select secret
+      from vault.decrypted_secrets
+      where name = 'ONLINE_RUNTIME_DISPATCH_SECRET'
+      order by created_at desc
+      limit 1
+    $vault$
+    into v_dispatch_secret;
+  exception
+    when invalid_schema_name or undefined_table or insufficient_privilege then
+      v_dispatch_secret := null;
+  end;
+  if coalesce(v_dispatch_secret, '') = '' then
+    v_dispatch_secret := nullif(current_setting('app.settings.online_runtime_dispatch_secret', true), '');
+  end if;
+  if coalesce(v_dispatch_secret, '') = '' then
+    raise exception 'online_runtime_dispatch_secret_not_configured';
+  end if;
+
   select net.http_post(
     url := 'https://xngwmtwrruvbrlxhekxp.supabase.co/functions/v1/online-runtime-tick',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
-      'Authorization', 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhuZ3dtdHdycnV2YnJseGhla3hwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk1NzI2NDcsImV4cCI6MjA4NTE0ODY0N30.Oxi92Sa9sB6d89CvqqRz5MT6DOs6Hw464tnc2mWeUkQ',
-      'apikey', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhuZ3dtdHdycnV2YnJseGhla3hwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk1NzI2NDcsImV4cCI6MjA4NTE0ODY0N30.Oxi92Sa9sB6d89CvqqRz5MT6DOs6Hw464tnc2mWeUkQ'
+      'Authorization', 'Bearer ' || v_anon_key,
+      'apikey', v_anon_key,
+      'x-online-runtime-secret', v_dispatch_secret
     ),
     body := jsonb_build_object(
       'limit', 48,

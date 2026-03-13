@@ -14,7 +14,7 @@ function json(body: unknown, status = 200) {
       "cache-control": "no-store",
       "access-control-allow-origin": "*",
       "access-control-allow-methods": "POST,OPTIONS",
-      "access-control-allow-headers": "authorization,x-client-info,apikey,content-type"
+      "access-control-allow-headers": "authorization,x-client-info,apikey,content-type,x-online-runtime-secret"
     }
   });
 }
@@ -28,6 +28,15 @@ function parseNumber(value: unknown, fallback: number, min: number, max: number)
 function asText(value: unknown) {
   const text = String(value || "").trim();
   return text || null;
+}
+
+function hasValidRuntimeDispatchSecret(req: Request) {
+  const expected = asText(Deno.env.get("ONLINE_RUNTIME_DISPATCH_SECRET"));
+  if (!expected) {
+    throw new Error("Missing ONLINE_RUNTIME_DISPATCH_SECRET in Edge Function env.");
+  }
+  const actual = asText(req.headers.get("x-online-runtime-secret"));
+  return Boolean(actual && actual === expected);
 }
 
 function normalizeSupabaseError(prefix: string, error: unknown) {
@@ -898,6 +907,10 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
 
   try {
+    if (!hasValidRuntimeDispatchSecret(req)) {
+      return json({ ok: false, error: "unauthorized_runtime_dispatch" }, 401);
+    }
+
     const payload = await req.json().catch(() => ({}));
     const tableId = asText(payload?.table_id);
     const limit = parseNumber(payload?.limit, 50, 1, 200);
