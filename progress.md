@@ -1701,3 +1701,8 @@ Validation:
     - added a bot successfully from an empty seat
     - dealt live hands successfully
     - confirmed hand log, showdown banner, and `Show Cards` still function on the fixed bundle
+- Fixed a runtime dispatch regression that could freeze live hands after the new secret-gated edge hardening.
+  - Root cause: `online_dispatch_edge_runtime()` was updated to require the DB-side helpers `online_private.get_supabase_anon_key()` and `online_private.get_runtime_dispatch_secret()`, but those helpers only looked in `vault.decrypted_secrets` or unsupported `app.settings.*` custom GUCs. The live project had the values in Edge Function secrets, not in Postgres, so the cron dispatch path failed with `supabase_anon_key_not_configured` and hands stopped advancing.
+  - Fix: added a private singleton table `online_private.runtime_dispatch_config` plus a service-role-only setter `online_set_runtime_dispatch_config(...)`, and updated the getter helpers to read that row first before falling back to vault/current_setting.
+  - Added migration `/Users/abishek/Documents/poker-buyins/supabase/migrations/20260312175000_store_runtime_dispatch_config_in_db.sql`.
+  - Seeded the live project with the current anon key and runtime dispatch secret, then manually invoked `online_dispatch_edge_runtime()` to recover the stuck `Diamond Pot` hand, which advanced from frozen preflop to live flop.
