@@ -955,10 +955,10 @@
         flex-direction: column;
         align-items: center;
         gap: 2px;
-        min-width: 132px;
-        max-width: min(240px, calc(100vw - 132px));
-        padding: 8px 14px 9px;
-        border-radius: 16px;
+        min-width: 118px;
+        max-width: min(220px, calc(100vw - 140px));
+        padding: 6px 12px 7px;
+        border-radius: 14px;
         border: 1px solid rgba(212,175,85,0.18);
         background:
           linear-gradient(180deg, rgba(12,18,24,0.72), rgba(7,12,16,0.62)),
@@ -990,7 +990,7 @@
       }
 
       .turn-indicator-label {
-        font-size: 10px;
+        font-size: 9px;
         font-weight: 800;
         letter-spacing: 0.16em;
         text-transform: uppercase;
@@ -1002,7 +1002,7 @@
       }
 
       .turn-indicator-name {
-        font-size: 16px;
+        font-size: 14px;
         font-weight: 900;
         letter-spacing: 0.01em;
         color: rgba(255,246,228,0.98);
@@ -2443,6 +2443,10 @@
         z-index: 62;
       }
 
+      .reaction-tray.show-cards-mode {
+        bottom: calc(env(safe-area-inset-bottom) + 184px);
+      }
+
       .reaction-chip {
         display: inline-flex;
         align-items: center;
@@ -2927,6 +2931,10 @@
         .reaction-tray {
           left: 10px;
           bottom: 88px;
+        }
+
+        .reaction-tray.show-cards-mode {
+          bottom: calc(env(safe-area-inset-bottom) + 166px);
         }
 
         .chat-panel {
@@ -3918,7 +3926,7 @@
 
         .action-strip {
           position: absolute;
-          left: 8px;
+          left: max(8px, calc(env(safe-area-inset-left) + 8px));
           bottom: calc(env(safe-area-inset-bottom) + 18px);
           z-index: 24;
           width: 118px;
@@ -3949,7 +3957,7 @@
         .astrip-raise-group { display: none !important; }
         .preset-row {
           position: absolute;
-          left: 8px;
+          left: max(8px, calc(env(safe-area-inset-left) + 8px));
           bottom: calc(env(safe-area-inset-bottom) + 214px);
           z-index: 24;
           width: 118px;
@@ -5036,7 +5044,7 @@
     <div class="voice-audio-rack" id="voiceAudioRack" aria-hidden="true"></div>
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
-    <script src="./online/table_fx_geometry.js?v=177"></script>
-    <script type="module" src="./online/table_app.js?v=177"></script>
+    <script src="./online/table_fx_geometry.js?v=178"></script>
+    <script type="module" src="./online/table_app.js?v=178"></script>
   </body>
 </html>

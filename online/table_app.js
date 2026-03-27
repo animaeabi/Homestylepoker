@@ -28,13 +28,15 @@ const STREET_REVEAL_DEFER_MS = 90;
 // Hold the final street-closing action long enough that players can actually read it
 // before the next board card or showdown sequence starts.
 const ROUND_TRANSITION_BREATH_MS = 760;
+const BOT_PASSIVE_TRANSITION_BREATH_MS = 1120;
+const BOT_SHOWDOWN_TRANSITION_BREATH_MS = 1320;
 const SHOWDOWN_RESULT_BREATH_MS = 460;
 const SHOWDOWN_COMBO_REVEAL_PAUSE_MS = 520;
 const SHOWDOWN_PAYOUT_FX_DELAY_MS = 180;
 const POT_BUMP_MS = 520;
 const CHIP_PUSH_MS = 760;
 const CHIP_PUSH_STAGGER_MS = 48;
-const TABLE_FRONTEND_ASSET_VERSION = "175";
+const TABLE_FRONTEND_ASSET_VERSION = "178";
 const TURN_GRACE_REQUEST_SECS = 3;
 const TURN_GRACE_REQUEST_THRESHOLD_SECS = 4;
 const TURN_GRACE_MAX_SECS = 6;
@@ -1479,6 +1481,29 @@ function isStreetRevealPresentationActive(hand = getLatestHand()) {
   );
 }
 
+function shouldSuppressTurnEmphasis(hand = getLatestHand()) {
+  if (!hand || !isActionStreet(hand.state) || !hand.action_seat) return false;
+  return getPresentationState() !== "idle";
+}
+
+function getRoundTransitionBreathMs({ oldHand = null, hand = null, latestAction = null } = {}) {
+  if (!oldHand || !hand || hand.id !== oldHand.id || hand.state === oldHand.state || !latestAction) {
+    return ROUND_TRANSITION_BREATH_MS;
+  }
+
+  const actionType = String(latestAction?.payload?.action_type || "");
+  const actorIsBot = isBotGroupPlayerId(latestAction?.actor_group_player_id);
+  const isClosingTransition = isBoardStreet(hand.state)
+    || (oldHand.state === "river" && ["showdown", "settled"].includes(String(hand.state || "")));
+
+  if (!actorIsBot || !isClosingTransition) return ROUND_TRANSITION_BREATH_MS;
+  if (oldHand.state === "river" && ["showdown", "settled"].includes(String(hand.state || ""))) {
+    return BOT_SHOWDOWN_TRANSITION_BREATH_MS;
+  }
+  if (actionType === "check" || actionType === "call") return BOT_PASSIVE_TRANSITION_BREATH_MS;
+  return Math.max(ROUND_TRANSITION_BREATH_MS, 920);
+}
+
 function queueActionAnnouncement(ev, { replace = false } = {}) {
   const copy = getActionCopy(ev);
   if (!copy.detail) return;
@@ -2440,12 +2465,23 @@ function renderVictoryPopup() {
 
 function renderTurnIndicator() {
   if (!el.turnIndicator || !el.turnIndicatorLabel || !el.turnIndicatorName) return;
-  // Use seat-first turn emphasis instead of a floating banner, which pulls
-  // attention away from the actual acting player and feels visually heavy.
-  el.turnIndicator.classList.remove("visible");
-  el.turnIndicatorLabel.textContent = "";
-  el.turnIndicatorName.textContent = "";
-  delete el.turnIndicator.dataset.tone;
+  const hand = getLatestHand();
+  const mySeat = getMySeat();
+  const suppress = shouldSuppressTurnEmphasis(hand);
+  if (!hand || !isActionStreet(hand.state) || !hand.action_seat || suppress) {
+    el.turnIndicator.classList.remove("visible");
+    el.turnIndicatorLabel.textContent = "";
+    el.turnIndicatorName.textContent = "";
+    delete el.turnIndicator.dataset.tone;
+    return;
+  }
+
+  const actingSeatNo = Number(hand.action_seat || 0);
+  const isHeroTurn = Boolean(mySeat && actingSeatNo === Number(mySeat.seat_no || 0));
+  el.turnIndicatorLabel.textContent = isHeroTurn ? "Your Turn" : "Acting";
+  el.turnIndicatorName.textContent = isHeroTurn ? "Make your move" : playerNameBySeat(actingSeatNo);
+  el.turnIndicator.dataset.tone = isHeroTurn ? "hero" : "table";
+  el.turnIndicator.classList.add("visible");
 }
 
 function syncVictoryPopup({ oldHand, hand, hadPriorTableState = false, shouldDelayStreetReveal = false, revealDelayMs = null }) {
@@ -2717,8 +2753,10 @@ function renderReactionTray() {
   if (!el.reactionTray) return;
   const hand = getLatestHand();
   const hp = getMyHandPlayer();
+  const showCardsMode = canToggleHeroShowCards(hand, hp);
   const canReact = canUseReactionTray(hand, hp);
   el.reactionTray.classList.toggle("hidden", !canReact);
+  el.reactionTray.classList.toggle("show-cards-mode", Boolean(canReact && showCardsMode && isPortraitMobile()));
   if (!canReact) return;
 
   const reactions = getReactionOptions(hand, hp);
@@ -4122,7 +4160,13 @@ async function loadTableState() {
       hand.id === oldHand.id &&
       hand.state !== oldHand.state
     );
-    const roundTransitionBreathMs = shouldDelayStreetReveal ? ROUND_TRANSITION_BREATH_MS : 0;
+    const roundTransitionBreathMs = shouldDelayStreetReveal
+      ? getRoundTransitionBreathMs({
+        oldHand,
+        hand,
+        latestAction: announcementState?.latestAction || null,
+      })
+      : 0;
     const streetRevealDelayMs = getStreetRevealDelayForTransition(oldHand, hand, {
       deferred: shouldDelayStreetReveal
     });
@@ -4147,7 +4191,7 @@ async function loadTableState() {
         toStreet: hand.state,
         durationMs: isBoardStreet(hand.state)
           ? (roundTransitionBreathMs + STREET_REVEAL_DEFER_MS)
-          : ROUND_TRANSITION_BREATH_MS,
+          : roundTransitionBreathMs,
       });
     }
     maybeStartStreetRevealAnimation(
@@ -4807,6 +4851,7 @@ function renderSeats() {
   const compactMobile = isCompactMobileLayout();
   const contestedShowdown = !clearedSettledHand && isContestedShowdown(hand, handPlayers);
   const resultRevealReady = !clearedSettledHand && isShowdownResultReady(hand);
+  const suppressTurnEmphasis = shouldSuppressTurnEmphasis(hand);
   const showdownHighlightData = !clearedSettledHand ? getShowdownHighlightData(hand, handPlayers) : {
     boardHighlights: new Set(),
     holeHighlightsBySeat: new Map(),
@@ -4839,7 +4884,7 @@ function renderSeats() {
     const occupied = seat.group_player_id && !seat.left_at;
     const pid = occupied ? seat.group_player_id : null;
     const empty = !pid;
-    const isTurn = !clearedSettledHand && hand && hand.action_seat === seat.seat_no;
+    const isTurn = !suppressTurnEmphasis && !clearedSettledHand && hand && hand.action_seat === seat.seat_no;
     const isOvertimeTurn = Boolean(isTurn && turnRemaining != null && turnRemaining <= 0);
     const isFolded = clearedSettledHand ? false : hp?.folded;
     const isAllIn = clearedSettledHand ? false : hp?.all_in;
@@ -5136,6 +5181,7 @@ function renderMyHand() {
   const clearedSettledHand = shouldClearSettledHandVisuals(hand);
   const hp = getMyHandPlayer();
   const mySeat = getMySeat();
+  const suppressTurnEmphasis = shouldSuppressTurnEmphasis(hand);
   const resultRevealReady = !clearedSettledHand && isShowdownResultReady(hand);
   const showdownHighlightData = !clearedSettledHand ? getShowdownHighlightData(hand, getHandPlayers()) : {
     boardHighlights: new Set(),
@@ -5157,7 +5203,7 @@ function renderMyHand() {
   stackEl.textContent = fmtShort(displayStack);
   el.myHandArea?.classList.toggle("folded", Boolean(!clearedSettledHand && hp?.folded));
   el.myHandArea?.classList.toggle("voice-speaking", Boolean(activeVoiceSpeakerId && mySeat.group_player_id === activeVoiceSpeakerId));
-  el.myHandArea?.classList.toggle("active-turn", Boolean(!clearedSettledHand && hand?.action_seat && hand.action_seat === mySeat.seat_no && !hp?.folded));
+  el.myHandArea?.classList.toggle("active-turn", Boolean(!suppressTurnEmphasis && !clearedSettledHand && hand?.action_seat && hand.action_seat === mySeat.seat_no && !hp?.folded));
   const heroWinData = state.winOverlays.get(mySeat.seat_no);
   el.myHandArea?.classList.toggle("winner-seat", Boolean(heroWinData && Date.now() < heroWinData.until));
   applyAvatarTheme(el.myHandAvatar, {

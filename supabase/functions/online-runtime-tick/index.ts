@@ -5,6 +5,8 @@ import { botThinkTimeMs, classifyOpponentProfile, combineOpponentProfiles, decid
 const STREET_STATES = new Set(["preflop", "flop", "turn", "river"]);
 const ACTIVE_RUNTIME_STATES = new Set(["preflop", "flop", "turn", "river", "showdown"]);
 const DEFAULT_TURN_TIMEOUT_SECS = 25;
+const POST_ACTION_STREET_CLOSE_BREATH_MS = 950;
+const POST_ACTION_SHOWDOWN_SETTLE_BREATH_MS = 1250;
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -547,6 +549,12 @@ async function processBotAction({
 
   const postActionState = await onlineClient.getHandState({ handId: hand.id, sinceSeq: null });
   currentState = postActionState?.hand?.state || hand.state;
+  const postActionAtMs = postActionState?.hand?.last_action_at
+    ? Date.parse(postActionState.hand.last_action_at)
+    : NaN;
+  const postActionElapsedMs = Number.isFinite(postActionAtMs)
+    ? (Date.now() - postActionAtMs)
+    : Number.MAX_SAFE_INTEGER;
 
   if (
     decision.actionType === "check" &&
@@ -555,6 +563,16 @@ async function processBotAction({
     Number(postActionState?.hand?.current_bet || 0) <= 0 &&
     countActionablePlayers(postActionState?.players || []) <= 1
   ) {
+    if (postActionElapsedMs < POST_ACTION_STREET_CLOSE_BREATH_MS) {
+      return {
+        handId: hand.id,
+        state: currentState,
+        advanced: 0,
+        settled: false,
+        skipped: true,
+        reason: "awaiting_street_close_breath",
+      };
+    }
     const advancedState = await onlineClient.advanceHand({
       handId: hand.id,
       actorGroupPlayerId,
@@ -564,6 +582,16 @@ async function processBotAction({
   }
 
   if (currentState === "showdown") {
+    if (postActionElapsedMs < POST_ACTION_SHOWDOWN_SETTLE_BREATH_MS) {
+      return {
+        handId: hand.id,
+        state: currentState,
+        advanced: 0,
+        settled: false,
+        skipped: true,
+        reason: "awaiting_showdown_breath",
+      };
+    }
     await settleShowdownFromState({
       onlineClient,
       handId: hand.id,
