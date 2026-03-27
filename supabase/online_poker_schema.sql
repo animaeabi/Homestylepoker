@@ -651,6 +651,8 @@ create or replace function online_get_hand_state_viewer(
 )
 returns jsonb
 language plpgsql
+security definer
+set search_path = public, pg_temp
 as $$
 declare
   v_hand_row online_hands%rowtype;
@@ -732,6 +734,8 @@ create or replace function online_get_table_chat_messages(
 )
 returns jsonb
 language plpgsql
+security definer
+set search_path = public, pg_temp
 as $$
 declare
   v_limit int := greatest(1, least(coalesce(p_limit, 40), 80));
@@ -785,6 +789,8 @@ create or replace function online_get_table_state_viewer(
 )
 returns jsonb
 language plpgsql
+security definer
+set search_path = public, pg_temp
 as $$
 declare
   v_table jsonb;
@@ -866,6 +872,290 @@ begin
 end;
 $$;
 
+-- Game-state-only viewer: no chat, no voice. Used on the hot path.
+drop function if exists online_get_table_game_state_viewer(uuid, uuid, text, bigint);
+create or replace function online_get_table_game_state_viewer(
+  p_table_id uuid,
+  p_viewer_group_player_id uuid default null,
+  p_viewer_seat_token text default null,
+  p_since_seq bigint default null
+)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_table jsonb;
+  v_seats jsonb;
+  v_hand_id uuid;
+  v_hand_state jsonb := '{}'::jsonb;
+begin
+  select to_jsonb(t) into v_table
+  from online_tables t
+  where t.id = p_table_id;
+
+  if v_table is null then
+    raise exception 'online_table_not_found';
+  end if;
+
+  select coalesce(
+    jsonb_agg(
+      ((to_jsonb(s) - 'seat_token') || jsonb_build_object('player_name', gp.name))
+      order by s.seat_no
+    ),
+    '[]'::jsonb
+  )
+  into v_seats
+  from online_table_seats s
+  left join group_players gp on gp.id = s.group_player_id
+  where s.table_id = p_table_id;
+
+  select h.id
+  into v_hand_id
+  from online_hands h
+  where h.table_id = p_table_id
+  order by h.hand_no desc
+  limit 1;
+
+  if v_hand_id is not null then
+    v_hand_state := online_get_hand_state_viewer(
+      v_hand_id,
+      p_viewer_group_player_id,
+      p_viewer_seat_token,
+      p_since_seq
+    );
+  end if;
+
+  return jsonb_build_object(
+    'table', v_table,
+    'seats', coalesce(v_seats, '[]'::jsonb),
+    'latest_hand', coalesce(v_hand_state, '{}'::jsonb)
+  );
+end;
+$$;
+
+drop function if exists online_list_table_summaries(text[], int);
+create or replace function online_list_table_summaries(
+  p_statuses text[] default null,
+  p_limit int default 50
+)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  with seat_counts as (
+    select
+      s.table_id,
+      count(*)::int as seated_count
+    from online_table_seats s
+    where s.group_player_id is not null
+      and s.left_at is null
+    group by s.table_id
+  ),
+  settled_counts as (
+    select
+      h.table_id,
+      count(*)::int as settled_hands
+    from online_hands h
+    where h.state = 'settled'
+    group by h.table_id
+  )
+  select coalesce(
+    jsonb_agg((to_jsonb(row_data) - 'sort_updated_at') order by row_data.sort_updated_at desc),
+    '[]'::jsonb
+  )
+  from (
+    select
+      t.id,
+      t.name,
+      t.small_blind,
+      t.big_blind,
+      t.max_seats,
+      t.starting_stack,
+      t.status,
+      t.created_at,
+      t.updated_at,
+      coalesce(seat_counts.seated_count, 0) as seated_count,
+      coalesce(settled_counts.settled_hands, 0) as settled_hands,
+      coalesce(t.updated_at, t.created_at) as sort_updated_at
+    from online_tables t
+    left join seat_counts on seat_counts.table_id = t.id
+    left join settled_counts on settled_counts.table_id = t.id
+    where coalesce(array_length(p_statuses, 1), 0) = 0
+       or t.status = any(p_statuses)
+    order by coalesce(t.updated_at, t.created_at) desc
+    limit greatest(coalesce(p_limit, 50), 1)
+  ) row_data;
+$$;
+
+drop function if exists online_get_table_results_summary(uuid);
+create or replace function online_get_table_results_summary(
+  p_table_id uuid
+)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  with target_table as (
+    select
+      t.id,
+      t.name,
+      t.small_blind,
+      t.big_blind,
+      t.max_seats,
+      t.starting_stack,
+      t.status,
+      t.created_at,
+      t.updated_at
+    from online_tables t
+    where t.id = p_table_id
+  ),
+  settled_hands as (
+    select
+      h.id,
+      h.hand_no
+    from online_hands h
+    where h.table_id = p_table_id
+      and h.state = 'settled'
+  ),
+  ordered_hp as (
+    select
+      hp.group_player_id,
+      sh.hand_no,
+      coalesce(hp.stack_start, 0)::numeric as stack_start,
+      coalesce(hp.stack_end, 0)::numeric as stack_end,
+      lag(coalesce(hp.stack_end, 0)::numeric) over (
+        partition by hp.group_player_id
+        order by sh.hand_no
+      ) as prev_stack_end
+    from online_hand_players hp
+    join settled_hands sh on sh.id = hp.hand_id
+    where hp.group_player_id is not null
+  ),
+  player_results as (
+    select
+      ohp.group_player_id,
+      sum(
+        case
+          when ohp.prev_stack_end is null then ohp.stack_start
+          when ohp.stack_start > coalesce(ohp.prev_stack_end, 0) then ohp.stack_start - coalesce(ohp.prev_stack_end, 0)
+          else 0
+        end
+      ) as buy_in,
+      (array_agg(ohp.stack_end order by ohp.hand_no desc))[1] as cash_out,
+      count(*)::int as hands
+    from ordered_hp ohp
+    group by ohp.group_player_id
+  ),
+  players_json as (
+    select coalesce(
+      jsonb_agg(
+        jsonb_build_object(
+          'group_player_id', pr.group_player_id,
+          'name', coalesce(gp.name, 'Player'),
+          'buy_in', online_normalize_money(pr.buy_in),
+          'cash_out', online_normalize_money(pr.cash_out),
+          'net', online_normalize_money(pr.cash_out - pr.buy_in),
+          'hands', pr.hands
+        )
+        order by online_normalize_money(pr.cash_out - pr.buy_in) desc, coalesce(gp.name, 'Player') asc
+      ),
+      '[]'::jsonb
+    ) as players
+    from player_results pr
+    left join group_players gp on gp.id = pr.group_player_id
+  ),
+  counts as (
+    select count(*)::int as settled_hand_count
+    from settled_hands
+  )
+  select
+    case
+      when exists(select 1 from target_table) then jsonb_build_object(
+        'table', (select to_jsonb(t) from target_table t),
+        'settled_hand_count', (select settled_hand_count from counts),
+        'players', (select players from players_json)
+      )
+      else null
+    end;
+$$;
+
+-- Rate limiting helpers
+create or replace function online_check_action_rate_limit(
+  p_hand_id uuid,
+  p_actor_group_player_id uuid
+)
+returns void
+language plpgsql
+as $$
+declare
+  v_last_action_at timestamptz;
+begin
+  select max(a.created_at) into v_last_action_at
+  from online_actions a
+  where a.hand_id = p_hand_id
+    and a.actor_group_player_id = p_actor_group_player_id
+    and a.status = 'accepted';
+
+  if v_last_action_at is not null
+     and v_last_action_at > now() - interval '500 milliseconds'
+  then
+    raise exception 'action_rate_limited';
+  end if;
+end;
+$$;
+
+create or replace function online_check_join_rate_limit(
+  p_table_id uuid,
+  p_group_player_id uuid
+)
+returns void
+language plpgsql
+as $$
+declare
+  v_recent_join_at timestamptz;
+begin
+  select max(s.joined_at) into v_recent_join_at
+  from online_table_seats s
+  where s.table_id = p_table_id
+    and s.group_player_id = p_group_player_id;
+
+  if v_recent_join_at is not null
+     and v_recent_join_at > now() - interval '5 seconds'
+  then
+    raise exception 'join_rate_limited';
+  end if;
+end;
+$$;
+
+create or replace function online_check_chat_rate_limit(
+  p_table_id uuid,
+  p_actor_group_player_id uuid
+)
+returns void
+language plpgsql
+as $$
+declare
+  v_recent_count int;
+begin
+  select count(*) into v_recent_count
+  from online_table_chat_messages m
+  where m.table_id = p_table_id
+    and m.group_player_id = p_actor_group_player_id
+    and m.created_at > now() - interval '1 second';
+
+  if v_recent_count >= 1 then
+    raise exception 'chat_rate_limited';
+  end if;
+end;
+$$;
+
 drop function if exists online_post_table_chat_message(uuid, uuid, text, text);
 create or replace function online_post_table_chat_message(
   p_table_id uuid,
@@ -889,6 +1179,9 @@ begin
   if v_trimmed = '' then
     raise exception 'chat_message_required';
   end if;
+
+  -- Rate limit: max 1 chat message per second per player
+  perform online_check_chat_rate_limit(p_table_id, p_actor_group_player_id);
 
   perform 1
   from online_tables t
@@ -2850,6 +3143,9 @@ declare
   v_record_pfr boolean := false;
   v_other_raise_eligible_players int := 0;
 begin
+  -- Rate limit: max 1 action per actor per 500ms per hand
+  perform online_check_action_rate_limit(p_hand_id, p_actor_group_player_id);
+
   select * into v_hand
   from online_hands
   where id = p_hand_id
@@ -4346,6 +4642,11 @@ declare
   v_joined online_table_seats%rowtype;
   v_stack numeric;
 begin
+  -- Rate limit: max 1 join per player per table per 5 seconds (skip for bots)
+  if not coalesce(p_is_bot, false) then
+    perform online_check_join_rate_limit(p_table_id, p_group_player_id);
+  end if;
+
   select * into v_table from online_tables where id = p_table_id for update;
   if not found then
     raise exception 'online_table_not_found';
@@ -4539,3 +4840,250 @@ begin
   );
 end
 $cron$;
+
+-- ============================================================
+-- Phase 1: Immediate continuation path
+-- ============================================================
+
+-- 1a. Read-only status function: what follow-up does this hand need?
+drop function if exists online_post_action_continuation(uuid);
+create or replace function online_post_action_continuation(
+  p_hand_id uuid
+)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select jsonb_build_object(
+    'hand_id', h.id,
+    'table_id', h.table_id,
+    'state', h.state,
+    'action_seat', h.action_seat,
+    'needs_showdown', (h.state = 'showdown'),
+    'needs_allin_runout', (
+      h.state in ('preflop','flop','turn','river')
+      and not exists(
+        select 1 from online_hand_players hp
+        where hp.hand_id = h.id
+          and not hp.folded
+          and not hp.all_in
+          and hp.stack_end is not null
+          and online_normalize_money(hp.stack_end) > 0
+      )
+    ),
+    'next_actor_is_bot', (
+      h.action_seat is not null
+      and exists(
+        select 1 from online_table_seats s
+        where s.table_id = h.table_id
+          and s.seat_no = h.action_seat
+          and s.is_bot = true
+          and s.left_at is null
+      )
+    )
+  )
+  from online_hands h
+  where h.id = p_hand_id;
+$$;
+
+-- 1b. Client-callable continuation RPC.
+-- Advances all-in runouts inline, then triggers targeted runtime nudge
+-- (server-to-server via pg_net) for bot actions and showdown settlement.
+drop function if exists online_continue_hand(uuid, uuid, text);
+create or replace function online_continue_hand(
+  p_hand_id uuid,
+  p_actor_group_player_id uuid,
+  p_seat_token text
+)
+returns jsonb
+language plpgsql
+as $$
+declare
+  v_hand online_hands%rowtype;
+  v_table_id uuid;
+  v_seat_row online_table_seats%rowtype;
+  v_cont jsonb;
+  v_advance_count int := 0;
+  v_max_advances int := 5;
+  v_triggered_runtime boolean := false;
+  v_request_id bigint;
+  v_anon_key text;
+  v_dispatch_secret text;
+  v_recent_count int;
+begin
+  -- Validate hand exists
+  select * into v_hand
+  from online_hands
+  where id = p_hand_id;
+
+  if not found then
+    raise exception 'online_hand_not_found';
+  end if;
+
+  v_table_id := v_hand.table_id;
+
+  -- Validate caller is seated at this table with matching token
+  select * into v_seat_row
+  from online_table_seats
+  where table_id = v_table_id
+    and group_player_id = p_actor_group_player_id
+    and seat_token = p_seat_token
+    and left_at is null;
+
+  if not found then
+    raise exception 'online_continue_hand_not_seated';
+  end if;
+
+  -- Rate limit: max 2 calls per table per second
+  select count(*) into v_recent_count
+  from online_hand_events
+  where table_id = v_table_id
+    and event_type = 'continuation_attempted'
+    and created_at > now() - interval '1 second';
+
+  if v_recent_count >= 2 then
+    return jsonb_build_object(
+      'continued', false,
+      'triggered_runtime', false,
+      'final_state', v_hand.state,
+      'reason', 'rate_limited'
+    );
+  end if;
+
+  -- Record continuation attempt for rate limiting
+  perform online_append_hand_event(
+    p_hand_id,
+    v_table_id,
+    'continuation_attempted',
+    p_actor_group_player_id,
+    '{}'::jsonb
+  );
+
+  -- Check what continuation is needed
+  v_cont := online_post_action_continuation(p_hand_id);
+
+  -- If hand is already settled or canceled, nothing to do
+  if v_hand.state in ('settled', 'canceled') then
+    return jsonb_build_object(
+      'continued', false,
+      'triggered_runtime', false,
+      'final_state', v_hand.state,
+      'reason', 'hand_complete'
+    );
+  end if;
+
+  -- Handle all-in runout: advance streets inline until showdown or actionable seat
+  if (v_cont->>'needs_allin_runout')::boolean then
+    while v_advance_count < v_max_advances loop
+      -- Re-read hand state
+      select * into v_hand
+      from online_hands
+      where id = p_hand_id;
+
+      -- Stop if we hit showdown, settled, or a non-street state
+      if v_hand.state not in ('preflop','flop','turn','river') then
+        exit;
+      end if;
+
+      -- Stop if there is an actionable (non-allin, non-folded) player
+      if exists(
+        select 1 from online_hand_players hp
+        where hp.hand_id = p_hand_id
+          and not hp.folded
+          and not hp.all_in
+          and hp.stack_end is not null
+          and online_normalize_money(hp.stack_end) > 0
+      ) then
+        exit;
+      end if;
+
+      perform online_advance_hand(p_hand_id, p_actor_group_player_id, 'allin_runout');
+      v_advance_count := v_advance_count + 1;
+    end loop;
+
+    -- Re-read state after advances
+    select * into v_hand from online_hands where id = p_hand_id;
+    v_cont := online_post_action_continuation(p_hand_id);
+  end if;
+
+  -- Trigger targeted runtime nudge for showdown settlement or bot action
+  if (v_cont->>'needs_showdown')::boolean or (v_cont->>'next_actor_is_bot')::boolean then
+    v_anon_key := online_private.get_supabase_anon_key();
+    v_dispatch_secret := online_private.get_runtime_dispatch_secret();
+
+    if coalesce(v_anon_key, '') <> '' and coalesce(v_dispatch_secret, '') <> '' then
+      select net.http_post(
+        url := 'https://xngwmtwrruvbrlxhekxp.supabase.co/functions/v1/online-runtime-tick',
+        headers := jsonb_build_object(
+          'Content-Type', 'application/json',
+          'Authorization', 'Bearer ' || v_anon_key,
+          'apikey', v_anon_key,
+          'x-online-runtime-secret', v_dispatch_secret
+        ),
+        body := jsonb_build_object(
+          'mode', 'nudge',
+          'hand_id', p_hand_id::text,
+          'table_id', v_table_id::text,
+          'actor_group_player_id', p_actor_group_player_id::text,
+          'settle_note', 'continuation_settle'
+        )
+      )
+      into v_request_id;
+      v_triggered_runtime := true;
+    end if;
+  end if;
+
+  -- Re-read final state
+  select * into v_hand from online_hands where id = p_hand_id;
+
+  return jsonb_build_object(
+    'continued', v_advance_count > 0 or v_triggered_runtime,
+    'triggered_runtime', v_triggered_runtime,
+    'final_state', v_hand.state,
+    'advances', v_advance_count,
+    'reason', case
+      when v_triggered_runtime and (v_cont->>'needs_showdown')::boolean then 'showdown_nudged'
+      when v_triggered_runtime and (v_cont->>'next_actor_is_bot')::boolean then 'bot_nudged'
+      when v_advance_count > 0 then 'allin_runout_advanced'
+      else 'no_continuation_needed'
+    end
+  );
+end;
+$$;
+
+-- 1d. Modify processable hands to skip recently-continued hands
+drop function if exists online_runtime_processable_hands(uuid, int);
+create or replace function online_runtime_processable_hands(
+  p_table_id uuid default null,
+  p_limit int default 50
+)
+returns table (
+  id uuid,
+  table_id uuid,
+  state text,
+  action_seat int,
+  last_action_at timestamptz,
+  decision_time_secs int
+)
+language sql
+stable
+as $$
+  select
+    h.id,
+    h.table_id,
+    h.state,
+    h.action_seat,
+    h.last_action_at,
+    greatest(coalesce(t.decision_time_secs, 25), 10)::int as decision_time_secs
+  from online_hands h
+  join online_tables t on t.id = h.table_id
+  where h.state in ('preflop', 'flop', 'turn', 'river', 'showdown')
+    and (p_table_id is null or h.table_id = p_table_id)
+    and t.status <> 'closed'
+    -- Skip hands that were just acted on (continuation path handles them)
+    and (h.last_action_at is null or h.last_action_at <= now() - interval '3 seconds')
+  order by h.last_action_at asc nulls last
+  limit greatest(coalesce(p_limit, 50), 1);
+$$;

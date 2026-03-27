@@ -78,6 +78,24 @@ Original prompt: ok lets do it
 - Added stronger winner prominence:
   - richer winner popup glow
   - stronger winner seat/hero highlight treatment
+
+## 2026-03-26 RLS Compatibility Follow-up
+
+- Hardened the new online reader RPCs with fixed `SECURITY DEFINER` + `search_path` so the RLS rollout does not rely on broad raw-table `SELECT` access for sensitive tables.
+- Added safe public summary RPCs for landing-page online history flows:
+  - `online_list_table_summaries(...)`
+  - `online_get_table_results_summary(...)`
+- Moved landing-page Online Games list/detail reads off raw `online_hands` / `online_hand_players` access in `/Users/abishek/Documents/poker-buyins/app.js`.
+- Left the known `online_table_seats.seat_token` compromise documented as-is; direct seat-token exposure remains a future migration item (`online_private.seat_tokens`), not part of this patch.
+- Retired the public `Delete all online games` UI path for launch instead of reintroducing a privileged destructive action on the anon client.
+- Applied pending online migrations with `supabase db push` and redeployed `online-runtime-tick`.
+- Validation after the follow-up:
+  - `node --check app.js`
+  - `node --check /Users/abishek/Documents/poker-buyins/online/client.js`
+  - `node --check /Users/abishek/Documents/poker-buyins/online/table_app.js`
+  - `npm run smoke:web`
+  - `npm run smoke:online-ui`
+  - targeted browser check: Online Games list rows render and `Open` still shows populated results modal
 - Added ephemeral post-hand reactions for seated human players only:
   - no bot reactions
   - no DB/schema change

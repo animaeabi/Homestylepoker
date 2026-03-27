@@ -66,6 +66,7 @@ function createOnlineRpcClient() {
   };
 
   return {
+    client,
     async listProcessableHands({
       tableId,
       limit
@@ -940,13 +941,105 @@ Deno.serve(async (req) => {
     }
 
     const payload = await req.json().catch(() => ({}));
+    const mode = asText(payload?.mode) || "tick";
+
+    const onlineClient = createOnlineRpcClient();
+
+    // Targeted nudge mode: process a single hand immediately.
+    // Called server-to-server from online_continue_hand() via pg_net.
+    if (mode === "nudge") {
+      const handId = asText(payload?.hand_id);
+      const nudgeTableId = asText(payload?.table_id);
+      const actorGroupPlayerId = asText(payload?.actor_group_player_id);
+      const settleNote = asText(payload?.settle_note) || "continuation_settle";
+
+      if (!handId) {
+        return json({ ok: false, error: "nudge_requires_hand_id" }, 400);
+      }
+
+      // Fetch the hand with decision_time_secs from its table
+      const { data: handRow, error: handErr } = await onlineClient.client
+        .from("online_hands")
+        .select("id, table_id, state, action_seat, last_action_at")
+        .eq("id", handId)
+        .maybeSingle();
+      if (handErr || !handRow) {
+        return json({ ok: false, error: handErr?.message || "hand_not_found" }, 404);
+      }
+
+      // Get decision_time_secs from the table
+      const { data: tableRow } = await onlineClient.client
+        .from("online_tables")
+        .select("decision_time_secs")
+        .eq("id", handRow.table_id)
+        .maybeSingle();
+
+      const hand = {
+        ...handRow,
+        decision_time_secs: Math.max(10, Number(tableRow?.decision_time_secs || 25))
+      };
+
+      // Process: may cascade through multiple bot actions
+      const maxAdvance = parseNumber(payload?.max_advance_per_hand, 4, 1, 10);
+      let result = await processHandForRuntime({
+        onlineClient,
+        hand,
+        maxAdvancePerHand: maxAdvance,
+        actorGroupPlayerId,
+        settleNote
+      });
+
+      // After processing, check if another bot needs to act (cascading)
+      let cascadeCount = 0;
+      const maxCascades = 6;
+      while (cascadeCount < maxCascades) {
+        const { data: refreshed } = await onlineClient.client
+          .from("online_hands")
+          .select("id, table_id, state, action_seat, last_action_at")
+          .eq("id", handId)
+          .maybeSingle();
+        if (!refreshed || !["preflop", "flop", "turn", "river", "showdown"].includes(refreshed.state)) break;
+
+        if (refreshed.action_seat != null) {
+          const nextSeat = await onlineClient.getActiveSeatByNumber({
+            tableId: refreshed.table_id,
+            seatNo: refreshed.action_seat
+          });
+          if (nextSeat?.is_bot) {
+            result = await processHandForRuntime({
+              onlineClient,
+              hand: { ...refreshed, decision_time_secs: hand.decision_time_secs },
+              maxAdvancePerHand: maxAdvance,
+              actorGroupPlayerId,
+              settleNote
+            });
+            cascadeCount++;
+            continue;
+          }
+        }
+        break;
+      }
+
+      return json({
+        ok: true,
+        mode: "nudge",
+        hand_id: handId,
+        result: {
+          state: result?.state || hand.state,
+          advanced: result?.advanced || 0,
+          settled: result?.settled || false,
+          cascades: cascadeCount
+        }
+      }, 200);
+    }
+
+    // Standard tick mode (cron-driven)
     const tableId = asText(payload?.table_id);
     const limit = parseNumber(payload?.limit, 50, 1, 200);
     const maxAdvancePerHand = parseNumber(payload?.max_advance_per_hand, 3, 1, 10);
     const actorGroupPlayerId = asText(payload?.actor_group_player_id);
     const settleNote = asText(payload?.settle_note) || "edge_runtime_auto_showdown";
 
-    const onlineClient = createOnlineRpcClient();
     const report = await runRuntimeTick({
       onlineClient,
       tableId,

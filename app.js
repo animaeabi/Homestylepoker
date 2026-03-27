@@ -1010,34 +1010,12 @@ function renderJoinHomeGameList(activeGames, groupNameMap) {
 
 async function fetchJoinableOnlineGames() {
   if (!supabase) return [];
-  const { data: tables, error } = await supabase
-    .from("online_tables")
-    .select("id,name,small_blind,big_blind,max_seats,status,created_at,updated_at")
-    .in("status", ["waiting", "active"])
-    .order("updated_at", { ascending: false })
-    .limit(30);
-  if (error) throw error;
-  if (!tables?.length) return [];
-
-  const tableIds = tables.map((table) => table.id);
-  const { data: seats, error: seatError } = await supabase
-    .from("online_table_seats")
-    .select("table_id,group_player_id,left_at")
-    .in("table_id", tableIds)
-    .not("group_player_id", "is", null)
-    .is("left_at", null);
-  if (seatError) throw seatError;
-
-  const seatedCountByTable = new Map();
-  (seats || []).forEach((seat) => {
-    seatedCountByTable.set(seat.table_id, (seatedCountByTable.get(seat.table_id) || 0) + 1);
+  const { data: tables, error } = await supabase.rpc("online_list_table_summaries", {
+    p_statuses: ["waiting", "active"],
+    p_limit: 30
   });
-
-  return tables
-    .map((table) => ({
-      ...table,
-      seated_count: seatedCountByTable.get(table.id) || 0
-    }))
+  if (error) throw error;
+  return (tables || [])
     .filter((table) => Number(table.seated_count || 0) < Number(table.max_seats || 0));
 }
 
@@ -9053,44 +9031,11 @@ if (elements.onlineGameClose) {
 }
 
 if (elements.onlineSettingsToggle) {
-  elements.onlineSettingsToggle.addEventListener("click", () => {
-    if (elements.onlineSettingsDropdown) {
-      elements.onlineSettingsDropdown.classList.toggle("hidden");
-    }
-  });
+  elements.onlineSettingsToggle.classList.add("hidden");
 }
 
-if (elements.deleteAllOnlineGames) {
-  elements.deleteAllOnlineGames.addEventListener("click", async () => {
-    if (!supabase) return;
-    const authorized = await ensureDeletePin();
-    if (!authorized) return;
-    const confirmed = await openConfirmModal("Delete ALL online games? This only affects online poker tables and hands. In-person games are untouched. This cannot be undone.", "Erase online games");
-    if (!confirmed) return;
-
-    elements.deleteAllOnlineGames.disabled = true;
-    elements.deleteAllOnlineGames.textContent = "Deleting...";
-
-    try {
-      await supabase.from("online_hand_events").delete().neq("id", 0);
-      await supabase.from("online_hand_snapshots").delete().neq("id", "00000000-0000-0000-0000-000000000000");
-      await supabase.from("online_actions").delete().neq("id", "00000000-0000-0000-0000-000000000000");
-      await supabase.from("online_hand_players").delete().neq("id", "00000000-0000-0000-0000-000000000000");
-      await supabase.from("online_hands").delete().neq("id", "00000000-0000-0000-0000-000000000000");
-      await supabase.from("online_table_seats").delete().neq("id", "00000000-0000-0000-0000-000000000000");
-      await supabase.from("online_tables").delete().neq("id", "00000000-0000-0000-0000-000000000000");
-
-      if (elements.onlineSettingsDropdown) elements.onlineSettingsDropdown.classList.add("hidden");
-      await loadOnlineGamesList();
-      setStatus("All online games deleted");
-    } catch (err) {
-      console.error("[deleteAllOnlineGames]", err);
-      setStatus("Delete failed", "error");
-    } finally {
-      elements.deleteAllOnlineGames.disabled = false;
-      elements.deleteAllOnlineGames.textContent = "Delete all online games";
-    }
-  });
+if (elements.onlineSettingsDropdown) {
+  elements.onlineSettingsDropdown.classList.add("hidden");
 }
 
 async function openOnlineSessions() {
@@ -9109,27 +9054,15 @@ async function loadOnlineGamesList() {
   if (!elements.onlineGamesList || !supabase) return;
   elements.onlineGamesList.innerHTML = '<p class="muted">Loading...</p>';
 
-  const { data: tables, error } = await supabase
-    .from("online_tables")
-    .select("id,name,small_blind,big_blind,max_seats,starting_stack,status,created_at,updated_at")
-    .in("status", ["closed", "active", "waiting"])
-    .order("created_at", { ascending: false })
-    .limit(50);
+  const { data: tables, error } = await supabase.rpc("online_list_table_summaries", {
+    p_statuses: ["closed", "active", "waiting"],
+    p_limit: 50
+  });
 
   if (error || !tables || tables.length === 0) {
     elements.onlineGamesList.innerHTML = '<p class="muted">No online games found.</p>';
     return;
   }
-
-  const tableIds = tables.map(t => t.id);
-  const { data: handCounts } = await supabase
-    .from("online_hands")
-    .select("table_id")
-    .in("table_id", tableIds)
-    .eq("state", "settled");
-
-  const countMap = new Map();
-  (handCounts || []).forEach(h => countMap.set(h.table_id, (countMap.get(h.table_id) || 0) + 1));
 
   elements.onlineGamesList.innerHTML = "";
   const listWrap = document.createElement("div");
@@ -9137,7 +9070,7 @@ async function loadOnlineGamesList() {
   if (tables.length > 6) listWrap.classList.add("scrollable");
 
   tables.forEach(table => {
-    const hands = countMap.get(table.id) || 0;
+    const hands = Number(table.settled_hands || 0);
     const dateStr = formatShortDate(table.updated_at || table.created_at);
     const statusLabel = table.status === "closed" ? "Ended" : table.status === "active" ? "Active" : "Waiting";
     const row = document.createElement("div");
@@ -9167,86 +9100,22 @@ async function loadOnlineGamesList() {
 
 async function openOnlineGameDetail(tableId) {
   if (!supabase || !elements.onlineGameModal) return;
-
-  const { data: table } = await supabase
-    .from("online_tables")
-    .select("*")
-    .eq("id", tableId)
-    .single();
-
+  const { data: summary, error } = await supabase.rpc("online_get_table_results_summary", {
+    p_table_id: tableId
+  });
+  if (error) {
+    console.error("[openOnlineGameDetail]", error);
+    return;
+  }
+  const table = summary?.table || null;
+  const sortedPlayers = Array.isArray(summary?.players) ? summary.players : [];
+  const settledHandCount = Number(summary?.settled_hand_count || 0);
   if (!table) return;
-
-  const { data: hands } = await supabase
-    .from("online_hands")
-    .select("id,hand_no,state,pot_total,started_at,ended_at")
-    .eq("table_id", tableId)
-    .eq("state", "settled")
-    .order("hand_no", { ascending: false });
-
-  const settledHands = hands || [];
-
-  const { data: seats } = await supabase
-    .from("online_table_seats")
-    .select("seat_no,group_player_id,chip_stack")
-    .eq("table_id", tableId);
-
-  // Calculate In (buy-ins) and Out (final stack) per player.
-  // In = first hand stack_start + any rebuys (detected when stack_start > previous stack_end).
-  // Out = last hand stack_end.
-  let playerResults = new Map();
-  if (settledHands.length > 0) {
-    const handIds = settledHands.map(h => h.id);
-    const { data: allHp } = await supabase
-      .from("online_hand_players")
-      .select("hand_id,seat_no,group_player_id,stack_start,stack_end,committed,result_amount")
-      .in("hand_id", handIds);
-
-    // Sort hands by hand_no ascending for chronological processing
-    const handOrder = new Map();
-    settledHands.forEach(h => handOrder.set(h.id, h.hand_no));
-    const sortedHp = (allHp || []).slice().sort((a, b) => (handOrder.get(a.hand_id) || 0) - (handOrder.get(b.hand_id) || 0));
-
-    sortedHp.forEach(hp => {
-      if (!hp.group_player_id) return;
-      if (!playerResults.has(hp.group_player_id)) {
-        playerResults.set(hp.group_player_id, {
-          buyIn: Number(hp.stack_start || 0),
-          lastStackEnd: Number(hp.stack_end || 0),
-          prevStackEnd: null,
-          hands: 0
-        });
-      }
-      const r = playerResults.get(hp.group_player_id);
-      const startVal = Number(hp.stack_start || 0);
-      const endVal = Number(hp.stack_end || 0);
-
-      // Detect rebuys: if stack_start > previous stack_end, they added chips
-      if (r.prevStackEnd !== null && startVal > r.prevStackEnd) {
-        r.buyIn += (startVal - r.prevStackEnd);
-      }
-      r.lastStackEnd = endVal;
-      r.prevStackEnd = endVal;
-      r.hands += 1;
-    });
-  }
-
-  const gpIds = [...new Set([
-    ...(seats || []).map(s => s.group_player_id).filter(Boolean),
-    ...playerResults.keys()
-  ])];
-  let playerNames = new Map();
-  if (gpIds.length > 0) {
-    const { data: players } = await supabase
-      .from("group_players")
-      .select("id,name")
-      .in("id", gpIds);
-    (players || []).forEach(p => playerNames.set(p.id, p.name));
-  }
 
   elements.onlineGameTitle.textContent = table.name || "Online Table";
   const dateStr = table.created_at ? new Date(table.created_at).toLocaleString() : "";
   const statusLabel = table.status === "closed" ? "Ended" : table.status;
-  elements.onlineGameMeta.textContent = `${statusLabel} · ${dateStr} · Blinds ${table.small_blind}/${table.big_blind} · ${settledHands.length} hand${settledHands.length !== 1 ? "s" : ""} played`;
+  elements.onlineGameMeta.textContent = `${statusLabel} · ${dateStr} · Blinds ${table.small_blind}/${table.big_blind} · ${settledHandCount} hand${settledHandCount !== 1 ? "s" : ""} played`;
 
   const resultsDiv = elements.onlineGameResults;
   resultsDiv.innerHTML = "";
@@ -9259,28 +9128,21 @@ async function openOnlineGameDetail(tableId) {
   resultTable.appendChild(headerRow);
 
   let totalIn = 0, totalOut = 0;
-  const sortedPlayers = [...playerResults.entries()]
-    .map(([gpId, r]) => ({
-      name: playerNames.get(gpId) || "Player",
-      buyIn: r.buyIn,
-      cashOut: r.lastStackEnd,
-      net: r.lastStackEnd - r.buyIn,
-      hands: r.hands
-    }))
-    .sort((a, b) => b.net - a.net);
-
   sortedPlayers.forEach(p => {
-    totalIn += p.buyIn;
-    totalOut += p.cashOut;
-    const netClass = p.net > 0.005 ? "money-pos" : p.net < -0.005 ? "money-neg" : "";
-    const netSign = p.net >= 0 ? "+" : "";
+    const buyIn = Number(p.buy_in || p.buyIn || 0);
+    const cashOut = Number(p.cash_out || p.cashOut || 0);
+    const net = Number(p.net || 0);
+    totalIn += buyIn;
+    totalOut += cashOut;
+    const netClass = net > 0.005 ? "money-pos" : net < -0.005 ? "money-neg" : "";
+    const netSign = net >= 0 ? "+" : "";
     const row = document.createElement("div");
     row.className = "online-results-row";
     row.innerHTML = `
-      <span>${p.name}</span>
-      <strong>$${Number(p.buyIn).toFixed(2)}</strong>
-      <strong>$${Number(p.cashOut).toFixed(2)}</strong>
-      <strong class="${netClass}">${netSign}$${Number(p.net).toFixed(2)}</strong>
+      <span>${p.name || "Player"}</span>
+      <strong>$${buyIn.toFixed(2)}</strong>
+      <strong>$${cashOut.toFixed(2)}</strong>
+      <strong class="${netClass}">${netSign}$${net.toFixed(2)}</strong>
     `;
     resultTable.appendChild(row);
   });

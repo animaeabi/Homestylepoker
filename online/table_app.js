@@ -3955,8 +3955,14 @@ function queueRtRefresh() {
   state.rtRefreshTimer = setTimeout(() => {
     state.rtRefreshQueued = false;
     state.rtRefreshTimer = null;
-    if (!state.loading && state.tableId) loadTableState();
+    if (!state.loading && state.tableId) loadGameState();
   }, REALTIME_DEBOUNCE_MS);
+}
+
+function queueVoiceRefresh() {
+  if (!state.tableId || state.loading) return;
+  // Voice state changes are infrequent; just do a full load to stay simple
+  loadTableState();
 }
 
 async function startRealtime(tableId) {
@@ -3964,12 +3970,14 @@ async function startRealtime(tableId) {
   if (state.realtimeChannel && state.realtimeHealthy && state.chatChannel && state.chatHealthy) return;
   await stopRealtime();
 
+  // Realtime subscriptions: only subscribe to tables where anon has SELECT.
+  // online_hands and online_hand_players are denied direct SELECT (sensitive columns).
+  // online_hand_events covers all game state changes, making online_hands redundant.
   const ch = supabase
     .channel(`table:${tableId}`)
     .on("postgres_changes", { event: "*", schema: "public", table: "online_tables", filter: `id=eq.${tableId}` }, queueRtRefresh)
     .on("postgres_changes", { event: "*", schema: "public", table: "online_table_seats", filter: `table_id=eq.${tableId}` }, queueRtRefresh)
-    .on("postgres_changes", { event: "*", schema: "public", table: "online_table_voice_state", filter: `table_id=eq.${tableId}` }, queueRtRefresh)
-    .on("postgres_changes", { event: "*", schema: "public", table: "online_hands", filter: `table_id=eq.${tableId}` }, queueRtRefresh)
+    .on("postgres_changes", { event: "*", schema: "public", table: "online_table_voice_state", filter: `table_id=eq.${tableId}` }, queueVoiceRefresh)
     .on("postgres_changes", { event: "*", schema: "public", table: "online_hand_events", filter: `table_id=eq.${tableId}` }, queueRtRefresh);
 
   const chatCh = supabase
@@ -4042,7 +4050,13 @@ function startPolling() {
   if (state.pollTimer) clearInterval(state.pollTimer);
   state.pollTimer = setInterval(() => {
     if (state.loading || !state.tableId) return;
-    if (!state.realtimeHealthy || Date.now() - state.lastSyncAt > FALLBACK_STALE_MS) loadTableState();
+    if (!state.realtimeHealthy) {
+      // Realtime unhealthy: full load (includes chat/voice) for recovery
+      loadTableState();
+    } else if (Date.now() - state.lastSyncAt > FALLBACK_STALE_MS) {
+      // Realtime healthy but stale: lightweight game-state-only refresh
+      loadGameState();
+    }
   }, POLL_MS);
 }
 
@@ -4239,6 +4253,177 @@ async function loadTableState() {
     }
     if (state.tableBooting) {
       setTableBooting(true, "Reconnecting...");
+    }
+  } finally {
+    state.loading = false;
+  }
+}
+
+// Lightweight game-state-only refresh: fetches table+seats+hand without chat/voice.
+// Preserves existing chat_messages and voice_state in state.tableState.
+let gameStateRpcAvailable = true;
+async function loadGameState() {
+  if (!state.tableId || state.loading) return;
+  // If we don't have a prior full state yet, or the game-state RPC is unavailable, full load
+  if (!state.tableState || !gameStateRpcAvailable) return loadTableState();
+  state.loading = true;
+  try {
+    const gs = await online.getTableGameState({
+      tableId: state.tableId,
+      viewerGroupPlayerId: state.identity?.groupPlayerId || null,
+      viewerSeatToken: getSeatToken() || null,
+    }).catch((err) => {
+      // If the game-state-only RPC is not deployed yet, fall back permanently
+      const msg = String(err?.message || "").toLowerCase();
+      if (msg.includes("online_get_table_game_state_viewer") && (msg.includes("could not find") || msg.includes("does not exist"))) {
+        gameStateRpcAvailable = false;
+        return null;
+      }
+      throw err;
+    });
+    if (!gs) {
+      // Fallback: game-state RPC not available, do full load
+      state.loading = false;
+      return loadTableState();
+    }
+    // Merge: replace game data, keep existing chat and voice
+    const merged = {
+      ...gs,
+      chat_messages: gs.chat_messages || state.tableState?.chat_messages || [],
+      voice_state: gs.voice_state || state.tableState?.voice_state || {},
+    };
+    // Delegate to the same processing path as loadTableState
+    const hadPriorTableState = Boolean(state.tableState);
+    const oldHand = getLatestHand();
+    state.tableState = merged;
+    const hand = getLatestHand();
+    if (state.heroShowCardsOverride) {
+      if (!hand || hand.id !== state.heroShowCardsOverride.handId) {
+        state.heroShowCardsOverride = null;
+      } else {
+        const heroHp = getMyHandPlayer();
+        if (Boolean(heroHp?.manually_shown) === Boolean(state.heroShowCardsOverride.shown)) {
+          state.heroShowCardsOverride = null;
+        }
+      }
+    }
+    const optimistic = state.optimisticSeatAction;
+    if (
+      optimistic && (
+        !hand ||
+        hand.id !== optimistic.handId ||
+        hand.state !== optimistic.street ||
+        Boolean(findLatestSeatActionForStreet(optimistic.seatNo, optimistic.street, hand))
+      )
+    ) {
+      state.optimisticSeatAction = null;
+    }
+    const oldPotTotal = Number(oldHand?.pot_total || 0);
+    syncTableRuntimeConfig(merged?.table || null);
+    const mySeat = getMySeat();
+    state.playerPrefs.autoCheckWhenAvailable = Boolean(mySeat?.auto_check_when_available);
+    syncPlayerPreferenceControls();
+    syncBotSeatsWithTable();
+    state.lastSyncAt = Date.now();
+    state.pendingAction = false;
+    if (state.tableBooting) setTableBooting(false);
+    syncShowdownRevealState(hand);
+    const newPotTotal = Number(hand?.pot_total || 0);
+    if (!oldHand || hand?.id !== oldHand.id) {
+      state.potVisual.handId = hand?.id || null;
+      state.potVisual.chipCount = 0;
+      state.potVisual.pulseUntil = 0;
+      if (state.clearedPotHandId && hand?.id !== state.clearedPotHandId) {
+        state.clearedPotHandId = null;
+      }
+    } else if (newPotTotal > oldPotTotal + 0.001) {
+      state.potVisual.pulseUntil = Date.now() + POT_BUMP_MS;
+    }
+    const announcementState = syncActionAnnouncements({ hadPriorTableState, oldHandId: oldHand?.id || null });
+    maybeStartDealAnimation(oldHand, hand, hadPriorTableState);
+    const shouldDelayStreetReveal = Boolean(
+      announcementState?.hasNewActions &&
+      hand &&
+      oldHand &&
+      hand.id === oldHand.id &&
+      hand.state !== oldHand.state
+    );
+    const roundTransitionBreathMs = shouldDelayStreetReveal
+      ? getRoundTransitionBreathMs({
+        oldHand,
+        hand,
+        latestAction: announcementState?.latestAction || null,
+      })
+      : 0;
+    const streetRevealDelayMs = getStreetRevealDelayForTransition(oldHand, hand, {
+      deferred: shouldDelayStreetReveal
+    });
+    clearTimeout(state.deferredStreetRevealTimer);
+    state.deferredStreetRevealTimer = null;
+    clearStreetActionLabelHold();
+    const shouldHoldClosingStreetLabels = Boolean(
+      announcementState?.hasNewActions &&
+      hand &&
+      oldHand &&
+      hand.id === oldHand.id &&
+      oldHand.state !== hand.state &&
+      (
+        (isBettingStreet(oldHand.state) && isBoardStreet(hand.state)) ||
+        (oldHand.state === "river" && ["showdown", "settled"].includes(String(hand.state || "")))
+      )
+    );
+    if (shouldHoldClosingStreetLabels && oldHand && hand) {
+      holdStreetActionLabels({
+        handId: hand.id,
+        fromStreet: oldHand.state,
+        toStreet: hand.state,
+        durationMs: isBoardStreet(hand.state)
+          ? (roundTransitionBreathMs + STREET_REVEAL_DEFER_MS)
+          : roundTransitionBreathMs,
+      });
+    }
+    maybeStartStreetRevealAnimation(
+      oldHand,
+      hand,
+      hadPriorTableState,
+      roundTransitionBreathMs + (shouldDelayStreetReveal ? STREET_REVEAL_DEFER_MS : 0)
+    );
+    syncVictoryPopup({
+      oldHand,
+      hand,
+      hadPriorTableState,
+      shouldDelayStreetReveal,
+      revealDelayMs: roundTransitionBreathMs + streetRevealDelayMs
+    });
+    if (hand && oldHand) {
+      if (oldHand.state !== "settled" && hand.state === "settled") {
+        handleSettlementFx(hand, { revealDelayMs: roundTransitionBreathMs + streetRevealDelayMs });
+      }
+      if (hand.action_seat && hand.action_seat !== prevActionSeat) {
+        const myHp = getMyHandPlayer();
+        if (myHp && hand.action_seat === myHp.seat_no && getSeatToken() && !isStreetRevealPresentationActive(hand)) {
+          sounds.yourTurn();
+          toast("Your turn!");
+        }
+      }
+    }
+    prevHandState = hand?.state || null;
+    prevActionSeat = hand?.action_seat || null;
+    trackOpponentActions();
+
+    const pState = getPresentationState();
+    if (pState !== "idle") {
+      state.queuedRenderState = true;
+    } else {
+      state.queuedRenderState = false;
+      renderAll();
+    }
+  } catch (err) {
+    console.error("[loadGameState]", err);
+    // On error, fall back to full load next time
+    if (state.pendingAction) {
+      state.pendingAction = false;
+      renderActions();
     }
   } finally {
     state.loading = false;
@@ -5814,12 +5999,21 @@ async function submitTurnAction(label, actionType) {
   state.loading = true;
   try {
     await doAction(actionType, payload);
-    void nudgeRuntimeAfterAction();
-    await loadTableState();
-    if (shouldNudgeRuntimeAfterAction()) {
-      await nudgeRuntimeAfterAction();
-      await loadTableState();
+    // Immediate continuation: advance all-in runouts inline,
+    // trigger targeted runtime nudge for bots/showdowns.
+    try {
+      const seatToken = getSeatToken();
+      if (seatToken && state.identity?.groupPlayerId) {
+        await online.continueHand({
+          handId: hand.id,
+          actorGroupPlayerId: state.identity.groupPlayerId,
+          seatToken
+        });
+      }
+    } catch (contErr) {
+      console.warn("[continueHand]", contErr);
     }
+    await loadTableState();
   } catch (err) {
     state.optimisticSeatAction = null;
     state.pendingAction = false;

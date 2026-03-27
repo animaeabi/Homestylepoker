@@ -209,6 +209,14 @@ export function createOnlinePokerClient(supabase) {
       });
     },
 
+    continueHand({ handId, actorGroupPlayerId, seatToken }) {
+      return callRpc(supabase, "online_continue_hand", {
+        p_hand_id: handId,
+        p_actor_group_player_id: actorGroupPlayerId,
+        p_seat_token: seatToken
+      });
+    },
+
     advanceHand({ handId, actorGroupPlayerId = null, reason = "tick", hostSeatToken = null }) {
       return callRpc(supabase, "online_advance_hand", {
         p_hand_id: handId,
@@ -245,6 +253,33 @@ export function createOnlinePokerClient(supabase) {
         throw new Error(
           "Online schema is outdated: missing online_get_table_state_viewer. Re-run supabase/online_poker_schema.sql."
         );
+      }
+    },
+
+    async getTableGameState({
+      tableId,
+      sinceSeq = null,
+      viewerGroupPlayerId = null,
+      viewerSeatToken = null
+    }) {
+      try {
+        return await callRpc(supabase, "online_get_table_game_state_viewer", {
+          p_table_id: tableId,
+          p_viewer_group_player_id: viewerGroupPlayerId,
+          p_viewer_seat_token: viewerSeatToken,
+          p_since_seq: sinceSeq
+        });
+      } catch (error) {
+        // Fallback to full state viewer if game-state-only is not available
+        if (isMissingRpcFunction(error, "online_get_table_game_state_viewer")) {
+          return await callRpc(supabase, "online_get_table_state_viewer", {
+            p_table_id: tableId,
+            p_viewer_group_player_id: viewerGroupPlayerId,
+            p_viewer_seat_token: viewerSeatToken,
+            p_since_seq: sinceSeq
+          });
+        }
+        throw error;
       }
     },
 
@@ -439,15 +474,26 @@ export function createOnlinePokerClient(supabase) {
     },
 
     async getLatestHand(tableId) {
-      const { data, error } = await supabase
-        .from("online_hands")
-        .select("*")
-        .eq("table_id", tableId)
-        .order("hand_no", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (error) throw normalizeError("getLatestHand", error);
-      return data || null;
+      const state = await this.getTableGameState({
+        tableId,
+        sinceSeq: null,
+        viewerGroupPlayerId: null,
+        viewerSeatToken: null
+      });
+      return state?.latest_hand?.hand || null;
+    },
+
+    listTableSummaries({ statuses = null, limit = 50 } = {}) {
+      return callRpc(supabase, "online_list_table_summaries", {
+        p_statuses: statuses,
+        p_limit: limit
+      });
+    },
+
+    getTableResultsSummary({ tableId }) {
+      return callRpc(supabase, "online_get_table_results_summary", {
+        p_table_id: tableId
+      });
     }
   };
 }
