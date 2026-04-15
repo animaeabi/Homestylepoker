@@ -151,6 +151,35 @@ Original prompt: ok lets do it
   - live online play remains intact
   - long-tail online history is intentionally shortened to reduce DB size and egress pressure
 
+## 2026-04-14 Online Storage Compaction Recovery
+
+- Identified the real live storage drivers using remote inspection:
+  - `online_hand_snapshots` had grown to `336 MB`
+  - `online_hand_events` had grown to `326 MB`
+  - `online_actions` had grown to `98 MB`
+  - `online_hands` had grown to `101 MB`
+  - `online_hand_players` had grown to `79 MB`
+  - extension-owned runtime history from `cron.job_run_details` and `net._http_response` was also contributing hidden DB growth
+- Tightened the steady-state online behavior in `/Users/abishek/Documents/poker-buyins/supabase/online_poker_schema.sql`:
+  - recent closed-table summaries now only surface closed tables from the last 24 hours
+  - runtime fallback cron was slowed from every 2 seconds to every 10 seconds
+  - online retention cron now runs hourly with stricter defaults: keep 3 recent closed tables, 24-hour closed retention, 1-hour idle cleanup
+  - live tables now trim settled/canceled hand history beyond the most recent 60 hands per table
+  - detailed artifacts (events/actions/snapshots) now trim beyond the most recent 3 hands per table
+  - extension history trimming for `cron.job_run_details` and `net._http_response` was added to ongoing retention
+- Added rollout migration:
+  - `/Users/abishek/Documents/poker-buyins/supabase/migrations/20260414140500_compact_online_storage_and_slow_runtime.sql`
+- Used the Supabase Management API to terminate two orphaned backend sessions left behind by timed-out migration attempts, then reapplied the compaction successfully.
+- Live post-compaction measurement via the Supabase Management API:
+  - database size dropped to about `18 MB`
+  - online hand-history tables are now down to KB-scale instead of hundreds of MB
+  - runtime cron schedules on the live DB now show:
+    - `online-runtime-dispatch`: `10 seconds`
+    - `online-history-retention`: `17 * * * *`
+- Important current status:
+  - direct anon RPCs still return `402` immediately after compaction
+  - that indicates the project restriction has not refreshed yet and monthly egress limits still remain over quota until the next billing reset
+
 ### Best files for a new AI to read first
 1. `/Users/abishek/Documents/poker-buyins/AGENTS.md`
 2. `/Users/abishek/Documents/poker-buyins/progress.md`

@@ -1005,7 +1005,7 @@ as $$
     )
       and (
         t.status <> 'closed'
-        or coalesce(t.updated_at, t.created_at) >= now() - interval '72 hours'
+        or coalesce(t.updated_at, t.created_at) >= now() - interval '24 hours'
       )
     order by coalesce(t.updated_at, t.created_at) desc
     limit greatest(least(coalesce(p_limit, 12), 12), 1)
@@ -2395,8 +2395,8 @@ $$;
 drop function if exists online_private.prune_online_data(int, int);
 drop function if exists online_private.prune_online_data(int, int, int);
 create or replace function online_private.prune_online_data(
-  p_keep_recent_closed_tables int default 5,
-  p_keep_closed_hours int default 72,
+  p_keep_recent_closed_tables int default 3,
+  p_keep_closed_hours int default 24,
   p_idle_hours int default 1
 )
 returns jsonb
@@ -2405,12 +2405,20 @@ security definer
 set search_path = public, online_private, pg_temp
 as $$
 declare
-  v_keep_closed int := greatest(coalesce(p_keep_recent_closed_tables, 5), 0);
-  v_keep_closed_hours int := greatest(coalesce(p_keep_closed_hours, 72), 1);
+  v_keep_closed int := greatest(coalesce(p_keep_recent_closed_tables, 3), 0);
+  v_keep_closed_hours int := greatest(coalesce(p_keep_closed_hours, 24), 1);
   v_idle_hours int := greatest(coalesce(p_idle_hours, 1), 1);
+  v_keep_live_final_hands int := 60;
+  v_keep_artifact_hands int := 3;
   v_deleted_closed int := 0;
+  v_deleted_live_hands int := 0;
   v_deleted_idle int := 0;
+  v_trimmed_actions int := 0;
+  v_trimmed_events int := 0;
+  v_trimmed_snapshots int := 0;
   v_trimmed_chat int := 0;
+  v_trimmed_cron_history int := 0;
+  v_trimmed_http_history int := 0;
 begin
   with ranked_closed as (
     select
@@ -2438,6 +2446,131 @@ begin
   select count(*) into v_deleted_closed
   from deleted_closed;
 
+  with ranked_live_final_hands as (
+    select
+      h.id,
+      row_number() over (
+        partition by h.table_id
+        order by h.hand_no desc
+      ) as rn
+    from online_hands h
+    join online_tables t on t.id = h.table_id
+    where t.status <> 'closed'
+      and h.state in ('settled', 'canceled')
+  ),
+  doomed_live_hands as (
+    select id
+    from ranked_live_final_hands
+    where rn > v_keep_live_final_hands
+  ),
+  deleted_live_hands as (
+    delete from online_hands h
+    using doomed_live_hands d
+    where h.id = d.id
+    returning h.id
+  )
+  select count(*) into v_deleted_live_hands
+  from deleted_live_hands;
+
+  with retained_artifact_hands as (
+    select id
+    from (
+      select
+        h.id,
+        row_number() over (
+          partition by h.table_id
+          order by h.hand_no desc
+        ) as rn
+      from online_hands h
+    ) ranked
+    where rn <= v_keep_artifact_hands
+  ),
+  doomed_actions as (
+    select a.id
+    from online_actions a
+    join online_hands h on h.id = a.hand_id
+    where h.state in ('settled', 'canceled')
+      and not exists (
+        select 1
+        from retained_artifact_hands kept
+        where kept.id = h.id
+      )
+  ),
+  deleted_actions as (
+    delete from online_actions a
+    using doomed_actions d
+    where a.id = d.id
+    returning a.id
+  )
+  select count(*) into v_trimmed_actions
+  from deleted_actions;
+
+  with retained_artifact_hands as (
+    select id
+    from (
+      select
+        h.id,
+        row_number() over (
+          partition by h.table_id
+          order by h.hand_no desc
+        ) as rn
+      from online_hands h
+    ) ranked
+    where rn <= v_keep_artifact_hands
+  ),
+  doomed_events as (
+    select ev.id
+    from online_hand_events ev
+    join online_hands h on h.id = ev.hand_id
+    where h.state in ('settled', 'canceled')
+      and not exists (
+        select 1
+        from retained_artifact_hands kept
+        where kept.id = h.id
+      )
+  ),
+  deleted_events as (
+    delete from online_hand_events ev
+    using doomed_events d
+    where ev.id = d.id
+    returning ev.id
+  )
+  select count(*) into v_trimmed_events
+  from deleted_events;
+
+  with retained_artifact_hands as (
+    select id
+    from (
+      select
+        h.id,
+        row_number() over (
+          partition by h.table_id
+          order by h.hand_no desc
+        ) as rn
+      from online_hands h
+    ) ranked
+    where rn <= v_keep_artifact_hands
+  ),
+  doomed_snapshots as (
+    select s.id
+    from online_hand_snapshots s
+    join online_hands h on h.id = s.hand_id
+    where h.state in ('settled', 'canceled')
+      and not exists (
+        select 1
+        from retained_artifact_hands kept
+        where kept.id = h.id
+      )
+  ),
+  deleted_snapshots as (
+    delete from online_hand_snapshots s
+    using doomed_snapshots d
+    where s.id = d.id
+    returning s.id
+  )
+  select count(*) into v_trimmed_snapshots
+  from deleted_snapshots;
+
   with ranked_chat as (
     select
       m.id,
@@ -2452,7 +2585,7 @@ begin
     select id
     from ranked_chat
     where rn > 20
-       or created_at < now() - interval '72 hours'
+       or created_at < now() - interval '24 hours'
   ),
   deleted_chat as (
     delete from online_table_chat_messages m
@@ -2462,6 +2595,24 @@ begin
   )
   select count(*) into v_trimmed_chat
   from deleted_chat;
+
+  begin
+    delete from cron.job_run_details jd
+    where coalesce(jd.end_time, jd.start_time, now()) < now() - interval '24 hours';
+    get diagnostics v_trimmed_cron_history = row_count;
+  exception
+    when undefined_table or insufficient_privilege then
+      v_trimmed_cron_history := 0;
+  end;
+
+  begin
+    delete from net._http_response r
+    where r.created < now() - interval '6 hours';
+    get diagnostics v_trimmed_http_history = row_count;
+  exception
+    when undefined_table or insufficient_privilege then
+      v_trimmed_http_history := 0;
+  end;
 
   with doomed_idle as (
     select t.id
@@ -2493,11 +2644,19 @@ begin
 
   return jsonb_build_object(
     'deleted_closed_tables', v_deleted_closed,
+    'deleted_live_final_hands', v_deleted_live_hands,
     'deleted_idle_tables', v_deleted_idle,
+    'trimmed_actions', v_trimmed_actions,
+    'trimmed_events', v_trimmed_events,
+    'trimmed_snapshots', v_trimmed_snapshots,
     'trimmed_chat_messages', v_trimmed_chat,
+    'trimmed_cron_history_rows', v_trimmed_cron_history,
+    'trimmed_http_history_rows', v_trimmed_http_history,
     'kept_recent_closed_tables', v_keep_closed,
     'closed_hours_threshold', v_keep_closed_hours,
-    'idle_hours_threshold', v_idle_hours
+    'idle_hours_threshold', v_idle_hours,
+    'kept_live_final_hands_per_table', v_keep_live_final_hands,
+    'kept_artifact_hands_per_table', v_keep_artifact_hands
   );
 end;
 $$;
@@ -4984,7 +5143,7 @@ begin
 
   perform cron.schedule(
     'online-runtime-dispatch',
-    '2 seconds',
+    '10 seconds',
     $job$select online_dispatch_edge_runtime();$job$
   );
 end
@@ -5004,8 +5163,8 @@ begin
 
   perform cron.schedule(
     'online-history-retention',
-    '17 */6 * * *',
-    $job$select online_private.prune_online_data(5, 72, 1);$job$
+    '17 * * * *',
+    $job$select online_private.prune_online_data(3, 24, 1);$job$
   );
 end
 $cron$;
