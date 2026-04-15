@@ -142,6 +142,13 @@ create table if not exists online_hands (
   unique (table_id, hand_no)
 );
 
+create index if not exists idx_online_hands_table_hand_no_desc
+  on online_hands(table_id, hand_no desc);
+
+create index if not exists idx_online_hands_active_last_action
+  on online_hands(last_action_at, table_id)
+  where state in ('preflop', 'flop', 'turn', 'river', 'showdown');
+
 create table if not exists online_hand_players (
   id uuid primary key default gen_random_uuid(),
   hand_id uuid not null references online_hands(id) on delete cascade,
@@ -166,6 +173,9 @@ alter table online_hand_players
 
 alter table online_hand_players
   add column if not exists manually_shown boolean not null default false;
+
+create index if not exists idx_online_hand_players_hand_group_player
+  on online_hand_players(hand_id, group_player_id);
 
 create table if not exists online_hand_events (
   id bigserial primary key,
@@ -213,6 +223,10 @@ create table if not exists online_actions (
 create unique index if not exists idx_online_actions_dedupe
   on online_actions(hand_id, actor_group_player_id, client_action_id)
   where client_action_id is not null;
+
+create index if not exists idx_online_actions_hand_actor_created_desc
+  on online_actions(hand_id, actor_group_player_id, created_at desc)
+  where status = 'accepted';
 
 create table if not exists online_table_chat_messages (
   id uuid primary key default gen_random_uuid(),
@@ -1633,7 +1647,14 @@ declare
   v_seq bigint;
 begin
   perform 1 from online_hands where id = p_hand_id for update;
-  select coalesce(max(seq), 0) + 1 into v_seq from online_hand_events where hand_id = p_hand_id;
+  select coalesce((
+    select ev.seq
+    from online_hand_events ev
+    where ev.hand_id = p_hand_id
+    order by ev.seq desc
+    limit 1
+  ), 0) + 1
+  into v_seq;
 
   insert into online_hand_events(
     hand_id,
@@ -1671,9 +1692,14 @@ begin
     raise exception 'online_hand_not_found';
   end if;
 
-  select coalesce(max(seq), 0) into v_seq
-  from online_hand_events
-  where hand_id = p_hand_id;
+  select coalesce((
+    select ev.seq
+    from online_hand_events ev
+    where ev.hand_id = p_hand_id
+    order by ev.seq desc
+    limit 1
+  ), 0)
+  into v_seq;
 
   select coalesce(
     jsonb_agg(
@@ -3142,6 +3168,7 @@ declare
   v_record_vpip boolean := false;
   v_record_pfr boolean := false;
   v_other_raise_eligible_players int := 0;
+  v_should_snapshot boolean := false;
 begin
   -- Rate limit: max 1 action per actor per 500ms per hand
   perform online_check_action_rate_limit(p_hand_id, p_actor_group_player_id);
@@ -3488,6 +3515,7 @@ begin
       p_hand_id,
       false
     );
+    v_should_snapshot := true;
   else
     v_round_done := online_betting_round_complete(p_hand_id);
 
@@ -3509,6 +3537,7 @@ begin
           p_actor_group_player_id,
           jsonb_build_object('reason', 'river_round_complete')
         );
+        v_should_snapshot := true;
       else
         v_next_state := case v_hand.state
           when 'preflop' then 'flop'
@@ -3581,6 +3610,7 @@ begin
             'burned', v_burn_card is not null
           )
         );
+        v_should_snapshot := true;
       end if;
     else
       v_next_actor := online_next_action_seat(p_hand_id, v_hand_player.seat_no);
@@ -3594,7 +3624,9 @@ begin
     end if;
   end if;
 
-  perform online_write_hand_snapshot(p_hand_id);
+  if v_should_snapshot then
+    perform online_write_hand_snapshot(p_hand_id);
+  end if;
   return v_action;
 end;
 $$;
@@ -4911,7 +4943,6 @@ declare
   v_request_id bigint;
   v_anon_key text;
   v_dispatch_secret text;
-  v_recent_count int;
 begin
   -- Validate hand exists
   select * into v_hand
@@ -4936,14 +4967,9 @@ begin
     raise exception 'online_continue_hand_not_seated';
   end if;
 
-  -- Rate limit: max 2 calls per table per second
-  select count(*) into v_recent_count
-  from online_hand_events
-  where table_id = v_table_id
-    and event_type = 'continuation_attempted'
-    and created_at > now() - interval '1 second';
-
-  if v_recent_count >= 2 then
+  -- Use an advisory xact lock so only one continuation path can process
+  -- a table at a time without generating extra hand-event writes.
+  if not pg_try_advisory_xact_lock(hashtext('online_continue_hand'), hashtext(v_table_id::text)) then
     return jsonb_build_object(
       'continued', false,
       'triggered_runtime', false,
@@ -4951,15 +4977,6 @@ begin
       'reason', 'rate_limited'
     );
   end if;
-
-  -- Record continuation attempt for rate limiting
-  perform online_append_hand_event(
-    p_hand_id,
-    v_table_id,
-    'continuation_attempted',
-    p_actor_group_player_id,
-    '{}'::jsonb
-  );
 
   -- Check what continuation is needed
   v_cont := online_post_action_continuation(p_hand_id);

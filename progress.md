@@ -104,6 +104,22 @@ Original prompt: ok lets do it
   - reaction tray is shown only to human players who were live in the settled hand
   - reaction bubbles are short-lived and intentionally not stored in chat/history
 
+## 2026-04-14 Online IO Reduction Pass
+
+- Finished the missing delta-read client path in `/Users/abishek/Documents/poker-buyins/online/table_app.js`:
+  - game-state refreshes now pass `sinceSeq` and merge new events into the current hand instead of rereading the full active hand every time
+  - hand rollover falls back to a one-time full game-state fetch so the hand log and presentation state stay coherent
+  - post-action refresh now uses the lighter game-state path instead of a full table reload
+- Reduced backend write amplification in `/Users/abishek/Documents/poker-buyins/supabase/online_poker_schema.sql`:
+  - `online_submit_action(...)` no longer writes a hand snapshot for every ordinary in-street action
+  - snapshots are still written for hand start, street transitions, showdown/settlement, and manual show/hide changes
+  - `online_continue_hand(...)` no longer writes `continuation_attempted` hand events just to rate-limit continuation calls
+- Tightened hot-path SQL lookups:
+  - switched hand-event sequence reads from `max(seq)` to `order by seq desc limit 1`
+  - added indexes for latest-hand lookup, active runtime scans, actor action-rate checks, and hand-player lookups
+- Added rollout migration:
+  - `/Users/abishek/Documents/poker-buyins/supabase/migrations/20260414101500_reduce_online_io_hot_path.sql`
+
 ### Best files for a new AI to read first
 1. `/Users/abishek/Documents/poker-buyins/AGENTS.md`
 2. `/Users/abishek/Documents/poker-buyins/progress.md`

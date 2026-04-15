@@ -1935,6 +1935,46 @@ function refreshBetControls(hand = getLatestHand(), hp = getMyHandPlayer()) {
 function getLatestHand() { return state.tableState?.latest_hand?.hand || null; }
 function getHandPlayers() { return state.tableState?.latest_hand?.players || []; }
 function getHandEvents() { return state.tableState?.latest_hand?.events || []; }
+function getLatestHandState() { return state.tableState?.latest_hand || null; }
+function getLatestHandEventSeq(latestHandState = getLatestHandState()) {
+  const events = latestHandState?.events;
+  if (!Array.isArray(events) || !events.length) return 0;
+  return events.reduce((maxSeq, ev) => {
+    const seq = Number(ev?.seq || 0);
+    return seq > maxSeq ? seq : maxSeq;
+  }, 0);
+}
+function mergeLatestHandState(prevLatestHand, nextLatestHand, sinceSeq = null) {
+  if (!prevLatestHand) return nextLatestHand || null;
+  if (!nextLatestHand) return prevLatestHand;
+
+  const prevHandId = prevLatestHand?.hand?.id || null;
+  const nextHandId = nextLatestHand?.hand?.id || null;
+  if (!prevHandId || !nextHandId || prevHandId !== nextHandId || !sinceSeq) {
+    return nextLatestHand;
+  }
+
+  const prevEvents = Array.isArray(prevLatestHand.events) ? prevLatestHand.events : [];
+  const nextEvents = Array.isArray(nextLatestHand.events) ? nextLatestHand.events : [];
+  const mergedEvents = [...prevEvents];
+  let lastSeq = getLatestHandEventSeq(prevLatestHand);
+  for (const ev of nextEvents) {
+    const seq = Number(ev?.seq || 0);
+    if (seq > lastSeq) {
+      mergedEvents.push(ev);
+      lastSeq = seq;
+    }
+  }
+
+  return {
+    ...prevLatestHand,
+    ...nextLatestHand,
+    hand: nextLatestHand.hand || prevLatestHand.hand || null,
+    snapshot: nextLatestHand.snapshot || prevLatestHand.snapshot || {},
+    players: Array.isArray(nextLatestHand.players) ? nextLatestHand.players : (prevLatestHand.players || []),
+    events: mergedEvents,
+  };
+}
 function getSeats() { return state.tableState?.seats || []; }
 function getTable() { return state.tableState?.table || null; }
 
@@ -4262,14 +4302,20 @@ async function loadTableState() {
 // Lightweight game-state-only refresh: fetches table+seats+hand without chat/voice.
 // Preserves existing chat_messages and voice_state in state.tableState.
 let gameStateRpcAvailable = true;
-async function loadGameState() {
+async function loadGameState({ forceFull = false } = {}) {
   if (!state.tableId || state.loading) return;
   // If we don't have a prior full state yet, or the game-state RPC is unavailable, full load
   if (!state.tableState || !gameStateRpcAvailable) return loadTableState();
   state.loading = true;
   try {
-    const gs = await online.getTableGameState({
+    const previousTableState = state.tableState;
+    const previousLatestHand = previousTableState?.latest_hand || null;
+    const oldHand = previousLatestHand?.hand || null;
+    const sinceSeq = forceFull ? null : getLatestHandEventSeq(previousLatestHand);
+
+    let gs = await online.getTableGameState({
       tableId: state.tableId,
+      sinceSeq,
       viewerGroupPlayerId: state.identity?.groupPlayerId || null,
       viewerSeatToken: getSeatToken() || null,
     }).catch((err) => {
@@ -4286,15 +4332,30 @@ async function loadGameState() {
       state.loading = false;
       return loadTableState();
     }
+    const returnedHand = gs?.latest_hand?.hand || null;
+    if (!forceFull && sinceSeq && oldHand?.id && returnedHand?.id && returnedHand.id !== oldHand.id) {
+      gs = await online.getTableGameState({
+        tableId: state.tableId,
+        sinceSeq: null,
+        viewerGroupPlayerId: state.identity?.groupPlayerId || null,
+        viewerSeatToken: getSeatToken() || null,
+      });
+    }
+
+    const mergedLatestHand = mergeLatestHandState(
+      previousLatestHand,
+      gs?.latest_hand || null,
+      sinceSeq
+    );
     // Merge: replace game data, keep existing chat and voice
     const merged = {
       ...gs,
-      chat_messages: gs.chat_messages || state.tableState?.chat_messages || [],
-      voice_state: gs.voice_state || state.tableState?.voice_state || {},
+      latest_hand: mergedLatestHand || gs?.latest_hand || {},
+      chat_messages: gs.chat_messages || previousTableState?.chat_messages || [],
+      voice_state: gs.voice_state || previousTableState?.voice_state || {},
     };
     // Delegate to the same processing path as loadTableState
-    const hadPriorTableState = Boolean(state.tableState);
-    const oldHand = getLatestHand();
+    const hadPriorTableState = Boolean(previousTableState);
     state.tableState = merged;
     const hand = getLatestHand();
     if (state.heroShowCardsOverride) {
@@ -6013,7 +6074,9 @@ async function submitTurnAction(label, actionType) {
     } catch (contErr) {
       console.warn("[continueHand]", contErr);
     }
-    await loadTableState();
+    state.loading = false;
+    await loadGameState();
+    state.loading = true;
   } catch (err) {
     state.optimisticSeatAction = null;
     state.pendingAction = false;
