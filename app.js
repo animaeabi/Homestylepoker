@@ -1012,7 +1012,7 @@ async function fetchJoinableOnlineGames() {
   if (!supabase) return [];
   const { data: tables, error } = await supabase.rpc("online_list_table_summaries", {
     p_statuses: ["waiting", "active"],
-    p_limit: 30
+    p_limit: 12
   });
   if (error) throw error;
   return (tables || [])
@@ -9056,7 +9056,7 @@ async function loadOnlineGamesList() {
 
   const { data: tables, error } = await supabase.rpc("online_list_table_summaries", {
     p_statuses: ["closed", "active", "waiting"],
-    p_limit: 50
+    p_limit: 12
   });
 
   if (error || !tables || tables.length === 0) {

@@ -134,6 +134,23 @@ Original prompt: ok lets do it
   - this means pruning helped long-term pressure but did not immediately clear the current project restriction
   - monthly egress overage is still an active blocker until the org billing/plan side is resolved
 
+## 2026-04-14 Online Free-Plan-Lite Pass
+
+- Tightened online retention and payload size to better fit a free-tier operating mode:
+  - recent online history lists are now capped to 12 rows and hide closed tables older than 72 hours
+  - table chat retention is now capped to 20 messages instead of 80
+  - table-state reads now pull only the most recent 20 chat messages on full loads
+- Replaced the looser retention function with a stricter policy:
+  - keep only the 5 most recent closed tables
+  - also delete any closed table older than 72 hours
+  - delete abandoned waiting/active/paused tables after 1 hour with no seated players
+  - trim lingering old chat rows older than 72 hours
+- Added rollout migration:
+  - `/Users/abishek/Documents/poker-buyins/supabase/migrations/20260414124500_enable_online_free_plan_lite_mode.sql`
+- Product tradeoff:
+  - live online play remains intact
+  - long-tail online history is intentionally shortened to reduce DB size and egress pressure
+
 ### Best files for a new AI to read first
 1. `/Users/abishek/Documents/poker-buyins/AGENTS.md`
 2. `/Users/abishek/Documents/poker-buyins/progress.md`

@@ -744,7 +744,7 @@ create or replace function online_get_table_chat_messages(
   p_table_id uuid,
   p_viewer_group_player_id uuid,
   p_viewer_seat_token text,
-  p_limit int default 40
+  p_limit int default 20
 )
 returns jsonb
 language plpgsql
@@ -752,7 +752,7 @@ security definer
 set search_path = public, pg_temp
 as $$
 declare
-  v_limit int := greatest(1, least(coalesce(p_limit, 40), 80));
+  v_limit int := greatest(1, least(coalesce(p_limit, 20), 20));
   v_messages jsonb;
 begin
   if coalesce(nullif(trim(p_viewer_seat_token), ''), '') = '' then
@@ -854,7 +854,7 @@ begin
     p_table_id,
     p_viewer_group_player_id,
     p_viewer_seat_token,
-    40
+    20
   );
 
   select coalesce(
@@ -953,7 +953,7 @@ $$;
 drop function if exists online_list_table_summaries(text[], int);
 create or replace function online_list_table_summaries(
   p_statuses text[] default null,
-  p_limit int default 50
+  p_limit int default 12
 )
 returns jsonb
 language sql
@@ -999,10 +999,16 @@ as $$
     from online_tables t
     left join seat_counts on seat_counts.table_id = t.id
     left join settled_counts on settled_counts.table_id = t.id
-    where coalesce(array_length(p_statuses, 1), 0) = 0
-       or t.status = any(p_statuses)
+    where (
+      coalesce(array_length(p_statuses, 1), 0) = 0
+      or t.status = any(p_statuses)
+    )
+      and (
+        t.status <> 'closed'
+        or coalesce(t.updated_at, t.created_at) >= now() - interval '72 hours'
+      )
     order by coalesce(t.updated_at, t.created_at) desc
-    limit greatest(coalesce(p_limit, 50), 1)
+    limit greatest(least(coalesce(p_limit, 12), 12), 1)
   ) row_data;
 $$;
 
@@ -1241,7 +1247,7 @@ begin
       from online_table_chat_messages old_msg
       where old_msg.table_id = p_table_id
       order by old_msg.created_at desc
-      offset 80
+      offset 20
     );
 
   return jsonb_build_object(
@@ -2386,6 +2392,116 @@ begin
 end;
 $$;
 
+drop function if exists online_private.prune_online_data(int, int);
+drop function if exists online_private.prune_online_data(int, int, int);
+create or replace function online_private.prune_online_data(
+  p_keep_recent_closed_tables int default 5,
+  p_keep_closed_hours int default 72,
+  p_idle_hours int default 1
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, online_private, pg_temp
+as $$
+declare
+  v_keep_closed int := greatest(coalesce(p_keep_recent_closed_tables, 5), 0);
+  v_keep_closed_hours int := greatest(coalesce(p_keep_closed_hours, 72), 1);
+  v_idle_hours int := greatest(coalesce(p_idle_hours, 1), 1);
+  v_deleted_closed int := 0;
+  v_deleted_idle int := 0;
+  v_trimmed_chat int := 0;
+begin
+  with ranked_closed as (
+    select
+      t.id,
+      t.created_at,
+      coalesce(t.updated_at, t.created_at) as touched_at,
+      row_number() over (
+        order by coalesce(t.updated_at, t.created_at) desc, t.created_at desc
+      ) as rn
+    from online_tables t
+    where t.status = 'closed'
+  ),
+  doomed_closed as (
+    select id
+    from ranked_closed
+    where rn > v_keep_closed
+       or touched_at < now() - make_interval(hours => v_keep_closed_hours)
+  ),
+  deleted_closed as (
+    delete from online_tables t
+    using doomed_closed d
+    where t.id = d.id
+    returning t.id
+  )
+  select count(*) into v_deleted_closed
+  from deleted_closed;
+
+  with ranked_chat as (
+    select
+      m.id,
+      m.created_at,
+      row_number() over (
+        partition by m.table_id
+        order by m.created_at desc, m.id desc
+      ) as rn
+    from online_table_chat_messages m
+  ),
+  doomed_chat as (
+    select id
+    from ranked_chat
+    where rn > 20
+       or created_at < now() - interval '72 hours'
+  ),
+  deleted_chat as (
+    delete from online_table_chat_messages m
+    using doomed_chat d
+    where m.id = d.id
+    returning m.id
+  )
+  select count(*) into v_trimmed_chat
+  from deleted_chat;
+
+  with doomed_idle as (
+    select t.id
+    from online_tables t
+    where t.status in ('waiting', 'active', 'paused')
+      and coalesce(t.updated_at, t.created_at) < now() - make_interval(hours => v_idle_hours)
+      and not exists (
+        select 1
+        from online_table_seats s
+        where s.table_id = t.id
+          and s.left_at is null
+          and s.group_player_id is not null
+      )
+      and not exists (
+        select 1
+        from online_hands h
+        where h.table_id = t.id
+          and h.state not in ('settled', 'canceled')
+      )
+  ),
+  deleted_idle as (
+    delete from online_tables t
+    using doomed_idle d
+    where t.id = d.id
+    returning t.id
+  )
+  select count(*) into v_deleted_idle
+  from deleted_idle;
+
+  return jsonb_build_object(
+    'deleted_closed_tables', v_deleted_closed,
+    'deleted_idle_tables', v_deleted_idle,
+    'trimmed_chat_messages', v_trimmed_chat,
+    'kept_recent_closed_tables', v_keep_closed,
+    'closed_hours_threshold', v_keep_closed_hours,
+    'idle_hours_threshold', v_idle_hours
+  );
+end;
+$$;
+
 grant usage on schema online_private to anon, authenticated, service_role;
 grant execute on function online_private.get_deck_crypto_key() to anon, authenticated, service_role;
 grant execute on function online_private.get_supabase_anon_key() to anon, authenticated, service_role;
@@ -2393,6 +2509,7 @@ grant execute on function online_private.get_runtime_dispatch_secret() to anon, 
 grant execute on function online_set_runtime_dispatch_config(text, text) to service_role;
 grant execute on function online_private.pack_remaining_deck(jsonb) to anon, authenticated, service_role;
 grant execute on function online_private.unpack_remaining_deck(jsonb, text) to anon, authenticated, service_role;
+grant execute on function online_private.prune_online_data(int, int, int) to service_role;
 
 create or replace function online_normalize_money(
   p_value numeric
@@ -4869,6 +4986,26 @@ begin
     'online-runtime-dispatch',
     '2 seconds',
     $job$select online_dispatch_edge_runtime();$job$
+  );
+end
+$cron$;
+
+do $cron$
+declare
+  v_job_id bigint;
+begin
+  for v_job_id in
+    select jobid
+    from cron.job
+    where jobname = 'online-history-retention'
+  loop
+    perform cron.unschedule(v_job_id);
+  end loop;
+
+  perform cron.schedule(
+    'online-history-retention',
+    '17 */6 * * *',
+    $job$select online_private.prune_online_data(5, 72, 1);$job$
   );
 end
 $cron$;
