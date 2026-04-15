@@ -120,6 +120,20 @@ Original prompt: ok lets do it
 - Added rollout migration:
   - `/Users/abishek/Documents/poker-buyins/supabase/migrations/20260414101500_reduce_online_io_hot_path.sql`
 
+## 2026-04-14 Emergency Online Data Prune
+
+- Added emergency retention migration:
+  - `/Users/abishek/Documents/poker-buyins/supabase/migrations/20260414113000_prune_online_history_and_idle_tables.sql`
+- Installed `online_private.prune_online_data(...)` to:
+  - keep only a small recent slice of closed online tables
+  - delete abandoned waiting/active/paused tables with no seated players
+  - run a daily retention cron so the online dataset stays bounded
+- Applied the prune live with `supabase db push`
+- Re-tested the online create flow at the raw RPC level after pruning:
+  - the project still returns `402` with `exceed_db_size_quota, exceed_egress_quota`
+  - this means pruning helped long-term pressure but did not immediately clear the current project restriction
+  - monthly egress overage is still an active blocker until the org billing/plan side is resolved
+
 ### Best files for a new AI to read first
 1. `/Users/abishek/Documents/poker-buyins/AGENTS.md`
 2. `/Users/abishek/Documents/poker-buyins/progress.md`
