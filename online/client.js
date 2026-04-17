@@ -105,6 +105,14 @@ export function createOnlinePokerClient(supabase) {
       });
     },
 
+    touchSeatPresence({ tableId, groupPlayerId, seatToken }) {
+      return callRpc(supabase, "online_touch_seat_presence", {
+        p_table_id: tableId,
+        p_group_player_id: groupPlayerId,
+        p_seat_token: seatToken
+      });
+    },
+
     kickTablePlayer({ tableId, actorGroupPlayerId, seatToken, targetGroupPlayerId }) {
       return callRpc(supabase, "online_kick_table_player", {
         p_table_id: tableId,

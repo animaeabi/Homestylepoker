@@ -5,6 +5,7 @@ import { botThinkTimeMs, classifyOpponentProfile, combineOpponentProfiles, decid
 const STREET_STATES = new Set(["preflop", "flop", "turn", "river"]);
 const ACTIVE_RUNTIME_STATES = new Set(["preflop", "flop", "turn", "river", "showdown"]);
 const DEFAULT_TURN_TIMEOUT_SECS = 25;
+const STALE_SEAT_AFTER_SECS = 300;
 const POST_ACTION_STREET_CLOSE_BREATH_MS = 950;
 const POST_ACTION_SHOWDOWN_SETTLE_BREATH_MS = 1250;
 
@@ -82,6 +83,22 @@ function createOnlineRpcClient() {
 
     async listAutoDealCandidates({ limit }: { limit: number }) {
       return callRpc("online_runtime_due_tables", {
+        p_limit: limit
+      });
+    },
+
+    async expireStaleHumanSeats({
+      tableId = null,
+      staleAfterSecs = STALE_SEAT_AFTER_SECS,
+      limit = 32
+    }: {
+      tableId?: string | null;
+      staleAfterSecs?: number;
+      limit?: number;
+    }) {
+      return callRpc("online_runtime_expire_stale_human_seats", {
+        p_table_id: tableId,
+        p_stale_after_secs: staleAfterSecs,
         p_limit: limit
       });
     },
@@ -864,8 +881,31 @@ async function runRuntimeTick({
   actorGroupPlayerId?: string | null;
   settleNote?: string;
 }) {
+  let expiredSeatReport: Record<string, number> = {};
+  try {
+    const expireResult = await onlineClient.expireStaleHumanSeats({
+      tableId,
+      staleAfterSecs: STALE_SEAT_AFTER_SECS,
+      limit: Math.max(limit, 32)
+    });
+    expiredSeatReport = {
+      expired_human_seats: Number(expireResult?.expired_human_seats || 0),
+      pruned_bot_seats: Number(expireResult?.pruned_bot_seats || 0),
+      closed_tables: Number(expireResult?.closed_tables || 0)
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (
+      !message.includes("online_runtime_expire_stale_human_seats") &&
+      !message.includes("service_role_required")
+    ) {
+      throw error;
+    }
+  }
+
   const hands = await onlineClient.listProcessableHands({ tableId, limit });
   const report = {
+    expiredSeatReport,
     scanned: hands.length,
     advanced: 0,
     settled: 0,

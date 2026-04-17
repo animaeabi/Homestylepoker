@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../config.js";
-import { createOnlinePokerClient } from "./client.js?v=121";
+import { createOnlinePokerClient } from "./client.js?v=122";
 import { computeSidePots, describeSevenCardHand, resolveShowdownPayouts } from "./showdown.js?v=175";
 import { randomPersonality, randomBotName, OpponentTracker } from "./bot_engine.js";
 
@@ -45,6 +45,7 @@ function getTurnClockSecs() { return state.config.turnTime || 25; }
 const REALTIME_DEBOUNCE_MS = 180;
 const RECONNECT_DEBOUNCE_MS = 900;
 const FALLBACK_STALE_MS = 5000;
+const SEAT_HEARTBEAT_MS = 60_000;
 const LANDSCAPE_COLLAPSE_MEDIA = "(orientation: landscape) and (max-height: 500px)";
 const PORTRAIT_COLLAPSE_MEDIA = "(max-width: 768px) and (orientation: portrait)";
 const SEAT_COLORS = [
@@ -190,6 +191,9 @@ const state = {
   optimisticSeatAction: null,
   pollTimer: null,
   turnTimer: null,
+  seatHeartbeatTimer: null,
+  seatHeartbeatInFlight: false,
+  lastSeatHeartbeatAt: 0,
   realtimeChannel: null,
   realtimeHealthy: false,
   rtRefreshTimer: null,
@@ -362,6 +366,63 @@ function setSeatToken(tableId, playerId, token) {
   if (!key) return;
   if (token) localStorage.setItem(key, token);
   else localStorage.removeItem(key);
+}
+
+function stopSeatHeartbeat() {
+  if (state.seatHeartbeatTimer) clearInterval(state.seatHeartbeatTimer);
+  state.seatHeartbeatTimer = null;
+  state.seatHeartbeatInFlight = false;
+  state.lastSeatHeartbeatAt = 0;
+}
+
+async function touchSeatPresence({ force = false, silent = false } = {}) {
+  const token = getSeatToken();
+  if (!state.tableId || !state.identity?.groupPlayerId || !token) return false;
+  if (!force && document.visibilityState === "hidden") return false;
+  if (state.seatHeartbeatInFlight) return false;
+
+  state.seatHeartbeatInFlight = true;
+  try {
+    await online.touchSeatPresence({
+      tableId: state.tableId,
+      groupPlayerId: state.identity.groupPlayerId,
+      seatToken: token,
+    });
+    state.lastSeatHeartbeatAt = Date.now();
+    return true;
+  } catch (err) {
+    const message = String(err?.message || err || "");
+    if (/active_seat_not_found|seat_token_required/i.test(message)) {
+      setSeatToken(state.tableId, state.identity.groupPlayerId, null);
+      stopSeatHeartbeat();
+      if (!silent) toast("Your seat expired. Rejoin the table to keep playing.", "error");
+      void loadTableState();
+      return false;
+    }
+    if (!silent) {
+      console.warn("[touchSeatPresence]", err);
+    }
+    return false;
+  } finally {
+    state.seatHeartbeatInFlight = false;
+  }
+}
+
+function startSeatHeartbeat({ immediate = false } = {}) {
+  stopSeatHeartbeat();
+  if (!state.tableId || !state.identity?.groupPlayerId || !getSeatToken()) return;
+  if (immediate) {
+    void touchSeatPresence({ force: true, silent: true });
+  }
+  state.seatHeartbeatTimer = setInterval(() => {
+    if (!state.tableId || !getSeatToken()) {
+      stopSeatHeartbeat();
+      return;
+    }
+    if (document.visibilityState === "visible") {
+      void touchSeatPresence({ silent: true });
+    }
+  }, SEAT_HEARTBEAT_MS);
 }
 
 function isSeatClaimRequiredError(error) {
@@ -3961,6 +4022,7 @@ function enterTable(tableId) {
   renderChatUi();
 
   loadBotSeats();
+  startSeatHeartbeat({ immediate: true });
   loadTableState();
   startRealtime(tableId);
   startPolling();
@@ -6197,6 +6259,7 @@ function bindEvents() {
   el.leaveBtn.addEventListener("click", async () => {
     const token = getSeatToken();
     if (!token) { toast("Not seated.", "error"); return; }
+    stopSeatHeartbeat();
     try {
       await online.leaveTable({
         tableId: state.tableId,
@@ -6205,6 +6268,7 @@ function bindEvents() {
       });
       setSeatToken(state.tableId, state.identity.groupPlayerId, null);
     } catch (err) {
+      startSeatHeartbeat();
       toast(err.message || "Leave failed", "error");
       return;
     }
@@ -6424,6 +6488,7 @@ function bindEvents() {
   window.addEventListener("online", () => reconnect());
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") {
+      void touchSeatPresence({ force: true, silent: true });
       reconnect();
       return;
     }
@@ -6449,6 +6514,7 @@ function bindEvents() {
   window.addEventListener("beforeunload", () => {
     if (state.pollTimer) clearInterval(state.pollTimer);
     if (state.turnTimer) clearInterval(state.turnTimer);
+    stopSeatHeartbeat();
     if (state.realtimeChannel) supabase.removeChannel(state.realtimeChannel);
     if (state.chatChannel) supabase.removeChannel(state.chatChannel);
     void disconnectVoice({ silent: true, destroy: true });
@@ -6459,6 +6525,7 @@ function reconnect() {
   if (Date.now() - state.lastReconnectAt < RECONNECT_DEBOUNCE_MS) return;
   state.lastReconnectAt = Date.now();
   if (!state.tableId || state.loading) return;
+  void touchSeatPresence({ force: true, silent: true });
   startRealtime(state.tableId);
   loadTableState();
 }

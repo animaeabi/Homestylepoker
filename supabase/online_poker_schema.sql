@@ -50,6 +50,9 @@ alter table online_table_seats
 alter table online_table_seats
   add column if not exists auto_check_when_available boolean not null default false;
 
+alter table online_table_seats
+  add column if not exists last_seen_at timestamptz not null default now();
+
 drop function if exists online_active_human_host_group_player(uuid);
 create or replace function online_active_human_host_group_player(p_table_id uuid)
 returns uuid
@@ -118,6 +121,10 @@ create unique index if not exists idx_online_table_seats_active_player
 create unique index if not exists idx_online_table_seats_active_token
   on online_table_seats(table_id, seat_token)
   where left_at is null and seat_token is not null;
+
+create index if not exists idx_online_table_seats_active_last_seen
+  on online_table_seats(last_seen_at)
+  where left_at is null and group_player_id is not null;
 
 create table if not exists online_hands (
   id uuid primary key default gen_random_uuid(),
@@ -740,6 +747,41 @@ $$;
 
 drop function if exists online_get_table_state_viewer(uuid, uuid, text, bigint);
 drop function if exists online_get_table_chat_messages(uuid, uuid, text, int);
+drop function if exists online_refresh_seat_presence(uuid, uuid, text, int);
+create or replace function online_refresh_seat_presence(
+  p_table_id uuid,
+  p_group_player_id uuid,
+  p_seat_token text,
+  p_min_interval_secs int default 60
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_refreshed boolean := false;
+begin
+  if p_group_player_id is null
+     or coalesce(nullif(trim(p_seat_token), ''), '') = ''
+  then
+    return false;
+  end if;
+
+  update online_table_seats
+  set last_seen_at = now()
+  where table_id = p_table_id
+    and group_player_id = p_group_player_id
+    and left_at is null
+    and seat_token = p_seat_token
+    and coalesce(last_seen_at, joined_at, now() - interval '1 day')
+      <= now() - make_interval(secs => greatest(coalesce(p_min_interval_secs, 60), 15))
+  returning true into v_refreshed;
+
+  return coalesce(v_refreshed, false);
+end;
+$$;
+
 create or replace function online_get_table_chat_messages(
   p_table_id uuid,
   p_viewer_group_player_id uuid,
@@ -814,6 +856,13 @@ declare
   v_chat_messages jsonb := '[]'::jsonb;
   v_voice_state jsonb := '{}'::jsonb;
 begin
+  perform online_refresh_seat_presence(
+    p_table_id,
+    p_viewer_group_player_id,
+    p_viewer_seat_token,
+    60
+  );
+
   select to_jsonb(t) into v_table
   from online_tables t
   where t.id = p_table_id;
@@ -896,7 +945,6 @@ create or replace function online_get_table_game_state_viewer(
 )
 returns jsonb
 language plpgsql
-stable
 security definer
 set search_path = public, pg_temp
 as $$
@@ -906,6 +954,13 @@ declare
   v_hand_id uuid;
   v_hand_state jsonb := '{}'::jsonb;
 begin
+  perform online_refresh_seat_presence(
+    p_table_id,
+    p_viewer_group_player_id,
+    p_viewer_seat_token,
+    60
+  );
+
   select to_jsonb(t) into v_table
   from online_tables t
   where t.id = p_table_id;
@@ -2835,6 +2890,7 @@ as $$
   order by h.last_action_at asc nulls last
   limit greatest(coalesce(p_limit, 50), 1);
 $$;
+
 
 drop function if exists online_runtime_due_tables(int);
 create or replace function online_runtime_due_tables(
@@ -4908,7 +4964,8 @@ begin
   update online_table_seats
   set
     seat_token = encode(gen_random_bytes(16), 'hex'),
-    joined_at = now()
+    joined_at = now(),
+    last_seen_at = now()
   where id in (
     select id
     from online_table_seats
@@ -5007,6 +5064,7 @@ begin
       is_sitting_out = false,
       seat_token = coalesce(nullif(trim(p_seat_token), ''), encode(gen_random_bytes(16), 'hex')),
       joined_at = now(),
+      last_seen_at = now(),
       left_at = null
     where id in (
       select id
@@ -5029,6 +5087,7 @@ begin
       is_sitting_out = false,
       seat_token = coalesce(nullif(trim(p_seat_token), ''), encode(gen_random_bytes(16), 'hex')),
       joined_at = now(),
+      last_seen_at = now(),
       left_at = null
     where id in (
       select id
@@ -5063,6 +5122,152 @@ begin
   return v_joined;
 end;
 $$;
+
+drop function if exists online_touch_seat_presence(uuid, uuid, text);
+create or replace function online_touch_seat_presence(
+  p_table_id uuid,
+  p_group_player_id uuid,
+  p_seat_token text
+)
+returns timestamptz
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_seen_at timestamptz;
+begin
+  if coalesce(nullif(trim(p_seat_token), ''), '') = '' then
+    raise exception 'seat_token_required';
+  end if;
+
+  update online_table_seats
+  set last_seen_at = now()
+  where table_id = p_table_id
+    and group_player_id = p_group_player_id
+    and left_at is null
+    and seat_token = p_seat_token
+  returning last_seen_at into v_seen_at;
+
+  if not found then
+    raise exception 'active_seat_not_found';
+  end if;
+
+  return v_seen_at;
+end;
+$$;
+
+drop function if exists online_runtime_expire_stale_human_seats(uuid, int, int);
+create or replace function online_runtime_expire_stale_human_seats(
+  p_table_id uuid default null,
+  p_stale_after_secs int default 300,
+  p_limit int default 32
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_role text := coalesce(online_request_role(), '');
+  v_expired_count int := 0;
+  v_closed_count int := 0;
+  v_bot_pruned_count int := 0;
+  v_stale_cutoff timestamptz := now() - make_interval(secs => greatest(coalesce(p_stale_after_secs, 300), 60));
+  v_seat record;
+  v_table record;
+  v_removed_bots int;
+begin
+  if v_role <> 'service_role'
+     and current_user not in ('postgres', 'supabase_admin')
+  then
+    raise exception 'service_role_required';
+  end if;
+
+  for v_seat in
+    select
+      s.table_id,
+      s.group_player_id,
+      s.seat_token
+    from online_table_seats s
+    join online_tables t on t.id = s.table_id
+    left join group_players gp on gp.id = s.group_player_id
+    where s.group_player_id is not null
+      and s.left_at is null
+      and not (coalesce(s.is_bot, false) or coalesce(gp.name, '') ilike 'Bot %')
+      and coalesce(s.last_seen_at, s.joined_at, t.updated_at, t.created_at) <= v_stale_cutoff
+      and (p_table_id is null or s.table_id = p_table_id)
+      and t.status <> 'closed'
+    order by coalesce(s.last_seen_at, s.joined_at, t.updated_at, t.created_at) asc, s.joined_at asc, s.seat_no asc
+    limit greatest(coalesce(p_limit, 32), 1)
+  loop
+    begin
+      perform online_leave_table(
+        v_seat.table_id,
+        v_seat.group_player_id,
+        v_seat.seat_token
+      );
+      v_expired_count := v_expired_count + 1;
+    exception
+      when others then
+        null;
+    end;
+  end loop;
+
+  for v_table in
+    select t.id
+    from online_tables t
+    where (p_table_id is null or t.id = p_table_id)
+      and t.status in ('waiting', 'active', 'paused')
+      and not exists (
+        select 1
+        from online_table_seats s
+        left join group_players gp on gp.id = s.group_player_id
+        where s.table_id = t.id
+          and s.group_player_id is not null
+          and s.left_at is null
+          and not (coalesce(s.is_bot, false) or coalesce(gp.name, '') ilike 'Bot %')
+      )
+      and exists (
+        select 1
+        from online_table_seats s
+        where s.table_id = t.id
+          and s.group_player_id is not null
+          and s.left_at is null
+      )
+  loop
+    v_removed_bots := online_prune_bot_seats(v_table.id);
+    v_bot_pruned_count := v_bot_pruned_count + coalesce(v_removed_bots, 0);
+
+    update online_hands
+    set state = 'canceled',
+        ended_at = coalesce(ended_at, now()),
+        action_seat = null
+    where table_id = v_table.id
+      and state not in ('settled', 'canceled');
+
+    update online_tables
+    set status = 'closed',
+        created_by_group_player_id = null
+    where id = v_table.id
+      and status <> 'closed';
+
+    if found then
+      v_closed_count := v_closed_count + 1;
+    end if;
+  end loop;
+
+  return jsonb_build_object(
+    'expired_human_seats', v_expired_count,
+    'pruned_bot_seats', v_bot_pruned_count,
+    'closed_tables', v_closed_count,
+    'stale_after_secs', greatest(coalesce(p_stale_after_secs, 300), 60)
+  );
+end;
+$$;
+
+grant execute on function online_touch_seat_presence(uuid, uuid, text) to anon, authenticated, service_role;
+grant execute on function online_runtime_expire_stale_human_seats(uuid, int, int) to service_role;
 
 create extension if not exists pg_net;
 create extension if not exists pg_cron;
