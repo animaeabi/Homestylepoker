@@ -8962,6 +8962,7 @@ if (elements.createOnlineGame) {
       if (elements.onlineName) elements.onlineName.focus();
       return;
     }
+    setLandingNotice("");
     elements.createOnlineGame.disabled = true;
     elements.createOnlineGame.textContent = "Creating...";
     try {
@@ -9001,9 +9002,11 @@ if (elements.createOnlineGame) {
         localStorage.setItem(`online_seat_token:${table.id}:${identity.group_player_id}`, seat.seat_token);
       }
 
+      setLandingNotice("");
       window.location.href = `online-table.html?table=${table.id}`;
     } catch (err) {
       console.error("[createOnlineGame]", err);
+      setLandingNotice("Could not create online table right now. Please try again.", "error");
       elements.createOnlineGame.textContent = "Create & Play";
       elements.createOnlineGame.disabled = false;
     }

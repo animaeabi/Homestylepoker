@@ -86,7 +86,8 @@ async function main() {
       const text = msg.text();
       if (
         /favicon\.ico/i.test(text) ||
-        /\[loadTableState\] Error: \[online_get_table_state_viewer\] TypeError: Failed to fetch/i.test(text)
+        /\[loadTableState\] Error: \[online_get_table_state_viewer\] TypeError: Failed to fetch/i.test(text) ||
+        /\[loadGameState\] Error: \[online_get_table_game_state_viewer\] TypeError: Failed to fetch/i.test(text)
       ) {
         return;
       }
