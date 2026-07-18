@@ -4152,7 +4152,22 @@ function syncBotSeatsWithTable() {
 function startPolling() {
   if (state.pollTimer) clearInterval(state.pollTimer);
   state.pollTimer = setInterval(() => {
-    if (state.loading || !state.tableId) return;
+    if (!state.tableId) return;
+    if (state.loading) {
+      // Watchdog: a hung request (flaky mobile network) can leave state.loading
+      // stuck true, which blocks BOTH realtime refresh (queueRtRefresh) and this
+      // poll — so the table freezes until a manual page reload. If loading has
+      // been stuck across many ticks, force-clear it so refresh can resume.
+      state.loadingStuckTicks = (state.loadingStuckTicks || 0) + 1;
+      if (state.loadingStuckTicks > 12) {
+        state.loading = false;
+        state.loadingStuckTicks = 0;
+      } else {
+        return;
+      }
+    } else {
+      state.loadingStuckTicks = 0;
+    }
     if (!state.realtimeHealthy) {
       // Realtime unhealthy: full load (includes chat/voice) for recovery
       loadTableState();

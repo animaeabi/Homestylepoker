@@ -25,8 +25,21 @@ function isMissingRpcFunction(error, fnName) {
   );
 }
 
+// Browsers never time out fetch on their own, so a stalled request would hang
+// forever — leaving the caller's state.loading stuck true and freezing the
+// table until a manual reload. Race every RPC against a timeout so a hung
+// request rejects and the caller's finally/error path can recover and retry.
+const RPC_TIMEOUT_MS = 15000;
+function withRpcTimeout(promise, fnName) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`[${fnName}] request_timeout`)), RPC_TIMEOUT_MS);
+  });
+  return Promise.race([Promise.resolve(promise), timeout]).finally(() => clearTimeout(timer));
+}
+
 async function callRpc(supabase, fnName, args) {
-  const { data, error } = await supabase.rpc(fnName, args);
+  const { data, error } = await withRpcTimeout(supabase.rpc(fnName, args), fnName);
   if (error) throw normalizeError(fnName, error);
   return data;
 }
