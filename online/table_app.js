@@ -6,11 +6,6 @@ import { randomPersonality, randomBotName, OpponentTracker } from "./bot_engine.
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-// TEMP DIAGNOSTIC: report client decision-state to the server so failures can be
-// inspected without the device console. Fire-and-forget; never throws.
-function dbgLog(tag, payload) {
-  try { supabase.rpc("client_debug", { p_tag: tag, p_payload: payload || {} }).then(() => {}, () => {}); } catch { /* ignore */ }
-}
 const online = createOnlinePokerClient(supabase);
 
 const POLL_MS = 1000;
@@ -6171,25 +6166,18 @@ function returnToLobbyDeadTable() {
 }
 
 async function submitTurnAction(label, actionType) {
-  if (state.loading || state.pendingAction) {
-    dbgLog("submitBlocked", { label, actionType, loading: state.loading, pendingAction: state.pendingAction });
-    return;
-  }
+  if (state.loading || state.pendingAction) return;
   const hand = getLatestHand();
   const hp = getMyHandPlayer();
-  if (!isHeroTurnActionable(hand, hp)) {
-    dbgLog("submitNotActionable", { label, actionType, handId: hand && hand.id, actionSeat: hand ? hand.action_seat : null, hpSeat: hp ? hp.seat_no : null, hasToken: !!getSeatToken() });
-    return;
-  }
+  if (!isHeroTurnActionable(hand, hp)) return;
   let payload;
   try {
     payload = buildActionPayload(actionType);
   } catch (buildErr) {
-    dbgLog("buildPayloadError", { label, actionType, err: String(buildErr && buildErr.message || buildErr) });
+    // Surface a payload error (e.g. missing seat token) instead of a silent no-op.
     toast(String(buildErr && buildErr.message || buildErr), "error");
     return;
   }
-  dbgLog("submitSending", { label, actionType, handId: payload.handId, amount: payload.amount });
   clearHeroPreaction();
   state.optimisticSeatAction = buildOptimisticSeatAction(payload, hand, hp);
   state.pendingAction = true;
@@ -6215,11 +6203,9 @@ async function submitTurnAction(label, actionType) {
       console.warn("[continueHand]", contErr);
     }
     state.loading = false;
-    dbgLog("submitAccepted", { label, actionType, handId: payload.handId });
     await loadGameState();
     state.loading = true;
   } catch (err) {
-    dbgLog("submitError", { label, actionType, handId: payload.handId, err: String(err && err.message || err) });
     state.optimisticSeatAction = null;
     state.pendingAction = false;
     state.heroPreactionExecuting = false;
@@ -6276,24 +6262,7 @@ function bindEvents() {
     const hp = getMyHandPlayer();
     const actionLocked = state.pendingAction;
     const myTurn = isHeroTurnActionable(hand, hp);
-    const preaction = syncHeroPreactionUi({ hand, hp, myTurn, actionLocked });
-    dbgLog("callClick", {
-      tableId: state.tableId,
-      identityGpid: state.identity && state.identity.groupPlayerId,
-      handId: hand && hand.id,
-      handState: hand && hand.state,
-      actionSeat: hand ? hand.action_seat : null,
-      mySeat: (getMySeat() || {}).seat_no ?? null,
-      hpSeat: hp ? hp.seat_no : null,
-      hasHp: !!hp,
-      hasToken: !!getSeatToken(),
-      myTurn,
-      preactionBranch: !!preaction,
-      pendingAction: state.pendingAction,
-      loading: state.loading,
-      realtimeHealthy: state.realtimeHealthy,
-    });
-    if (preaction) {
+    if (syncHeroPreactionUi({ hand, hp, myTurn, actionLocked })) {
       const { toCall } = getBetBounds(hand, hp);
       setHeroPreaction(toCall > 0 ? "call_current" : "check");
       return;
