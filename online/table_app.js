@@ -6106,6 +6106,25 @@ async function doAction(actionType, payload = null) {
   await online.submitAction(payload);
 }
 
+// Server-side signals that our cached hand state is stale: a new hand was
+// dealt, the hand already settled/was pruned, or our turn passed while our
+// client was behind. On these we should resync to the live table rather than
+// surface a dead-end error — otherwise the decision timer auto-folds the
+// player while they stare at a stuck "your turn" screen (the classic
+// online_hand_not_found loop).
+const STALE_HAND_ERROR_SIGNATURES = [
+  "online_hand_not_found",
+  "hand_not_accepting_actions",
+  "not_actor_turn",
+  "actor_already_folded",
+  "actor_already_all_in",
+  "actor_not_in_hand",
+];
+function isStaleHandError(err) {
+  const msg = String(err?.message || err || "").toLowerCase();
+  return STALE_HAND_ERROR_SIGNATURES.some((sig) => msg.includes(sig));
+}
+
 async function submitTurnAction(label, actionType) {
   if (state.loading || state.pendingAction) return;
   const hand = getLatestHand();
@@ -6146,7 +6165,20 @@ async function submitTurnAction(label, actionType) {
     renderSeats();
     renderMyHand();
     renderActions();
-    toast(err.message || `${label} failed`, "error");
+    if (isStaleHandError(err)) {
+      // Our cached hand id no longer matches the server's live state. Resync
+      // to the real table so the player can act on the current hand instead of
+      // being stranded (and auto-folded) on a stale one.
+      try {
+        state.loading = false;
+        await loadGameState({ forceFull: true });
+      } catch (syncErr) {
+        console.warn("[submitTurnAction resync]", syncErr);
+      }
+      toast("Table updated — check the current hand and try again.", "");
+    } else {
+      toast(err.message || `${label} failed`, "error");
+    }
   } finally {
     state.heroPreactionExecuting = false;
     state.loading = false;
