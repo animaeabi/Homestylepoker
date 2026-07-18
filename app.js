@@ -6378,27 +6378,48 @@ function renderQuarterSummary({
 }
 
 function computeTransfers(rows) {
-  const transferRows = rows.map((row) => ({
-    ...row,
-    transferNet: Number((row.transferNet ?? row.net) || 0)
+  // Work entirely in integer cents. Every player net is exact, sums reconcile
+  // to zero exactly, and the greedy loop never accumulates float drift — so
+  // there is no residual to patch and no need for epsilon (> 0.01) guards.
+  const balances = rows.map((row) => ({
+    name: String(row.name || ""),
+    cents: toCents(row.transferNet ?? row.net ?? 0)
   }));
-  const imbalance = moneyRound(transferRows.reduce((sum, row) => sum + Number(row.transferNet || 0), 0));
-  if (Math.abs(imbalance) > 0.01 && transferRows.length) {
-    const candidates = transferRows.filter((row) =>
-      imbalance > 0 ? row.transferNet > 0.01 : row.transferNet < -0.01
-    );
-    const targetPool = candidates.length ? candidates : transferRows;
-    targetPool.sort((a, b) => Math.abs(b.transferNet) - Math.abs(a.transferNet));
-    targetPool[0].transferNet = moneyRound(targetPool[0].transferNet - imbalance);
+
+  // Player nets are each rounded independently, so their sum can be a few
+  // cents off zero (or a real reconciliation gap across multiple games). Spread
+  // that residual across the largest balances with a largest-remainder split
+  // instead of dumping it all on one person, so no single player absorbs it.
+  let imbalance = balances.reduce((sum, b) => sum + b.cents, 0);
+  if (imbalance !== 0 && balances.length) {
+    // Trim the side that is "over": creditors when the sum is positive,
+    // debtors when negative. Fall back to everyone if that side is empty.
+    let pool = balances.filter((b) => (imbalance > 0 ? b.cents > 0 : b.cents < 0));
+    if (!pool.length) pool = balances.slice();
+    // Deterministic order: biggest magnitude first, then name as a stable tie
+    // break so the same input yields the same split on every device.
+    pool.sort((a, b) => Math.abs(b.cents) - Math.abs(a.cents) || a.name.localeCompare(b.name));
+    const base = Math.trunc(imbalance / pool.length);
+    let remainder = imbalance - base * pool.length; // signed, |remainder| < pool.length
+    pool.forEach((b) => {
+      let share = base;
+      if (remainder !== 0) {
+        const step = remainder > 0 ? 1 : -1;
+        share += step;
+        remainder -= step;
+      }
+      b.cents -= share; // reducing balances by `imbalance` total drives the sum to 0
+    });
   }
-  const winners = transferRows
-    .filter((row) => row.transferNet > 0.01)
-    .map((row) => ({ ...row }))
-    .sort((a, b) => b.transferNet - a.transferNet);
-  const losers = transferRows
-    .filter((row) => row.transferNet < -0.01)
-    .map((row) => ({ ...row }))
-    .sort((a, b) => a.transferNet - b.transferNet);
+
+  // Deterministic ordering (amount, then name) so every device that starts
+  // from the same balances produces the identical list of transfers.
+  const winners = balances
+    .filter((b) => b.cents > 0)
+    .sort((a, b) => (b.cents - a.cents) || a.name.localeCompare(b.name));
+  const losers = balances
+    .filter((b) => b.cents < 0)
+    .sort((a, b) => (a.cents - b.cents) || a.name.localeCompare(b.name));
 
   const transfers = [];
   let i = 0;
@@ -6406,13 +6427,13 @@ function computeTransfers(rows) {
   while (i < winners.length && j < losers.length) {
     const winner = winners[i];
     const loser = losers[j];
-    const amount = moneyRound(Math.min(winner.transferNet, Math.abs(loser.transferNet)));
-    if (amount <= 0.01) break;
-    transfers.push({ from: loser.name, to: winner.name, amount });
-    winner.transferNet = moneyRound(winner.transferNet - amount);
-    loser.transferNet = moneyRound(loser.transferNet + amount);
-    if (winner.transferNet <= 0.01) i += 1;
-    if (loser.transferNet >= -0.01) j += 1;
+    const amountCents = Math.min(winner.cents, -loser.cents);
+    if (amountCents <= 0) break;
+    transfers.push({ from: loser.name, to: winner.name, amount: fromCents(amountCents) });
+    winner.cents -= amountCents;
+    loser.cents += amountCents;
+    if (winner.cents === 0) i += 1;
+    if (loser.cents === 0) j += 1;
   }
   return transfers;
 }
