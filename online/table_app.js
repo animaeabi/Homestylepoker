@@ -4349,6 +4349,15 @@ async function loadTableState() {
   } catch (err) {
 
     console.error("[loadTableState]", err);
+    if (isDeadTableError(err)) {
+      // The table no longer exists (closed/deleted, or our seat expired). Don't
+      // sit on "Reconnecting…" forever — and don't let a stale ?table id in the
+      // URL keep resurrecting a dead table on reload. Leave for the lobby.
+      state.loading = false;
+      toast("This table has ended — returning to the lobby…", "");
+      returnToLobbyDeadTable();
+      return;
+    }
     if (state.pendingAction) {
       state.pendingAction = false;
       renderActions();
@@ -6125,6 +6134,36 @@ function isStaleHandError(err) {
   return STALE_HAND_ERROR_SIGNATURES.some((sig) => msg.includes(sig));
 }
 
+// The table/seat itself is gone (closed, deleted, or our seat expired). Unlike
+// a stale hand, resyncing can't recover this — the whole table no longer
+// exists — so the client must leave it and go back to the lobby.
+const DEAD_TABLE_ERROR_SIGNATURES = [
+  "online_table_not_found",
+  "online_table_closed",
+  "actor_not_seated",
+  "active_seat_not_found",
+  "player_not_eligible_for_group",
+];
+function isDeadTableError(err) {
+  const msg = String(err?.message || err || "").toLowerCase();
+  return DEAD_TABLE_ERROR_SIGNATURES.some((sig) => msg.includes(sig));
+}
+
+// Escape a dead table: drop the ?table id from the URL and reload so init()
+// shows the lobby instead of re-entering a table that no longer exists (which
+// is what made reloads useless — the pinned ?table id kept resurrecting the
+// dead table on every load).
+function returnToLobbyDeadTable() {
+  try { stopSeatHeartbeat(); } catch { /* ignore */ }
+  try {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("table");
+    window.location.replace(`${url.origin}${url.pathname}${url.search}`);
+  } catch {
+    window.location.href = "index.html";
+  }
+}
+
 async function submitTurnAction(label, actionType) {
   if (state.loading || state.pendingAction) return;
   const hand = getLatestHand();
@@ -6165,17 +6204,28 @@ async function submitTurnAction(label, actionType) {
     renderSeats();
     renderMyHand();
     renderActions();
-    if (isStaleHandError(err)) {
+    if (isDeadTableError(err)) {
+      // The table/seat is gone — leave it and go back to the lobby.
+      toast("This table has ended — returning to the lobby…", "");
+      returnToLobbyDeadTable();
+    } else if (isStaleHandError(err)) {
       // Our cached hand id no longer matches the server's live state. Resync
       // to the real table so the player can act on the current hand instead of
-      // being stranded (and auto-folded) on a stale one.
+      // being stranded (and auto-folded) on a stale one. If the resync itself
+      // reveals the table is gone, bail to the lobby rather than looping.
       try {
         state.loading = false;
         await loadGameState({ forceFull: true });
+        toast("Table updated — check the current hand and try again.", "");
       } catch (syncErr) {
-        console.warn("[submitTurnAction resync]", syncErr);
+        if (isDeadTableError(syncErr) || isStaleHandError(syncErr)) {
+          toast("This table has ended — returning to the lobby…", "");
+          returnToLobbyDeadTable();
+        } else {
+          console.warn("[submitTurnAction resync]", syncErr);
+          toast("Table updated — check the current hand and try again.", "");
+        }
       }
-      toast("Table updated — check the current hand and try again.", "");
     } else {
       toast(err.message || `${label} failed`, "error");
     }
