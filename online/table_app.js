@@ -8,12 +8,6 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 const online = createOnlinePokerClient(supabase);
 
-// TEMP DIAGNOSTIC: report client render-state to the server (no device console
-// needed). Fire-and-forget; never throws. De-duped by the caller.
-function dbgLog(tag, payload) {
-  try { supabase.rpc("client_debug", { p_tag: tag, p_payload: payload || {} }).then(() => {}, () => {}); } catch { /* ignore */ }
-}
-
 const POLL_MS = 1000;
 const DEAL_STAGGER_MS = 145;
 const DEAL_ANIMATION_MS = 560;
@@ -4188,6 +4182,29 @@ function startTurnTicker() {
   if (state.turnTimer) clearInterval(state.turnTimer);
   state.turnTimer = setInterval(() => {
     if (!state.tableState) return;
+    // Self-heal a stale pendingAction. It should only be true while an action is
+    // in flight (which also holds state.loading). If it's the hero's turn per the
+    // server but pendingAction is stuck true with nothing loading, it's stale and
+    // was hiding the action buttons until a manual refresh — clear it and re-render.
+    if (state.pendingAction && !state.loading) {
+      const hand = getLatestHand();
+      const hp = getMyHandPlayer();
+      const heroToAct = hand && isActionStreet(hand.state) && hp && !hp.folded && !hp.all_in
+        && getSeatToken() && hand.action_seat === hp.seat_no;
+      if (heroToAct) {
+        state.pendingActionStaleTicks = (state.pendingActionStaleTicks || 0) + 1;
+        if (state.pendingActionStaleTicks >= 2) {
+          state.pendingAction = false;
+          state.optimisticSeatAction = null;
+          state.pendingActionStaleTicks = 0;
+          renderActions();
+        }
+      } else {
+        state.pendingActionStaleTicks = 0;
+      }
+    } else {
+      state.pendingActionStaleTicks = 0;
+    }
     updateTurnUI();
     updateTimerRings();
     renderDealButton();
@@ -5706,26 +5723,6 @@ function renderActions() {
 
   const revealLocked = isStreetRevealPresentationActive(hand);
   const myTurn = hand && isActionStreet(hand.state) && token && hp && !hp.folded && !hp.all_in && hand.action_seat === hp.seat_no && !actionLocked && !revealLocked;
-  // TEMP DIAGNOSTIC: server says it's our turn on an action street, but the
-  // action buttons are being suppressed. Log which gate is blocking (deduped
-  // per hand+street so we don't spam).
-  if (hand && isActionStreet(hand.state) && hp && hand.action_seat === hp.seat_no && !myTurn) {
-    const key = `${hand.id}:${hand.state}`;
-    if (state.__dbgBlockedKey !== key) {
-      state.__dbgBlockedKey = key;
-      dbgLog("actionsBlocked", {
-        handId: hand.id, street: hand.state,
-        hasToken: !!token, hasHp: !!hp, folded: !!(hp && hp.folded), allIn: !!(hp && hp.all_in),
-        actionLocked: !!actionLocked, revealLocked: !!revealLocked,
-        rl_hold: !!(state.streetActionLabelHold && state.streetActionLabelHold.handId === hand.id),
-        rl_anim: !!(state.streetRevealAnimation && state.streetRevealAnimation.handId === hand.id),
-        rl_deferTimer: !!state.deferredStreetRevealTimer,
-        loading: !!state.loading,
-      });
-    }
-  } else if (hand) {
-    state.__dbgBlockedKey = null;
-  }
   const noActiveHand = !hand || ["settled","canceled"].includes(hand.state);
   const presentationActive = isShowdownPresentationActive(hand);
   const nextHandEligible = Date.now() >= getNextHandEligibleAtMs(hand);
