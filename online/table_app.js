@@ -26,6 +26,13 @@ const BOARD_REVEAL_GHOST_OUT_MS = 140;
 // close->close->open overlap artifacts.
 const BOARD_REVEAL_SETTLE_AFTER_FLIP_MS = 24;
 const STREET_REVEAL_DEFER_MS = 90;
+// Hard ceiling for how long a street-reveal animation may keep the action strip
+// locked, measured past the animation's own computed duration. The reveal cleanup
+// timer is only scheduled once the flight cards actually launch; if the launch is
+// skipped (e.g. the board had no layout box at render time) the timer never fires
+// and state.streetRevealAnimation would otherwise linger forever, wedging the
+// hero's action buttons hidden until a manual page refresh. This grace bounds it.
+const STREET_REVEAL_LOCK_GRACE_MS = 1200;
 // Hold the final street-closing action long enough that players can actually read it
 // before the next board card or showdown sequence starts.
 const ROUND_TRANSITION_BREATH_MS = 760;
@@ -1536,9 +1543,20 @@ function isStreetRevealPresentationActive(hand = getLatestHand()) {
     && hold.toStreet === hand.state
     && Date.now() < Number(hold.until || 0)
   );
+  const anim = state.streetRevealAnimation;
+  // Bound the reveal lock by the animation's own computed duration. Normally the
+  // launch path schedules a cleanup timer that nulls streetRevealAnimation when
+  // the reveal finishes; if that timer was never scheduled the object lingers and
+  // this lock would hide the hero's action buttons indefinitely. Once we're past
+  // the reveal's total duration (plus grace) the presentation is definitely over.
+  const animActive = Boolean(
+    anim
+    && anim.handId === handId
+    && Date.now() - Number(anim.startedAt || 0) < getStreetRevealTotalMs(anim) + STREET_REVEAL_LOCK_GRACE_MS
+  );
   return Boolean(
     holdActive
-    || (state.streetRevealAnimation?.handId === handId)
+    || animActive
     || state.deferredStreetRevealTimer
   );
 }
@@ -4182,28 +4200,44 @@ function startTurnTicker() {
   if (state.turnTimer) clearInterval(state.turnTimer);
   state.turnTimer = setInterval(() => {
     if (!state.tableState) return;
-    // Self-heal a stale pendingAction. It should only be true while an action is
-    // in flight (which also holds state.loading). If it's the hero's turn per the
-    // server but pendingAction is stuck true with nothing loading, it's stale and
-    // was hiding the action buttons until a manual refresh — clear it and re-render.
-    if (state.pendingAction && !state.loading) {
+    // Self-heal a stuck action strip. When the server says it's the hero's turn on
+    // an action street but the client is still suppressing the buttons, they stay
+    // hidden until a manual page refresh. Two independent locks can cause this:
+    //   (1) a stale pendingAction — it should only be set while an action is in
+    //       flight (which also holds state.loading), so if it lingers true with
+    //       nothing loading it's a dropped in-flight request; clear it.
+    //   (2) a lingering street-reveal lock or any other transient presentation —
+    //       isStreetRevealPresentationActive is now self-bounding, so it clears on
+    //       its own, but nothing re-renders the strip afterward (updateTurnUI does
+    //       not). Reconcile: if it's the hero's turn with no active lock but the
+    //       strip is still hidden, re-render so the buttons appear.
+    {
       const hand = getLatestHand();
       const hp = getMyHandPlayer();
-      const heroToAct = hand && isActionStreet(hand.state) && hp && !hp.folded && !hp.all_in
-        && getSeatToken() && hand.action_seat === hp.seat_no;
-      if (heroToAct) {
+      const heroToAct = Boolean(
+        hand && isActionStreet(hand.state) && hp && !hp.folded && !hp.all_in
+        && getSeatToken() && hand.action_seat === hp.seat_no
+      );
+      if (heroToAct && state.pendingAction && !state.loading) {
         state.pendingActionStaleTicks = (state.pendingActionStaleTicks || 0) + 1;
         if (state.pendingActionStaleTicks >= 2) {
+          state.pendingActionStaleTicks = 0;
           state.pendingAction = false;
           state.optimisticSeatAction = null;
-          state.pendingActionStaleTicks = 0;
-          renderActions();
         }
       } else {
         state.pendingActionStaleTicks = 0;
       }
-    } else {
-      state.pendingActionStaleTicks = 0;
+      if (
+        heroToAct
+        && !state.loading
+        && !state.pendingAction
+        && !isStreetRevealPresentationActive(hand)
+        && el.actionStrip
+        && el.actionStrip.classList.contains("hidden")
+      ) {
+        renderActions();
+      }
     }
     updateTurnUI();
     updateTimerRings();
