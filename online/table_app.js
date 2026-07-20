@@ -4739,6 +4739,16 @@ async function loadGameState({ forceFull = false } = {}) {
     }
   } catch (err) {
     console.error("[loadGameState]", err);
+    if (isDeadTableError(err)) {
+      // Same recovery as loadTableState. Without it, a closed/deleted table
+      // froze forever for everyone but the host: while realtime stays healthy
+      // the poll only ever runs this fast path, so the dead-table error was
+      // swallowed here on every tick and the lobby redirect never happened.
+      state.loading = false;
+      toast("This table has ended — returning to the lobby…", "");
+      returnToLobbyDeadTable();
+      return;
+    }
     // On error, fall back to full load next time
     if (state.pendingAction) {
       state.pendingAction = false;
