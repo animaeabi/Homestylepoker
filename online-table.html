@@ -290,6 +290,17 @@
         display: none;
       }
 
+      /* The visible toggle pill is only 40x18 — well under a comfortable touch
+         target. Extend the tappable area with transparent hit-slop without
+         changing the pill's look, so opening the menu (the only route to
+         Settings / hand log / leave) isn't a pixel hunt. */
+      .landscape-bar-toggle { position: relative; }
+      .landscape-bar-toggle::after {
+        content: "";
+        position: absolute;
+        inset: -15px -12px;
+      }
+
       .top-bar-left {
         display: flex;
         align-items: center;
@@ -951,8 +962,9 @@
         text-align: center;
         opacity: 0;
         pointer-events: none;
-        /* Keep winner banner readable while never covering seat cards. */
-        z-index: 9;
+        /* Above seat nodes (10) and the active-turn seat (12) so the winner
+           banner — the most important transient message — is never occluded. */
+        z-index: 13;
         transition: opacity 220ms ease, transform 220ms ease;
       }
 
@@ -4126,6 +4138,17 @@
 
       /* ========== LANDSCAPE MODE ========== */
       @media (orientation: landscape) and (max-height: 500px) {
+        /* The centre turn banner is hard-fixed at top:185px, which in a short
+           landscape viewport lands squarely on the pot/board. Space is tight
+           here and the acting player already has an avatar turn-ring, plus the
+           hero gets the action buttons — so drop the redundant banner rather
+           than occlude the board. */
+        .turn-indicator { display: none !important; }
+        /* The bare ".card { 50x72 !important }" override below also matches the
+           flight card's face, beating its own non-important 100% sizing — so
+           reveal cards fly/flip oversized then snap. Keep the face filling the
+           (correctly measured) flight wrapper. */
+        .board-flight-card__face .card { width: 100% !important; height: 100% !important; }
         #tableView {
           min-height: 100dvh;
           background:
@@ -4788,6 +4811,18 @@
       .astrip-raise-group.hidden {
         display: none !important;
       }
+
+      /* iOS Safari auto-zooms the whole (scroll-locked) table when a focused
+         input has font-size < 16px. The per-breakpoint bet inputs are 9-13px, so
+         tapping the bet amount mid-turn zoomed the layout out of place. Force
+         16px on iOS only, placed last so it wins the source-order cascade over
+         the smaller !important rules above. */
+      @supports (-webkit-touch-callout: none) {
+        .preset-amount-input,
+        .astrip-amount {
+          font-size: 16px !important;
+        }
+      }
     </style>
   </head>
   <body>
@@ -5105,7 +5140,7 @@
     <div class="voice-audio-rack" id="voiceAudioRack" aria-hidden="true"></div>
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
-    <script src="./online/table_fx_geometry.js?v=193"></script>
-    <script type="module" src="./online/table_app.js?v=193"></script>
+    <script src="./online/table_fx_geometry.js?v=194"></script>
+    <script type="module" src="./online/table_app.js?v=194"></script>
   </body>
 </html>
