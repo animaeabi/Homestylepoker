@@ -3220,7 +3220,14 @@ function getStreetRevealDelayForTransition(oldHand, hand, { deferred = false } =
     if (newBoard[i] && oldBoard[i] !== newBoard[i]) indices.push(i);
   }
   if (!indices.length) return 0;
-  return (deferred ? STREET_REVEAL_DEFER_MS : 0) + getStreetRevealTotalMs({ indices });
+  // Build the real per-card schedule (same math as the animation itself) so the
+  // victory popup / settlement FX that are delayed by this value line up with
+  // the actual reveal length. The old `{ indices }` shorthand made
+  // getStreetRevealTotalMs fall back to legacy global constants, which no
+  // longer match the per-street profiles — the winner banner could land while
+  // the river was still mid-flip.
+  const scheduled = buildStreetRevealTimings(indices, deferred ? STREET_REVEAL_DEFER_MS : 0);
+  return getStreetRevealTotalMs({ indices, timings: scheduled.timings });
 }
 
 function clearStreetRevealFx({ keepState = false } = {}) {
@@ -3260,13 +3267,23 @@ function getBoardRevealProfile(street) {
   }
 }
 
-function buildStreetRevealTimings(indices, baseStartMs, street) {
+// Which street a board slot belongs to. Derived from the card's POSITION, never
+// from hand.state: all-in runouts arrive with hand.state already at
+// "showdown"/"settled" (the server deals the remaining streets in one
+// transaction), and a client that missed a snapshot can see several streets'
+// cards appear at once. Position is the only stable source of truth.
+function getBoardRevealStreetForIndex(index) {
+  if (index <= 2) return "flop";
+  if (index === 3) return "turn";
+  return "river";
+}
+
+function buildStreetRevealTimings(indices, baseStartMs) {
   const sorted = [...new Set(indices)].sort((a, b) => a - b);
-  const profile = getBoardRevealProfile(street);
-  const stepMs = profile.landDurMs + profile.gapMs + profile.flipDurMs + profile.breathMs;
   const timings = {};
   let cursorMs = baseStartMs;
   for (const idx of sorted) {
+    const profile = getBoardRevealProfile(getBoardRevealStreetForIndex(idx));
     timings[idx] = {
       // Offsets from anim.startedAt for when this card begins its land / flip.
       landMs: cursorMs,
@@ -3278,7 +3295,7 @@ function buildStreetRevealTimings(indices, baseStartMs, street) {
       breathMs: profile.breathMs,
       tone: profile.tone,
     };
-    cursorMs += stepMs;
+    cursorMs += profile.landDurMs + profile.gapMs + profile.flipDurMs + profile.breathMs;
   }
   return { timings, endMs: cursorMs };
 }
@@ -3322,15 +3339,36 @@ function maybeStartStreetRevealAnimation(oldHand, hand, hadPriorTableState = fal
       elapsed + BOARD_REVEAL_CARD_BREATH_MS,
       totalMs + BOARD_REVEAL_CARD_BREATH_MS
     );
-    const appended = buildStreetRevealTimings(additions, appendStartMs, hand.state);
+    const appended = buildStreetRevealTimings(additions, appendStartMs);
     existing.timings = { ...(existing.timings || {}), ...appended.timings };
     existing.indices = [...new Set([...(existing.indices || []), ...additions])].sort((a, b) => a - b);
     existing.pendingIndices = [...new Set([...(existing.pendingIndices || []), ...additions])].sort((a, b) => a - b);
+    // The running animation's cleanup timer was scheduled for the OLD total
+    // duration. Left alone it fires mid-append and clearStreetRevealFx() wipes
+    // the appended cards before they ever launch (they then pop in statically).
+    // Push it out to the new total.
+    if (existing.cleanupTimer) {
+      clearTimeout(existing.cleanupTimer);
+      const remainingMs = Math.max(120, getStreetRevealTotalMs(existing) - elapsed);
+      existing.cleanupTimer = setTimeout(() => {
+        if (state.streetRevealAnimation?.key === existing.key) {
+          clearStreetRevealFx();
+          renderAll();
+        }
+      }, remainingMs);
+    }
+    // Make sure the appended cards actually launch even if every render is
+    // deferred by the presentation gate (see pumpStreetRevealLaunch).
+    const firstNewLandMs = Math.min(...additions.map((idx) => Number(existing.timings[idx]?.landMs || 0)));
+    existing.phaseTimers = [
+      ...(existing.phaseTimers || []),
+      setTimeout(pumpStreetRevealLaunch, Math.max(0, firstNewLandMs - elapsed - 40)),
+    ];
     return;
   }
 
   const normalizedStartDelayMs = Math.max(0, Number(startDelayMs || 0));
-  const scheduled = buildStreetRevealTimings(sortedIndices, normalizedStartDelayMs, hand.state);
+  const scheduled = buildStreetRevealTimings(sortedIndices, normalizedStartDelayMs);
 
   clearStreetRevealFx();
   state.streetRevealAnimation = {
@@ -3347,7 +3385,16 @@ function maybeStartStreetRevealAnimation(oldHand, hand, hadPriorTableState = fal
     revealedIndices: [],
     cleanupTimer: null,
     soundTimers: [],
-    phaseTimers: [],
+    // Guarantee a launch attempt at the scheduled start. The launch used to
+    // depend entirely on a renderAll() reaching maybeLaunchStreetRevealFx, but
+    // every render is deferred while the presentation gate is non-idle — and the
+    // un-launched animation itself holds that gate — so a refresh that cancelled
+    // the street-label hold timer left NOTHING to ever launch the reveal and the
+    // cards popped in statically. This timer (plus the turn-ticker fallback)
+    // breaks that dependency.
+    phaseTimers: [
+      setTimeout(pumpStreetRevealLaunch, Math.max(0, normalizedStartDelayMs - 40)),
+    ],
   };
 }
 
@@ -3510,6 +3557,7 @@ function maybeLaunchStreetRevealFx(hand = getLatestHand()) {
   const fromY = deckRect?.height ? deckRect.top + deckRect.height / 2 - fxRect.top : fallbackFromY;
   const soundTimers = [];
   let created = 0;
+  const createdIndices = [];
   const elapsed = Date.now() - Number(anim.startedAt || Date.now());
   const launchedSet = new Set(anim.launchedIndices || []);
   const queue = Array.isArray(anim.pendingIndices) && anim.pendingIndices.length
@@ -3533,7 +3581,7 @@ function maybeLaunchStreetRevealFx(hand = getLatestHand()) {
     const landDurMs = Number(entry.landDurMs || BOARD_REVEAL_LAND_MS);
     const flipDurMs = Number(entry.flipDurMs || BOARD_REVEAL_FLIP_MS);
     const breathMs = Number(entry.breathMs || BOARD_REVEAL_CARD_BREATH_MS);
-    const tone = entry.tone || anim.street || "flop";
+    const tone = entry.tone || getBoardRevealStreetForIndex(boardIndex);
     const landAtMs = getStreetRevealLandDelayMs(anim, boardIndex);
     const flipAtMs = getStreetRevealFlipDelayMs(anim, boardIndex);
     if (landAtMs == null || flipAtMs == null) continue;
@@ -3591,6 +3639,7 @@ function maybeLaunchStreetRevealFx(hand = getLatestHand()) {
     });
     el.dealFxLayer.appendChild(flight);
     created += 1;
+    createdIndices.push(boardIndex);
 
     soundTimers.push(setTimeout(() => sounds.deal(), Math.max(0, effectiveLandDelayMs - 10)));
     soundTimers.push(setTimeout(() => sounds.streetFlip(), Math.max(0, effectiveFlipDelayMs + 40)));
@@ -3614,13 +3663,14 @@ function maybeLaunchStreetRevealFx(hand = getLatestHand()) {
     );
   }
 
-  anim.launchedIndices = [...launchedSet, ...queue].sort((a, b) => a - b);
-  anim.pendingIndices = [];
+  // Only indices whose flight card was actually created count as launched.
+  // Marking the whole queue (as before) meant a card whose board slot had no
+  // layout box yet was silently skipped forever; keeping it pending lets the
+  // launch pump retry on a later tick.
+  anim.launchedIndices = [...launchedSet, ...createdIndices].sort((a, b) => a - b);
+  anim.pendingIndices = queueOrdered.filter((idx) => !createdIndices.includes(idx));
   anim.soundTimers = [...(anim.soundTimers || []), ...soundTimers];
-  if (!created) {
-    if (!anim.pendingIndices.length) state.streetRevealAnimation = null;
-    return;
-  }
+  if (!created) return;
 
   if (anim.cleanupTimer) clearTimeout(anim.cleanupTimer);
   const remainingByScheduleMs = Math.max(120, getStreetRevealTotalMs(anim) - (Date.now() - Number(anim.startedAt || Date.now())));
@@ -3631,6 +3681,36 @@ function maybeLaunchStreetRevealFx(hand = getLatestHand()) {
       renderAll();
     }
   }, remainingMs);
+}
+
+// Launch watchdog for the street reveal. The natural launcher is a renderAll()
+// reaching maybeLaunchStreetRevealFx, but renders are deferred while the
+// presentation gate is non-idle and the un-launched reveal itself holds that
+// gate — so when the street-label hold timer (the one renderAll trigger that
+// bypasses the gate) got cancelled by an unlucky refresh, nothing ever launched
+// the flights and the cards popped in statically. Called from timers armed at
+// animation creation/append and from the 1s turn ticker; safe to call anytime:
+// launching early is fine because each flight's CSS delay is computed from the
+// schedule (the card sits invisible until its cue).
+function pumpStreetRevealLaunch() {
+  const anim = state.streetRevealAnimation;
+  if (!anim) return;
+  const hand = getLatestHand();
+  if (!hand || anim.handId !== hand.id) return;
+  const launchedSet = new Set(anim.launchedIndices || []);
+  const unlaunched = (anim.indices || []).filter((idx) => !launchedSet.has(idx));
+  if (!unlaunched.length) return;
+  const elapsed = Date.now() - Number(anim.startedAt || 0);
+  if (elapsed >= getStreetRevealTotalMs(anim)) {
+    // Too late to animate — the static board is (or is about to be) showing.
+    // Launching flights now would double-render those cards. Clean up instead.
+    clearStreetRevealFx();
+    renderAll();
+    return;
+  }
+  // renderBoard() creates the .board-deal-target slots the launch measures.
+  renderBoard();
+  maybeLaunchStreetRevealFx(hand);
 }
 
 function getPotChipCount(potTotal, bigBlind) {
@@ -4233,6 +4313,9 @@ function startTurnTicker() {
         renderActions();
       }
     }
+    // Fallback launcher for a street reveal whose scheduled launch timer was
+    // lost (cleared with the animation's phaseTimers, throttled tab, etc.).
+    pumpStreetRevealLaunch();
     // Keep the "Your Turn / Make your move" banner in sync. It is otherwise only
     // updated inside renderAll(), which is deferred while a presentation animation
     // plays — so after the hero acts and the turn passes to a bot, the banner can
@@ -4362,7 +4445,22 @@ async function loadTableState() {
     });
     clearTimeout(state.deferredStreetRevealTimer);
     state.deferredStreetRevealTimer = null;
-    clearStreetActionLabelHold();
+    // Only clear a street-label hold that is stale. Unconditionally clearing it
+    // meant any refresh landing inside the ~1s breath window killed the hold
+    // timer mid-flight: the labels flipped to the new street early and the
+    // timer's renderAll() (which launched the street reveal) never ran.
+    {
+      const hold = state.streetActionLabelHold;
+      const holdStillValid = Boolean(
+        hold
+        && state.streetActionLabelHoldTimer
+        && hand
+        && hold.handId === hand.id
+        && hold.toStreet === hand.state
+        && Date.now() < Number(hold.until || 0)
+      );
+      if (!holdStillValid) clearStreetActionLabelHold();
+    }
     const shouldHoldClosingStreetLabels = Boolean(
       announcementState?.hasNewActions &&
       hand &&
@@ -4566,7 +4664,22 @@ async function loadGameState({ forceFull = false } = {}) {
     });
     clearTimeout(state.deferredStreetRevealTimer);
     state.deferredStreetRevealTimer = null;
-    clearStreetActionLabelHold();
+    // Only clear a street-label hold that is stale. Unconditionally clearing it
+    // meant any refresh landing inside the ~1s breath window killed the hold
+    // timer mid-flight: the labels flipped to the new street early and the
+    // timer's renderAll() (which launched the street reveal) never ran.
+    {
+      const hold = state.streetActionLabelHold;
+      const holdStillValid = Boolean(
+        hold
+        && state.streetActionLabelHoldTimer
+        && hand
+        && hold.handId === hand.id
+        && hold.toStreet === hand.state
+        && Date.now() < Number(hold.until || 0)
+      );
+      if (!holdStillValid) clearStreetActionLabelHold();
+    }
     const shouldHoldClosingStreetLabels = Boolean(
       announcementState?.hasNewActions &&
       hand &&
