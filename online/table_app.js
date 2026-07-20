@@ -4239,6 +4239,13 @@ function startTurnTicker() {
         renderActions();
       }
     }
+    // Keep the "Your Turn / Make your move" banner in sync. It is otherwise only
+    // updated inside renderAll(), which is deferred while a presentation animation
+    // plays — so after the hero acts and the turn passes to a bot, the banner can
+    // stay frozen on "Your Turn" until the next full render. renderTurnIndicator is
+    // a pure function of the current hand.action_seat and presentation state, so
+    // calling it every tick simply reconciles it (hides it or switches to "Acting").
+    renderTurnIndicator();
     updateTurnUI();
     updateTimerRings();
     renderDealButton();
