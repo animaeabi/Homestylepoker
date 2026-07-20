@@ -29,19 +29,31 @@ function isMissingRpcFunction(error, fnName) {
 // forever — leaving the caller's state.loading stuck true and freezing the
 // table until a manual reload. Race every RPC against a timeout so a hung
 // request rejects and the caller's finally/error path can recover and retry.
+// The timeout also ABORTS the underlying request: without that, a stalled
+// mutation (e.g. a Call) kept running as a zombie and could land at the server
+// seconds after the player, having seen the timeout, chose a different action.
 const RPC_TIMEOUT_MS = 15000;
-function withRpcTimeout(promise, fnName) {
-  let timer;
-  const timeout = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`[${fnName}] request_timeout`)), RPC_TIMEOUT_MS);
-  });
-  return Promise.race([Promise.resolve(promise), timeout]).finally(() => clearTimeout(timer));
-}
 
 async function callRpc(supabase, fnName, args) {
-  const { data, error } = await withRpcTimeout(supabase.rpc(fnName, args), fnName);
-  if (error) throw normalizeError(fnName, error);
-  return data;
+  const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+  let rpc = supabase.rpc(fnName, args);
+  if (controller && typeof rpc.abortSignal === "function") {
+    rpc = rpc.abortSignal(controller.signal);
+  }
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(`[${fnName}] request_timeout`));
+      try { controller?.abort(); } catch { /* ignore */ }
+    }, RPC_TIMEOUT_MS);
+  });
+  try {
+    const { data, error } = await Promise.race([Promise.resolve(rpc), timeout]);
+    if (error) throw normalizeError(fnName, error);
+    return data;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export function createOnlinePokerClient(supabase) {

@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../config.js";
-import { createOnlinePokerClient } from "./client.js?v=122";
+import { createOnlinePokerClient } from "./client.js?v=193";
 import { computeSidePots, describeSevenCardHand, resolveShowdownPayouts } from "./showdown.js?v=175";
 import { randomPersonality, randomBotName, OpponentTracker } from "./bot_engine.js";
 
@@ -1873,6 +1873,10 @@ function getBetStep() {
 
 function canCreateNewAggression(hand = getLatestHand(), hp = getMyHandPlayer(), players = getHandPlayers()) {
   if (!hand || !hp) return true;
+  // Betting reopen rule: the server marks us raise-locked (scoped to the street
+  // name) when a short all-in bumped the bet after we had already acted — we
+  // may only call or fold, so hide Raise/All-in.
+  if (hp.raise_locked_street && hp.raise_locked_street === hand.state) return false;
   const heroSeatNo = Number(hp.seat_no || 0);
   const currentBet = normalizeMoney(hand?.current_bet || 0);
   return players.some((player) =>
@@ -1889,6 +1893,13 @@ function roundToStep(value, step = 1) {
   return Number((Math.round(Number(value || 0) / safeStep) * safeStep).toFixed(decimals));
 }
 
+function ceilToStep(value, step = 1) {
+  const safeStep = Math.max(0.01, Number(step || 1));
+  const decimals = decimalPlaces(safeStep);
+  // Guard the epsilon: 23.0000001 should ceil to 23, not 24.
+  return Number((Math.ceil((Number(value || 0) - 1e-9) / safeStep) * safeStep).toFixed(decimals));
+}
+
 function getBetBounds(hand = getLatestHand(), hp = getMyHandPlayer()) {
   const currentBet = normalizeMoney(hand?.current_bet || 0);
   const currentContribution = normalizeMoney(hp?.street_contribution || 0);
@@ -1900,20 +1911,26 @@ function getBetBounds(hand = getLatestHand(), hp = getMyHandPlayer()) {
     : Number(getTable()?.big_blind || 2);
   const maxRaw = normalizeMoney(Number(hp?.stack_end || 0) + Number(hp?.street_contribution || 0));
   const step = getBetStep();
-  const maxBet = roundToStep(maxRaw, step);
-  const minBet = roundToStep(Math.min(canAggress ? minRaw : maxBet, maxBet), step);
+  // maxBet is the hero's EXACT all-in. Rounding it to the step could exceed the
+  // real stack when stacks carry cents (e.g. 87.50 after an odd-pot chop
+  // rounded to 88 at an integer-blind table), which the server rejects with
+  // raise_exceeds_stack. minBet must ceil, never floor: a floored minimum sits
+  // below the legal min-raise and gets rejected with raise_below_min.
+  const maxBet = maxRaw;
+  const minBet = Math.min(maxBet, ceilToStep(Math.min(canAggress ? minRaw : maxBet, maxBet), step));
   return { toCall, isRaise, minBet, maxBet, step, canAggress };
 }
 
 function normalizeBetAmount(value, minBet, maxBet, step = 1) {
   const safeStep = Math.max(0.01, Number(step || 1));
-  const decimals = decimalPlaces(safeStep);
   const fallback = Number.isFinite(minBet) ? minBet : 0;
   let next = Number(value);
   if (!Number.isFinite(next)) next = fallback;
   next = Math.min(Number.isFinite(maxBet) ? maxBet : next, Math.max(fallback, next));
   next = Math.min(Number.isFinite(maxBet) ? maxBet : next, Math.max(fallback, roundToStep(next, safeStep)));
-  return Number(next.toFixed(decimals));
+  // Final rounding must be to cents, NOT to the step's decimals: with step=1 a
+  // clamped all-in of 87.50 would round back up to 88 — above the real stack.
+  return normalizeMoney(next);
 }
 
 function getPresetBetAmount(fraction, hand = getLatestHand(), hp = getMyHandPlayer()) {
@@ -6296,13 +6313,30 @@ function buildActionPayload(actionType) {
   const amount = normalizeBetAmount(getBetControlValue(), minBet, maxBet, step);
   setBetControlValue(amount);
   if ((actionType === "bet" || actionType === "raise") && amount <= 0) throw new Error("Enter an amount.");
+  // A bet/raise at the slider max IS the hero's all-in: submit it as all_in so
+  // the server computes the exact stack amount. Sending it as a raise risks a
+  // cent-level mismatch (raise_exceeds_stack) when the stack isn't on the
+  // slider's step grid.
+  if ((actionType === "bet" || actionType === "raise") && amount >= maxBet - 0.005) {
+    actionType = "all_in";
+  }
+
+  // Keep the idempotency key stable across retries of the SAME decision (hand,
+  // street, action, amount): if a submit times out and the player retries, the
+  // server's client_action_id dedupe then recognizes the duplicate instead of
+  // executing the action twice. A different choice gets a fresh id.
+  const attemptSig = `${hand.id}|${hand.state}|${actionType}|${(actionType === "bet" || actionType === "raise") ? amount : ""}`;
+  const clientActionId = (state.lastActionAttempt && state.lastActionAttempt.sig === attemptSig)
+    ? state.lastActionAttempt.id
+    : `a_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+  state.lastActionAttempt = { sig: attemptSig, id: clientActionId };
 
   return {
     handId: hand.id,
     actorGroupPlayerId: state.identity.groupPlayerId,
     actionType,
     amount: (actionType === "bet" || actionType === "raise") ? amount : null,
-    clientActionId: `a_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+    clientActionId,
     seatToken: token,
   };
 }
@@ -6362,7 +6396,24 @@ function returnToLobbyDeadTable() {
 }
 
 async function submitTurnAction(label, actionType) {
-  if (state.loading || state.pendingAction) return;
+  if (state.pendingAction || state.heroActionWaiting) return;
+  if (state.loading) {
+    // A background refresh holds state.loading for its whole round-trip —
+    // previously any tap landing in that window was silently dropped (on a
+    // flaky link the poll keeps loading almost constantly, eating ~half the
+    // player's taps until the timer auto-folds them). Wait briefly for the
+    // refresh to finish instead, then proceed with the fresh state.
+    state.heroActionWaiting = true;
+    try {
+      const waitUntil = Date.now() + 4000;
+      while (state.loading && Date.now() < waitUntil) {
+        await new Promise((resolve) => setTimeout(resolve, 80));
+      }
+    } finally {
+      state.heroActionWaiting = false;
+    }
+    if (state.pendingAction) return;
+  }
   const hand = getLatestHand();
   const hp = getMyHandPlayer();
   if (!isHeroTurnActionable(hand, hp)) return;
@@ -6384,6 +6435,9 @@ async function submitTurnAction(label, actionType) {
   state.loading = true;
   try {
     await doAction(actionType, payload);
+    // The action landed — retire its idempotency key so the next decision
+    // always gets a fresh one.
+    state.lastActionAttempt = null;
     // Immediate continuation: advance all-in runouts inline,
     // trigger targeted runtime nudge for bots/showdowns.
     try {
