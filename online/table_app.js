@@ -5306,7 +5306,17 @@ function renderBoard() {
     el.tableSurface.classList.toggle("all-in-mode", allInMode);
     el.tableSurface.classList.toggle("showdown-mode", contestedShowdown);
   }
-  el.streetLabel.textContent = clearedSettledHand ? "WAITING" : (hand ? (hand.state || "waiting").toUpperCase() : "WAITING");
+  {
+    // Surface the table stakes on the always-visible street label — the top bar
+    // that would otherwise show blinds is hidden on mobile, leaving no way to
+    // see what you're playing for without opening Settings.
+    const tbl = getTable();
+    const sb = Number(tbl?.small_blind || 0);
+    const bb = Number(tbl?.big_blind || 0);
+    const stakes = bb > 0 ? ` · ${fmtShort(sb)}/${fmtShort(bb)}` : "";
+    const base = clearedSettledHand ? "WAITING" : (hand ? (hand.state || "waiting").toUpperCase() : "WAITING");
+    el.streetLabel.textContent = base + stakes;
+  }
 
   el.boardCards.innerHTML = "";
   for (let i = 0; i < 5; i++) {
