@@ -568,6 +568,7 @@
         position: relative;
         width: 100%;
         height: 100%;
+        -webkit-transform-style: preserve-3d;
         transform-style: preserve-3d;
         animation: boardCardFlip var(--flip-ms, 420ms) cubic-bezier(0.2, 0.9, 0.2, 1) both;
         animation-delay: var(--flip-delay-ms, 540ms);
@@ -577,6 +578,7 @@
         position: absolute;
         inset: 0;
         display: block;
+        -webkit-backface-visibility: hidden;
         backface-visibility: hidden;
       }
 
@@ -1267,6 +1269,7 @@
         font-size: 18px;
         box-shadow: 0 2px 8px rgba(0,0,0,0.3);
         transition: transform 0.3s ease, opacity 0.24s ease, filter 0.24s ease, box-shadow 0.24s ease, border-color 0.24s ease;
+        -webkit-backface-visibility: hidden;
         backface-visibility: hidden;
       }
 
@@ -1926,6 +1929,9 @@
         animation: winPop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
         text-shadow: 0 1px 2px rgba(0,0,0,0.3);
       }
+      /* Already shown this hand — skip the pop-in so a mid-celebration re-render
+         doesn't re-jitter the badge. */
+      .seat-win-amount.no-pop { animation: none; }
 
       @keyframes winPop {
         0% { opacity: 0; transform: translateX(-50%) scale(0.5) translateY(10px); }
@@ -3225,7 +3231,10 @@
       .config-overlay {
         position: fixed;
         inset: 0;
-        z-index: 50;
+        /* Above the transient in-table overlays (turn banner 61, hand log /
+           reaction tray 62) so opening Settings actually covers them; still
+           below the boot overlay (72). */
+        z-index: 70;
       }
 
       .config-backdrop {
@@ -4842,6 +4851,16 @@
           font-size: 16px !important;
         }
       }
+
+      /* Respect the OS "reduce motion" setting. Cap every animation to a single
+         iteration so the ambient infinite pulses (turn ring, pot heat, all-in,
+         winner glow, voice fab) stop cycling — while leaving the finite,
+         JS-coordinated card reveal/deal animations intact so nothing desyncs. */
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after {
+          animation-iteration-count: 1 !important;
+        }
+      }
     </style>
   </head>
   <body>
@@ -5160,7 +5179,7 @@
     <div class="voice-audio-rack" id="voiceAudioRack" aria-hidden="true"></div>
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
-    <script src="./online/table_fx_geometry.js?v=198"></script>
-    <script type="module" src="./online/table_app.js?v=198"></script>
+    <script src="./online/table_fx_geometry.js?v=199"></script>
+    <script type="module" src="./online/table_app.js?v=199"></script>
   </body>
 </html>

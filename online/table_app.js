@@ -4834,6 +4834,7 @@ function handleSettlementFx(hand, { revealDelayMs = 0 } = {}) {
     const overlayUntil = Date.now() + getShowdownTimeMs();
     for (const { player, net } of netWinners) {
       state.winOverlays.set(player.seat_no, {
+        handId,
         amount: net,
         until: overlayUntil,
         isShowdownLeader: showdownLeaderSeats.size ? showdownLeaderSeats.has(player.seat_no) || net > 0.001 : true,
@@ -5681,11 +5682,23 @@ function renderSeats() {
       }
 
       const winData = state.winOverlays.get(seat.seat_no);
-      if (winData && Date.now() < winData.until) {
+      // Require the overlay to belong to the current hand (mirroring the reaction
+      // overlay), so a win glow/badge can't linger onto a seat that's already
+      // active in the next hand.
+      if (winData && (!hand?.id || winData.handId === hand.id) && Date.now() < winData.until) {
         if (winData.isShowdownLeader !== false) node.classList.add("winner-seat");
         const winAmt = document.createElement("div");
         winAmt.className = "seat-win-amount";
         winAmt.textContent = `+${fmtShort(winData.amount)}`;
+        // Only play the pop-in once per seat per hand — every render rebuilds the
+        // seat DOM, and a fresh node restarts the keyframe, so an unrelated
+        // refresh mid-celebration would re-jitter the badge.
+        const popKey = `${winData.handId}:${seat.seat_no}`;
+        if (state.winPopShown && state.winPopShown.has(popKey)) {
+          winAmt.classList.add("no-pop");
+        } else {
+          (state.winPopShown || (state.winPopShown = new Set())).add(popKey);
+        }
         node.appendChild(winAmt);
       }
 
@@ -5786,7 +5799,7 @@ function renderMyHand() {
   el.myHandArea?.classList.toggle("voice-speaking", Boolean(activeVoiceSpeakerId && mySeat.group_player_id === activeVoiceSpeakerId));
   el.myHandArea?.classList.toggle("active-turn", Boolean(!suppressTurnEmphasis && !clearedSettledHand && hand?.action_seat && hand.action_seat === mySeat.seat_no && !hp?.folded));
   const heroWinData = state.winOverlays.get(mySeat.seat_no);
-  el.myHandArea?.classList.toggle("winner-seat", Boolean(heroWinData && Date.now() < heroWinData.until));
+  el.myHandArea?.classList.toggle("winner-seat", Boolean(heroWinData && (!hand?.id || heroWinData.handId === hand.id) && Date.now() < heroWinData.until));
   applyAvatarTheme(el.myHandAvatar, {
     seed: `${state.identity?.groupPlayerId || mySeat.group_player_id || mySeat.seat_no}:${state.identity?.name || "You"}`,
     name: state.identity?.name || "You",
@@ -6987,6 +7000,23 @@ function bindEvents() {
 
   let resizeTimer = null;
   const handleViewportResize = () => {
+    // Flight cards (deal / board reveal / pot push) bake in pixel coordinates at
+    // launch. A mid-flight orientation flip or real width change would leave them
+    // heading to the old positions, then snap — so drop any in-flight fx and let
+    // the next render re-launch at the new layout. Gate on a genuine layout
+    // change only: iOS fires visualViewport resize/scroll on URL-bar show/hide
+    // (height-only), and nuking a reveal on those would abort normal play.
+    const vw = Math.round(window.innerWidth || 0);
+    const orient = vw >= Math.round(window.innerHeight || 0) ? "l" : "p";
+    const bigLayoutChange = orient !== state._lastVpOrient || Math.abs(vw - (state._lastVpW || 0)) > 40;
+    state._lastVpW = vw;
+    state._lastVpOrient = orient;
+    if (bigLayoutChange) {
+      try {
+        clearDealFx();
+        if (state.streetRevealAnimation) clearStreetRevealFx();
+      } catch { /* ignore */ }
+    }
     if (resizeTimer) clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => {
       syncViewportMetrics();
