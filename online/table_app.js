@@ -3001,7 +3001,12 @@ function getStackCtaState({
   if (busted && !participatingThisHand) {
     return { kind: "action", text: "Buy In" };
   }
-  if (!handActive && low && !busted) {
+  // Offer Top Up whenever you're short and NOT live in the current hand — i.e.
+  // between hands OR already folded this hand. (You can't add chips while still
+  // in the hand, so participatingThisHand still gates that out.) Previously this
+  // required the hand to be fully settled, so a folded short stack couldn't top
+  // up until the whole hand finished.
+  if (low && !busted && !participatingThisHand) {
     return { kind: "action", text: "Top Up" };
   }
   return { kind: "none", text: "" };
