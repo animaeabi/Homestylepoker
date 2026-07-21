@@ -1730,6 +1730,7 @@ function decideBotActionCore({
   activeSeatCount,
   wasAggressor,
   opponentProfile,
+  selfImageProfile = null,
   streetAggressionCount = 0,
   preflopLimperCount = 0,
   effectiveStackBb = null,
@@ -1751,6 +1752,7 @@ function decideBotActionCore({
   activeSeatCount: number;
   wasAggressor: boolean;
   opponentProfile?: OpponentProfile;
+  selfImageProfile?: OpponentProfile | null;
   streetAggressionCount?: number;
   preflopLimperCount?: number;
   effectiveStackBb?: number | null;
@@ -1794,13 +1796,31 @@ function decideBotActionCore({
 
   const posMult = positionMultiplier(seatNo || 0, buttonSeat || 0, totalSeats || 6, activeSeatCount || 2);
   const opAdj = opponentAdjustments(opponentProfile || null, livePersonality);
+  // Table image: adapt to how the FIELD currently reads this bot. If we look
+  // bluffy (they'll call us down) bluff less and value-bet a touch thinner; if we
+  // look nitty (they fold to us) bluff/steal more. Scaled by how much they've
+  // actually seen (confidence), so a fresh table barely moves us.
+  let imageBluffAdj = 0;
+  let imageValueAdj = 0;
+  if (selfImageProfile) {
+    const imgConf = clamp(Number(selfImageProfile.confidence || 0), 0, 1);
+    const selfTags = selfImageProfile.tags || [];
+    let raw = 0;
+    if (selfTags.includes("bluff-heavy") || selfTags.includes("lag")) raw -= 0.09;
+    else if (selfTags.includes("station")) raw -= 0.05;
+    if (selfTags.includes("nit")) raw += 0.08;
+    else if (selfTags.includes("tag")) raw += 0.03;
+    if (Number(selfImageProfile.aggression || 0) > 1.7) raw -= 0.04;
+    imageBluffAdj = raw * imgConf;
+    imageValueAdj = (-raw) * imgConf * 0.5; // looking bluffy -> get paid on value
+  }
   const noise = rand(-0.05, 0.05);
   const effectiveStrength = Math.min(1.0, Math.max(0.0, rawStrength * posMult + noise));
-  const adjustedBluffRate = Math.max(0, Math.min(0.3, profile.bluffRate + opAdj.bluffMod));
+  const adjustedBluffRate = clamp(profile.bluffRate + opAdj.bluffMod + imageBluffAdj, 0, 0.3);
   const adjustedFoldThreshold = isPreflop
     ? Math.max(0.1, profile.preflopFoldBelow + opAdj.foldMod)
     : Math.max(0.1, profile.postflopFoldBelow + opAdj.foldMod);
-  const adjustedRaiseAbove = Math.max(0.3, profile.raiseAbove - opAdj.betMod);
+  const adjustedRaiseAbove = Math.max(0.3, profile.raiseAbove - opAdj.betMod - imageValueAdj);
   const adjustedCallRate = clamp(profile.callRate + opAdj.callMod, 0.48, 0.98);
   const strongDraw = !isPreflop && drawStrength >= 0.12;
   const premiumMadeHand = !isPreflop && (madeClassRank || 0) >= 2;
