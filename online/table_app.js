@@ -3886,11 +3886,23 @@ function maybeLaunchPotPushFx(hand = getLatestHand()) {
   }, CHIP_PUSH_MS + anim.winners.length * 120 + 600);
 }
 
+// Approximate server time using the rolling offset captured from viewer payloads
+// (server_now - local-now-at-receipt). Keeps the decision timer honest against a
+// skewed device clock, which otherwise drains the ring early/late.
+function serverNowMs() {
+  return Date.now() + (Number(state.serverClockOffsetMs) || 0);
+}
+
+function captureServerClock(serverNow) {
+  const t = serverNow ? Date.parse(serverNow) : NaN;
+  if (Number.isFinite(t)) state.serverClockOffsetMs = t - Date.now();
+}
+
 function getTurnClock(hand) {
   if (!hand || !isActionStreet(hand.state) || !hand.action_seat) return null;
   const lastMs = hand.last_action_at ? Date.parse(hand.last_action_at) : NaN;
   if (!Number.isFinite(lastMs)) return getTurnClockSecs();
-  return Math.max(0, getTurnClockSecs() - Math.floor((Date.now() - lastMs) / 1000));
+  return Math.max(0, getTurnClockSecs() - Math.floor((serverNowMs() - lastMs) / 1000));
 }
 
 function getTurnGraceUsedSecs(hand = getLatestHand()) {
@@ -4424,6 +4436,7 @@ async function loadTableState() {
     });
     const oldHand = getLatestHand();
     state.tableState = ts;
+    captureServerClock(ts?.server_now);
     const hand = getLatestHand();
     if (state.heroShowCardsOverride) {
       if (!hand || hand.id !== state.heroShowCardsOverride.handId) {
@@ -4650,6 +4663,7 @@ async function loadGameState({ forceFull = false } = {}) {
     // Delegate to the same processing path as loadTableState
     const hadPriorTableState = Boolean(previousTableState);
     state.tableState = merged;
+    captureServerClock(gs?.server_now);
     const hand = getLatestHand();
     if (state.heroShowCardsOverride) {
       if (!hand || hand.id !== state.heroShowCardsOverride.handId) {
@@ -6507,6 +6521,7 @@ const ONLINE_ERROR_MESSAGES = {
   rebuy_amount_invalid: "Enter a valid rebuy amount.",
   already_at_max_buy_in: "You're already at the maximum buy-in.",
   seat_active_elsewhere: "That seat is active on another device.",
+  kicked_from_table: "You were removed from this table — try again later.",
   seat_token_invalid: "This seat is controlled on another device.",
   seat_token_required: "Your seat session expired — rejoin the table.",
   action_rate_limited: "You're acting too fast — try again.",
