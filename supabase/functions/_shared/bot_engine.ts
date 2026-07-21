@@ -384,18 +384,22 @@ function preflopStrength(hole1?: string, hole2?: string) {
   const suited = hole1[1].toLowerCase() === hole2[1].toLowerCase();
   const paired = r1 === r2;
 
+  // Chen-style weighting: the high card dominates, the low card is a modest
+  // kicker, pairs get a floor above unpaired hands of the same high card. The
+  // old additive (hi+lo)/28 formula ranked KQo above KK and T9o above 66, which
+  // leaked straight into the shove gates.
   let score = 0;
   if (paired) {
-    score = 0.5 + (hi / 14) * 0.5;
+    score = 0.55 + (hi / 14) * 0.45;
   } else {
     const gap = hi - lo;
-    score = (hi + lo) / 28;
+    score = (hi / 14) * 0.6 + (lo / 14) * 0.2;
     if (suited) score += 0.06;
-    if (gap <= 1) score += 0.04;
-    else if (gap <= 2) score += 0.02;
-    if (hi >= 14) score += 0.08;
-    else if (hi >= 13) score += 0.05;
-    else if (hi >= 12) score += 0.03;
+    if (gap <= 1) score += 0.03;
+    else if (gap <= 2) score += 0.015;
+    else if (gap >= 4) score -= 0.03;
+    if (hi >= 14) score += 0.06;
+    else if (hi >= 13) score += 0.03;
   }
 
   return Math.min(1.0, Math.max(0.0, score));
@@ -431,9 +435,11 @@ function stackInBigBlinds(stack: number, bigBlind: number) {
 }
 
 function roundBbAmount(targetBb: number, bigBlind: number) {
+  // Round DOWN to the half-BB grid: rounding up could push a raise-to past the
+  // bot's actual stack (raise_exceeds_stack) when the target was stack-capped.
   return Math.max(
     Math.max(1, Number(bigBlind || 2)),
-    Math.round(Math.max(0, targetBb) * 2) / 2 * Math.max(1, Number(bigBlind || 2))
+    Math.floor(Math.max(0, targetBb) * 2) / 2 * Math.max(1, Number(bigBlind || 2))
   );
 }
 
@@ -521,10 +527,13 @@ function positionBand(
   if (dist === 0) return "button";
   if (dist === 1) return "small_blind";
   if (dist === 2) return "big_blind";
+  // dist counts clockwise FROM the button, so a LARGE dist means the seat is
+  // close behind the button (cutoff/hijack = late) and a SMALL dist (just after
+  // the blinds) is early. The old mapping was inverted.
   const normalized = dist / Math.max(1, totalSeats);
-  if (normalized >= 0.72) return "early";
-  if (normalized >= 0.48) return "middle";
-  return "cutoff";
+  if (normalized >= 0.72) return "cutoff";
+  if (normalized >= 0.52) return "middle";
+  return "early";
 }
 
 function isInPosition(position: PositionBand) {
@@ -854,10 +863,16 @@ function postflopSizeFraction({
   personality: BotPersonality;
   bluff?: boolean;
 }) {
+  // Size bands overlap deliberately: a strict size=f(strength) mapping is a
+  // perfect tell (any large bet = value, any small bet = weak). ~25% of bluffs
+  // use a big "value-looking" size and ~20% of value bets use a small
+  // "bluff-looking" size, so sizing alone can't be read.
   if (bluff) {
+    if (coinFlip(0.25)) return clamp(rand(0.6, 0.85), 0.55, 0.9);
     if (drawStrength >= 0.12) return clamp(rand(0.42, 0.62) + (personality === "LAG" ? 0.04 : 0), 0.38, 0.68);
     return clamp(rand(0.33, 0.5) + (personality === "LAG" ? 0.03 : 0), 0.3, 0.58);
   }
+  if ((madeClassRank || 0) >= 2 && coinFlip(0.2)) return clamp(rand(0.38, 0.55), 0.34, 0.6);
   if ((madeClassRank || 0) >= 6) return clamp(rand(0.62, 0.86), 0.55, 0.9);
   if ((madeClassRank || 0) >= 5) return clamp(rand(0.55, 0.78), 0.5, 0.82);
   if ((madeClassRank || 0) >= 3) return clamp(rand(0.46, 0.7), 0.42, 0.74);
@@ -932,14 +947,23 @@ function uniqueRanksWithWheel(cards: Array<{ rank: number; suit: string }>) {
   return ranks;
 }
 
-function bestStraightDrawScore(cards: Array<{ rank: number; suit: string }>) {
+function bestStraightDrawScore(
+  cards: Array<{ rank: number; suit: string }>,
+  holeRanks: number[] = []
+) {
   const ranks = uniqueRanksWithWheel(cards);
   if (ranks.length < 4) return 0;
+  // A "draw" that exists entirely on the board is everyone's draw — require at
+  // least one hole card inside the straight window before crediting it.
+  const holeSet = new Set(holeRanks);
+  if (holeSet.has(14)) holeSet.add(1);
   let best = 0;
   for (let start = 1; start <= 10; start += 1) {
     const window = [start, start + 1, start + 2, start + 3, start + 4];
     const hits = window.filter((rank) => ranks.includes(rank)).length;
     if (hits >= 4) {
+      const usesHole = holeSet.size === 0 || window.some((rank) => holeSet.has(rank));
+      if (!usesHole) continue;
       const edgeHits = [window[0], window[4]].filter((rank) => ranks.includes(rank)).length;
       best = Math.max(best, hits === 5 ? 0.18 : edgeHits === 2 ? 0.13 : 0.08);
     }
@@ -947,7 +971,11 @@ function bestStraightDrawScore(cards: Array<{ rank: number; suit: string }>) {
   return best;
 }
 
-function drawPotential(holeCards: string[], boardCards: string[], classRank = 0) {
+function drawPotential(holeCards: string[], boardCards: string[], classRank = 0, street = "flop") {
+  // Draws have zero value on the river — there are no more cards to come. The
+  // old code kept valuing busted 4-flushes/4-straights and called river bets
+  // with them.
+  if (street === "river") return 0;
   if (!holeCards || holeCards.length < 2 || !boardCards || boardCards.length < 3 || classRank >= 4) {
     return 0;
   }
@@ -972,8 +1000,53 @@ function drawPotential(holeCards: string[], boardCards: string[], classRank = 0)
     }
   }
 
-  const straightDraw = bestStraightDrawScore(cards);
+  const straightDraw = bestStraightDrawScore(cards, parsedHole.map((card) => card.rank));
   return Math.min(0.24, flushDraw + straightDraw);
+}
+
+// Class of the best hand the BOARD makes by itself. For a full 5-card board any
+// class is possible; on 3-4 card boards only rank-multiset classes can exist.
+// Used to detect "playing the board": if the bot's 7-card hand isn't better than
+// what every player already shares, its "made hand" is at best a chop.
+function boardOnlyClassRank(parsedBoard: Array<{ rank: number; suit: string }>) {
+  if (!parsedBoard || parsedBoard.length < 3) return 0;
+  const rankCounts = parsedBoard.reduce<Record<number, number>>((acc, card) => {
+    acc[card.rank] = (acc[card.rank] || 0) + 1;
+    return acc;
+  }, {});
+  const counts = Object.values(rankCounts).sort((a, b) => b - a);
+  let cls = 0;
+  if (counts[0] === 4) cls = 7;
+  else if (counts[0] === 3 && (counts[1] || 0) >= 2) cls = 6;
+  else if (counts[0] === 3) cls = 3;
+  else if (counts[0] === 2 && (counts[1] || 0) >= 2) cls = 2;
+  else if (counts[0] === 2) cls = 1;
+  if (parsedBoard.length === 5) {
+    const suitCounts = parsedBoard.reduce<Record<string, number>>((acc, card) => {
+      acc[card.suit] = (acc[card.suit] || 0) + 1;
+      return acc;
+    }, {});
+    const isFlush = Object.values(suitCounts).some((count) => count >= 5);
+    const ranks = uniqueRanksWithWheel(parsedBoard);
+    let isStraight = false;
+    for (let i = 0; i + 4 < ranks.length; i += 1) {
+      if (ranks[i + 4] - ranks[i] === 4) { isStraight = true; break; }
+    }
+    if (isFlush && isStraight) cls = Math.max(cls, 8);
+    else if (isFlush) cls = Math.max(cls, 5);
+    else if (isStraight) cls = Math.max(cls, 4);
+  }
+  return cls;
+}
+
+// Which ranks the made hand is built from, per class — used to check whether a
+// hole card actually participates in the made hand.
+function madeHandRanks(result: ReturnType<typeof describeSevenCardHand>) {
+  const cls = result?.classRank || 0;
+  const tuple = result?.tuple || [];
+  if (cls === 1 || cls === 3 || cls === 7) return [Number(tuple[1] || 0)];
+  if (cls === 2 || cls === 6) return [Number(tuple[1] || 0), Number(tuple[2] || 0)];
+  return [];
 }
 
 function pairBonus(holeCards: string[], boardCards: string[], result: ReturnType<typeof describeSevenCardHand>) {
@@ -1009,22 +1082,56 @@ function pairBonus(holeCards: string[], boardCards: string[], result: ReturnType
   return 0;
 }
 
-function analyzePostflopHand(holeCards: string[], boardCards: string[]) {
+function analyzePostflopHand(holeCards: string[], boardCards: string[], street = "flop") {
   if (!holeCards || holeCards.length < 2 || !boardCards || boardCards.length < 3) {
-    return { strength: 0.3, drawStrength: 0, classRank: null as number | null };
+    return { strength: 0.3, drawStrength: 0, classRank: null as number | null, holeParticipates: false };
   }
   try {
     const allCards = [...holeCards, ...boardCards];
     const result = describeSevenCardHand(allCards);
-    if (result.classRank == null) return { strength: 0.3, drawStrength: 0, classRank: null };
+    if (result.classRank == null) {
+      return { strength: 0.3, drawStrength: 0, classRank: null, holeParticipates: false };
+    }
+
+    const parsedHole = holeCards.map(toParsedCard).filter(Boolean) as Array<{ rank: number; suit: string }>;
+    const parsedBoard = boardCards.map(toParsedCard).filter(Boolean) as Array<{ rank: number; suit: string }>;
+    const holeRanks = parsedHole.map((card) => card.rank);
+    const boardClass = boardOnlyClassRank(parsedBoard);
+
+    // Does a hole card actually participate in the made hand?
+    let holeParticipates = true;
+    let kickerRank = Number(result.tuple[1] || 7);
+    if (result.classRank === 5) {
+      // Flush: credit the bot's own flush card, not the board's top flush card
+      // (2h3h on an all-heart board is NOT the nut flush).
+      const counts: Record<string, number> = {};
+      for (const card of [...parsedHole, ...parsedBoard]) counts[card.suit] = (counts[card.suit] || 0) + 1;
+      const flushSuit = Object.keys(counts).find((suit) => counts[suit] >= 5);
+      const holeFlush = parsedHole.filter((card) => card.suit === flushSuit).map((card) => card.rank);
+      holeParticipates = holeFlush.length > 0;
+      kickerRank = holeFlush.length ? Math.max(...holeFlush) : 0;
+    } else if ([1, 2, 3, 6, 7].includes(result.classRank)) {
+      const made = madeHandRanks(result);
+      holeParticipates = made.some((rank) => holeRanks.includes(rank));
+    }
+    // For straights/other classes: if the board alone already makes an equal or
+    // better class, the hand adds nothing.
+    if (boardClass >= result.classRank && !([1, 2, 3, 6, 7].includes(result.classRank) && holeParticipates)) {
+      // Playing the board (or the board itself beats the hand's class): at best
+      // a chop. Keep a little value for the chop, credit nothing else.
+      const chopStrength = 0.28 + boardClass * 0.005;
+      const drawStrengthPB = drawPotential(holeCards, boardCards, result.classRank, street);
+      return { strength: chopStrength, drawStrength: drawStrengthPB, classRank: result.classRank, holeParticipates: false };
+    }
+
     const base = result.classRank / 8;
-    const kicker = (result.tuple[1] || 7) / 14;
-    const drawStrength = drawPotential(holeCards, boardCards, result.classRank);
+    const kicker = (holeParticipates ? kickerRank || 7 : 0) / 14;
+    const drawStrength = drawPotential(holeCards, boardCards, result.classRank, street);
     const pairEdge = pairBonus(holeCards, boardCards, result);
     const strength = Math.min(1.0, Math.max(0.0, base * 0.72 + kicker * 0.18 + drawStrength + pairEdge));
-    return { strength, drawStrength, classRank: result.classRank };
+    return { strength, drawStrength, classRank: result.classRank, holeParticipates };
   } catch {
-    return { strength: 0.3, drawStrength: 0, classRank: null as number | null };
+    return { strength: 0.3, drawStrength: 0, classRank: null as number | null, holeParticipates: false };
   }
 }
 
@@ -1052,8 +1159,10 @@ function opponentAdjustments(opProfile: OpponentProfile, personality: BotPersona
     bluffMod -= 0.04 * confidenceScale;
     betMod += 0.05 * confidenceScale;
   } else if (opProfile.vpip < 0.25) {
+    // Tight player: bluff them more, and RESPECT their bets (raise the fold
+    // threshold). The old sign lowered it — calling looser against nits.
     bluffMod += 0.06 * confidenceScale;
-    foldMod -= 0.05 * confidenceScale;
+    foldMod += 0.05 * confidenceScale;
   }
 
   if (opProfile.foldToBet > 0.6) {
@@ -1069,7 +1178,7 @@ function opponentAdjustments(opProfile: OpponentProfile, personality: BotPersona
 
   if (hasTag("nit")) {
     bluffMod += 0.06 * confidenceScale * style.bluffGain;
-    foldMod -= 0.04 * confidenceScale * style.pressureGain;
+    foldMod += 0.04 * confidenceScale * style.pressureGain;
     if (personality === "LAG") betMod += 0.03 * confidenceScale;
     if (personality === "Rock") callMod -= 0.02 * confidenceScale;
   }
@@ -1148,11 +1257,14 @@ function positionMultiplier(seatNo: number, buttonSeat: number, totalSeats: numb
   const dist = ((seatNo - buttonSeat + totalSeats) % totalSeats);
   const normalizedPos = dist / totalSeats;
 
-  if (normalizedPos <= 0.15) return 1.15;
-  if (normalizedPos <= 0.3) return 1.08;
-  if (normalizedPos >= 0.7) return 0.88;
-  if (normalizedPos >= 0.55) return 0.93;
-  return 1.0;
+  // Button acts last (best position), blinds act first postflop (worst), and
+  // lateness otherwise grows with dist from the button. The old scale boosted
+  // the blinds and penalized the cutoff.
+  if (dist === 0) return 1.15;
+  if (dist === 1 || dist === 2) return 0.9;
+  if (normalizedPos >= 0.72) return 1.08;
+  if (normalizedPos >= 0.52) return 1.0;
+  return 0.93;
 }
 
 const PROFILES: Record<BotPersonality, {
@@ -1191,7 +1303,9 @@ const PROFILES: Record<BotPersonality, {
   Rock: {
     preflopFoldBelow: 0.52,
     postflopFoldBelow: 0.35,
-    raiseAbove: 0.75,
+    // Recalibrated to the real effectiveStrength scale (a set peaks ~0.55, a
+    // flush ~0.65): 0.75 meant Rock could never value-raise below a boat.
+    raiseAbove: 0.5,
     bluffRate: 0.02,
     callRate: 0.85,
     betSizeMin: 0.4,
@@ -1202,7 +1316,8 @@ const PROFILES: Record<BotPersonality, {
   Station: {
     preflopFoldBelow: 0.2,
     postflopFoldBelow: 0.15,
-    raiseAbove: 0.8,
+    // Same recalibration as Rock: 0.8 was unreachable below a full house.
+    raiseAbove: 0.55,
     bluffRate: 0.03,
     callRate: 0.92,
     betSizeMin: 0.3,
@@ -1348,9 +1463,14 @@ function decideStructuredPreflopAction({
     currentContributionBb,
     personality,
   });
+  // Short stacks open-shove instead of min-opening themselves pot-committed.
+  // The jam rule used to be consulted only inside premium branches, so the
+  // <=8.5bb "jam anything decent" clause could never fire.
+  const shortStackJam = jamNow && effectiveStackBb <= 12 && features.tier !== "trash";
 
   if (bucket === "unopened") {
     if (toCall <= 0) return { actionType: "check", amount: null as number | null };
+    if (shortStackJam) return { actionType: "all_in", amount: null as number | null };
     const openThreshold = openThresholdByPosition(position) - style.openShift - readShift;
     if (handScore >= openThreshold) {
       const targetAmount = raiseTargetAmount(
@@ -1371,6 +1491,7 @@ function decideStructuredPreflopAction({
 
   if (bucket === "limped") {
     if (toCall <= 0) return { actionType: "check", amount: null as number | null };
+    if (shortStackJam) return { actionType: "all_in", amount: null as number | null };
     const isoThreshold = 3.15 - style.openShift * 0.45 - readShift * 0.55 + Math.max(0, preflopLimperCount - 1) * 0.12;
     if (handScore >= isoThreshold || features.tier === "premium" || (features.tier === "strong" && preflopLimperCount <= 2)) {
       const targetAmount = raiseTargetAmount(
@@ -1513,7 +1634,7 @@ function decideStructuredPreflopAction({
   return { actionType: "fold", amount: null as number | null };
 }
 
-export function decideBotAction({
+function decideBotActionCore({
   personality,
   holeCards,
   boardCards,
@@ -1562,7 +1683,9 @@ export function decideBotAction({
   const stackBb = stackInBigBlinds(stack, blind);
   const isPreflop = street === "preflop" || !boardCards || boardCards.length < 3;
   const isFlop = street === "flop";
-  const postflop = isPreflop ? { strength: 0, drawStrength: 0, classRank: null } : analyzePostflopHand(holeCards, boardCards);
+  const postflop = isPreflop
+    ? { strength: 0, drawStrength: 0, classRank: null as number | null, holeParticipates: false }
+    : analyzePostflopHand(holeCards, boardCards, street);
 
   if (stack <= 0) return { actionType: "check", amount: null as number | null };
 
@@ -1707,6 +1830,21 @@ export function decideBotAction({
     }
   }
 
+  // Price awareness FIRST: never fold to a tiny bet with a piece of the board.
+  // This used to run after the static fold-threshold check, which made bottom
+  // pair fold to a 1-chip bet into a huge pot.
+  if (!isPreflop && toCall > 0 && shouldCallCheapPostflopPrice({
+    street,
+    toCall,
+    pot,
+    blind,
+    madeClassRank,
+    effectiveStrength,
+    drawStrength,
+  })) {
+    return { actionType: "call", amount: null as number | null };
+  }
+
   if (effectiveStrength < adjustedFoldThreshold && toCall > 0) {
     if (coinFlip(adjustedBluffRate) && stack > toCall * 2) {
       const bluffSize = Math.round(pot * rand(0.5, 0.8));
@@ -1777,22 +1915,37 @@ export function decideBotAction({
     }
 
     const potOdds = toCall / Math.max(1, pot + toCall);
-    if (shouldCallCheapPostflopPrice({
-      street,
-      toCall,
-      pot,
-      blind,
-      madeClassRank,
-      effectiveStrength,
-      drawStrength,
-    })) {
-      return { actionType: "call", amount: null as number | null };
+    // Estimate call equity with class-based floors when a hole card actually
+    // participates in the made hand. The raw composite strength score maxes out
+    // around 0.5-0.6 even for sets, so comparing it directly to pot odds made
+    // the bot fold sets and two pair to overbets ~80% of the time.
+    let callEquity = effectiveStrength;
+    if (!isPreflop && postflop.holeParticipates) {
+      const cls = madeClassRank || 0;
+      if (cls >= 6) callEquity = Math.max(callEquity, 0.9);
+      else if (cls === 5) callEquity = Math.max(callEquity, 0.8);
+      else if (cls === 4) callEquity = Math.max(callEquity, 0.75);
+      else if (cls === 3) callEquity = Math.max(callEquity, 0.7);
+      else if (cls === 2) callEquity = Math.max(callEquity, 0.6);
+      else if (cls === 1 && effectiveStrength >= 0.4) callEquity = Math.max(callEquity, 0.45);
     }
-    if (effectiveStrength < potOdds * 1.1) {
-      return coinFlip(0.2) ? { actionType: "call", amount: null as number | null } : { actionType: "fold", amount: null as number | null };
+    callEquity += drawStrength * 0.8;
+    if (callEquity < potOdds) {
+      // Rare curiosity call at a sane price only — the old flat 20% called
+      // anything at any price.
+      return (potOdds <= 0.35 && coinFlip(0.06))
+        ? { actionType: "call", amount: null as number | null }
+        : { actionType: "fold", amount: null as number | null };
     }
 
-    return coinFlip(adjustedCallRate) ? { actionType: "call", amount: null as number | null } : { actionType: "fold", amount: null as number | null };
+    // The personality call-rate should only mix in MARGINAL spots. With a big
+    // equity margin over the price, folding is a pure punt (the old flat coin
+    // flip folded strong hands 30% of the time even getting great odds).
+    const equityMargin = callEquity - potOdds;
+    const continueProb = equityMargin >= 0.25
+      ? 0.97
+      : clamp(adjustedCallRate + equityMargin, 0.4, 0.95);
+    return coinFlip(continueProb) ? { actionType: "call", amount: null as number | null } : { actionType: "fold", amount: null as number | null };
   }
 
   if (strongDraw && coinFlip(0.42)) {
@@ -1840,6 +1993,80 @@ export function decideBotAction({
   }
 
   return { actionType: "check", amount: null as number | null };
+}
+
+// Awareness/legality layer. The core above decides the INTENT; this wrapper
+// makes sure the action that leaves the engine is one the table rules allow —
+// the way a human simply knows the rules:
+//   - never bet/raise when no opponent can respond (lone all-in behind);
+//   - never raise when betting isn't reopened for us (short all-in rule);
+//   - raise at least the legal minimum or don't raise at all (call instead);
+//   - never raise past the stack (that's just all-in);
+//   - keep amounts on the half-big-blind grid;
+//   - never "check" facing a bet or "call" nothing.
+// Every prior server rejection (raise_below_min, raise_exceeds_stack,
+// no_opponents_left_to_raise, bet_below_big_blind, nothing_to_call) maps to one
+// of these clamps.
+export function decideBotAction(
+  input: Parameters<typeof decideBotActionCore>[0] & {
+    minRaise?: number | null;
+    raiseEligibleOpponents?: number | null;
+    raiseLocked?: boolean;
+  }
+) {
+  const { minRaise = null, raiseEligibleOpponents = null, raiseLocked = false } = input;
+  const blind = Math.max(1, Number(input.bigBlind || 2));
+  const currentBet = Number(input.currentBet || 0);
+  const contribution = Number(input.streetContribution || 0);
+  const stack = Number(input.stackEnd || 0);
+  const toCall = Math.max(0, currentBet - contribution);
+  const maxTotal = contribution + stack;
+  const canAnyoneRespond = raiseEligibleOpponents == null || Number(raiseEligibleOpponents) > 0;
+  const minLegalRaiseTo = currentBet + Math.max(Number(minRaise || 0), blind);
+  const halfBb = blind / 2;
+  const grid = (value: number) => Math.round(Number(value || 0) / halfBb) * halfBb;
+  const money = (value: number) => Math.round(value * 100) / 100;
+
+  let action = decideBotActionCore(input);
+
+  const isAggression = action.actionType === "bet" || action.actionType === "raise"
+    || (action.actionType === "all_in" && maxTotal > currentBet + 1e-9);
+  if (isAggression && (!canAnyoneRespond || raiseLocked)) {
+    action = { actionType: toCall > 0 ? "call" : "check", amount: null };
+  }
+
+  if (action.actionType === "bet" && action.amount != null) {
+    let amount = Math.max(grid(Number(action.amount)), Math.min(blind, stack));
+    if (amount >= stack - 1e-9) return { actionType: "all_in", amount: null };
+    return { actionType: "bet", amount: money(amount) };
+  }
+
+  if (action.actionType === "raise" && action.amount != null) {
+    let target = grid(Number(action.amount));
+    if (target < minLegalRaiseTo) {
+      const addNeeded = minLegalRaiseTo - contribution;
+      if (minLegalRaiseTo <= maxTotal - 1e-9 && addNeeded <= stack * 0.62) {
+        // Raise properly: bump to the legal minimum (ceil onto the grid).
+        target = Math.ceil(minLegalRaiseTo / halfBb) * halfBb;
+      } else {
+        // The legal minimum is too big a share of the stack for the intent —
+        // a human just calls here instead of turning a raise into a shove.
+        return { actionType: toCall > 0 ? "call" : "check", amount: null };
+      }
+    }
+    if (target >= maxTotal - 1e-9) return { actionType: "all_in", amount: null };
+    return { actionType: "raise", amount: money(target) };
+  }
+
+  if (action.actionType === "call" && toCall <= 0) {
+    return { actionType: "check", amount: null };
+  }
+  if (action.actionType === "check" && toCall > 0) {
+    return toCall <= blind * 2
+      ? { actionType: "call", amount: null }
+      : { actionType: "fold", amount: null };
+  }
+  return action;
 }
 
 export function botThinkTimeMs({

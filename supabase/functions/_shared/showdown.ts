@@ -270,10 +270,12 @@ export function describeSevenCardHand(cardTokens: string[], preferredTokens: str
 
 export function resolveShowdownPayouts({
   boardCards,
-  players
+  players,
+  buttonSeat = null
 }: {
   boardCards: string[];
   players: PlayerInput[];
+  buttonSeat?: number | null;
 }) {
   const board = (boardCards || []).map(toCard);
   if (board.length !== 5) throw new Error("Board must contain exactly 5 cards.");
@@ -311,7 +313,14 @@ export function resolveShowdownPayouts({
     }
 
     const cents = Math.round(Number(pot.amount || 0) * 100);
-    const shares = splitCents(cents, winners.sort((a, b) => a - b));
+    // Standard odd-chip rule: the extra cent(s) go to the first winner(s) left
+    // of the button, not always the lowest seat number.
+    const orderedWinners = buttonSeat != null
+      ? winners.sort((a, b) =>
+        (((a - Number(buttonSeat) - 1) % 1024) + 1024) % 1024
+        - (((b - Number(buttonSeat) - 1) % 1024) + 1024) % 1024)
+      : winners.sort((a, b) => a - b);
+    const shares = splitCents(cents, orderedWinners);
     for (const share of shares) {
       payoutCents.set(share.seatNo, (payoutCents.get(share.seatNo) || 0) + share.cents);
     }

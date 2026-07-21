@@ -1,7 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../config.js";
-import { createOnlinePokerClient } from "./client.js?v=193";
-import { computeSidePots, describeSevenCardHand, resolveShowdownPayouts } from "./showdown.js?v=175";
+import { createOnlinePokerClient } from "./client.js?v=203";
+import { computeSidePots, describeSevenCardHand, resolveShowdownPayouts } from "./showdown.js?v=203";
 import { randomPersonality, randomBotName, OpponentTracker } from "./bot_engine.js";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -5115,6 +5115,9 @@ async function addBot(seatNo) {
       preferredSeat: seatNo,
       isBot: true,
       botPersonality: personality,
+      // Bot joins are host-gated server-side now: prove we're the host.
+      actorGroupPlayerId: state.identity?.groupPlayerId || null,
+      actorSeatToken: getSeatToken() || null,
     });
 
     if (seat?.seat_token) {
