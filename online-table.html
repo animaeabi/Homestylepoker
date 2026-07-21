@@ -587,8 +587,19 @@
         height: 100%;
       }
 
+      /* Separate the two faces by 1px along their local Z. At each resting angle
+         (0deg back-up, 180deg front-up) the visible face is then unambiguously
+         in front instead of coplanar with the hidden one. Without this, iOS
+         Safari z-fights the coplanar faces at the flip's 180deg hold and flashes
+         the card BACK for a frame before showing the value. */
+      .board-flight-card__face--back {
+        -webkit-transform: translateZ(1px);
+        transform: translateZ(1px);
+      }
+
       .board-flight-card__face--front {
-        transform: rotateY(180deg);
+        -webkit-transform: rotateY(180deg) translateZ(1px);
+        transform: rotateY(180deg) translateZ(1px);
       }
 
       .board-slot-target {
