@@ -2176,10 +2176,9 @@
           0 8px 20px rgba(0,0,0,0.4),
           0 0 20px rgba(236,178,86,0.4) !important;
         font-weight: 900 !important;
-        /* Standing alone (Fold/Call/All-in hidden), give it real presence. */
-        min-height: 48px !important;
-        font-size: 15px !important;
-        letter-spacing: 0.05em;
+        min-height: 40px !important;
+        font-size: 13px !important;
+        letter-spacing: 0.03em;
         animation: raiseConfirmPulse 1.6s ease-in-out infinite;
       }
       @keyframes raiseConfirmPulse {
@@ -4154,12 +4153,14 @@
           backdrop-filter: blur(16px) saturate(1.1);
           -webkit-backdrop-filter: blur(16px) saturate(1.1);
         }
-        /* Armed = only the confirm button shows. Drop the grouping card and widen
-           to the panel width so the lone confirm reads as a proper action bar
-           centered under the panel (not a narrow button in the corner). Left edge
-           stays put, so the hero tag / FABs don't move. */
+        /* Armed = only the confirm button shows. Drop the grouping card, and
+           float the lone confirm up into the empty felt so it sits centered
+           between the panel above and the hero tag below (instead of stranded at
+           the very bottom). Left edge stays put, so the hero tag / FABs don't
+           move. */
         .action-strip.raise-armed {
-          width: 168px !important;
+          width: 150px !important;
+          bottom: calc(env(safe-area-inset-bottom) + 62px) !important;
           padding: 0 !important;
           background: transparent !important;
           border: none !important;
