@@ -2,3 +2,6 @@
 node_modules/
 output/
 supabase/.temp/
+
+# Local build/deploy scratch (bundled edge fns, test harnesses)
+scratchpad/
