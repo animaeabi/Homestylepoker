@@ -2027,6 +2027,14 @@ function refreshBetControls(hand = getLatestHand(), hp = getMyHandPlayer()) {
     el.presetAmountLabel.textContent = isRaise ? "Raise to" : "Bet";
   }
   refreshPresetButtons(hand, hp);
+
+  // Keep the armed "Raise $X" confirm button in lockstep with the panel amount.
+  // Slider drags / chip taps call refreshBetControls but NOT renderActions, so
+  // without this the button kept showing a stale amount until the next full
+  // render (panel said $18 while the button still read $45).
+  if (el.betRaiseBtn && el.actionStrip?.classList.contains("raise-armed")) {
+    el.betRaiseBtn.textContent = `${isRaise ? "Raise" : "Bet"} ${fmtShort(normalized)}`;
+  }
 }
 
 function getLatestHand() { return state.tableState?.latest_hand?.hand || null; }
