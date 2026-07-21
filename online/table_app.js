@@ -4273,7 +4273,9 @@ async function startRealtime(tableId) {
       const payloadTableId = payload?.tableId || payload?.table_id || null;
       if (!payload || payloadTableId !== state.tableId) return;
       const seatNo = Number(payload?.seatNo || payload?.seat_no || 0);
-      if (!seatNo || isBotSeat(seatNo)) return;
+      // Bots now emote too (server-broadcast reactions), so bot seats are
+      // allowed here; we only drop reactions with no seat.
+      if (!seatNo) return;
       addReactionOverlay(payload, { self: false });
     });
 
