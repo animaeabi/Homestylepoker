@@ -6032,6 +6032,13 @@ function renderActions() {
 
   renderDealButton({ hand, isHost, noActiveHand, presentationActive, nextHandEligible });
 
+  // Clear the armed-raise styling every render, before any branch. The Bet/Raise
+  // button is reused as "Call Any" in preaction mode, so leaving raise-armed /
+  // astrip-raise-confirm on it (they were only cleared inside the my-turn branch)
+  // leaked the big confirm sizing onto Call Any once the turn passed.
+  el.actionStrip.classList.remove("raise-armed");
+  el.betRaiseBtn.classList.remove("astrip-raise-confirm");
+
   if (showCardsMode) {
     clearHeroPreaction();
     state.heroPreactionExecuting = false;
