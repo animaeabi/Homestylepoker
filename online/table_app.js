@@ -6039,6 +6039,15 @@ function renderActions() {
   el.actionStrip.classList.remove("raise-armed");
   el.betRaiseBtn.classList.remove("astrip-raise-confirm");
 
+  // Hide every action button up front; each branch below re-shows only the ones
+  // it needs. Without this, a button from a prior render's branch could linger
+  // through a hand transition — e.g. a stale "Check" showing next to "Show Cards"
+  // once the hand settled.
+  el.foldBtn.classList.add("hidden");
+  el.callBtn.classList.add("hidden");
+  el.allInBtn.classList.add("hidden");
+  el.betRaiseBtn.classList.add("hidden");
+
   if (showCardsMode) {
     clearHeroPreaction();
     state.heroPreactionExecuting = false;
