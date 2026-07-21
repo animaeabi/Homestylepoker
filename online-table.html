@@ -2317,15 +2317,11 @@
          fights the number input regardless of its flex alignment. */
       .preset-amount-wrap::before {
         content: "$";
-        position: absolute;
-        left: 9px;
-        top: 50%;
-        transform: translateY(-50%);
-        font-size: 11px;
+        font-size: 12px;
         font-weight: 800;
         color: #ffe7b4;
         pointer-events: none;
-        z-index: 2;
+        margin-right: 1px;
       }
 
       .preset-amount-label {
@@ -2373,11 +2369,11 @@
       }
 
       .preset-slider-vertical::-webkit-slider-runnable-track {
-        width: 8px;
+        width: 6px;
         border-radius: 999px;
-        background: linear-gradient(180deg, rgba(245,214,132,0.96), rgba(150,110,40,0.94));
-        border: 1px solid rgba(255,220,145,0.4);
-        box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08), inset 0 0 6px rgba(0,0,0,0.35);
+        background: rgba(0,0,0,0.4);
+        border: 1px solid rgba(236,178,86,0.3);
+        box-shadow: inset 0 1px 3px rgba(0,0,0,0.6);
       }
 
       .preset-slider-vertical::-webkit-slider-thumb {
@@ -2391,11 +2387,11 @@
       }
 
       .preset-slider-vertical::-moz-range-track {
-        width: 8px;
+        width: 6px;
         border-radius: 999px;
-        background: linear-gradient(180deg, rgba(245,214,132,0.96), rgba(150,110,40,0.94));
-        border: 1px solid rgba(255,220,145,0.4);
-        box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08), inset 0 0 6px rgba(0,0,0,0.35);
+        background: rgba(0,0,0,0.4);
+        border: 1px solid rgba(236,178,86,0.3);
+        box-shadow: inset 0 1px 3px rgba(0,0,0,0.6);
       }
 
       .preset-slider-vertical::-moz-range-thumb {
@@ -4184,27 +4180,27 @@
           align-items: center;
           /* Frosted glass — translucent so the board behind stays visible, and
              short (2x2 chips) so it sits below the community-card row. */
-          background: rgba(13,18,26,0.46) !important;
+          background: linear-gradient(180deg, rgba(17,20,28,0.82), rgba(10,12,18,0.78)) !important;
           padding: 8px 9px !important;
           gap: 6px !important;
           border: 1px solid rgba(236,178,86,0.34) !important;
           border-radius: 16px !important;
           box-shadow: 0 12px 30px rgba(0,0,0,0.42), inset 0 1px 0 rgba(255,255,255,0.09) !important;
-          backdrop-filter: blur(24px) saturate(1.4);
-          -webkit-backdrop-filter: blur(24px) saturate(1.4);
+          backdrop-filter: blur(20px) saturate(1.02);
+          -webkit-backdrop-filter: blur(20px) saturate(1.02);
           animation: raisePanelIn 0.16s ease-out;
         }
         .preset-slider-wrap {
           grid-area: slider;
-          width: 18px;
+          width: 20px;
           height: 100%;
           min-height: 92px;
           display: flex;
           align-items: center;
           justify-content: center;
           border-radius: 10px;
-          background: rgba(4,7,10,0.5);
-          border: 1px solid rgba(236,178,86,0.24);
+          background: transparent;
+          border: none;
         }
         .preset-slider-vertical {
           width: 12px;
@@ -4218,20 +4214,20 @@
           justify-content: center;
           padding: 3px 4px;
           border-radius: 999px;
-          background: rgba(12,18,18,0.7);
+          background: rgba(0,0,0,0.34);
           border: 1px solid rgba(236,178,86,0.26);
         }
         .preset-amount-label { display: none !important; }
         .preset-amount-input {
-          width: 100% !important;
-          font-size: 11px !important;
+          width: 52px !important;
+          font-size: 15px !important;
           font-weight: 800 !important;
-          padding: 4px 4px 4px 15px !important;
-          text-align: left !important;
+          padding: 3px 2px !important;
+          text-align: center !important;
           border-radius: 8px !important;
           color: #ffe7b4 !important;
-          background: rgba(4,7,10,0.82) !important;
-          border: 1px solid rgba(236,178,86,0.34) !important;
+          background: transparent !important;
+          border: none !important;
         }
         .preset-chip {
           font-size: 11px;
@@ -4873,14 +4869,14 @@
             "slider frac3  frac4";
           align-items: center;
           /* Frosted glass, short (2x2 chips) so it stays clear of the board. */
-          background: rgba(13,18,26,0.46) !important;
+          background: linear-gradient(180deg, rgba(17,20,28,0.82), rgba(10,12,18,0.78)) !important;
           padding: 9px 9px !important;
           gap: 6px !important;
           border: 1px solid rgba(236,178,86,0.34) !important;
           border-radius: 16px !important;
           box-shadow: 0 12px 30px rgba(0,0,0,0.42), inset 0 1px 0 rgba(255,255,255,0.09) !important;
-          backdrop-filter: blur(24px) saturate(1.4);
-          -webkit-backdrop-filter: blur(24px) saturate(1.4);
+          backdrop-filter: blur(20px) saturate(1.02);
+          -webkit-backdrop-filter: blur(20px) saturate(1.02);
           animation: raisePanelIn 0.16s ease-out;
         }
         .preset-slider-wrap {
@@ -4892,8 +4888,8 @@
           align-items: center;
           justify-content: center;
           border-radius: 10px;
-          background: rgba(4,7,10,0.5);
-          border: 1px solid rgba(236,178,86,0.24);
+          background: transparent;
+          border: none;
         }
         .preset-slider-vertical {
           width: 12px;
@@ -4908,20 +4904,20 @@
           gap: 6px;
           padding: 4px 6px;
           border-radius: 999px;
-          background: rgba(12,18,18,0.7);
+          background: rgba(0,0,0,0.34);
           border: 1px solid rgba(236,178,86,0.26);
         }
         .preset-amount-label { display: none !important; }
         .preset-amount-input {
-          width: 100% !important;
-          font-size: 12px !important;
+          width: 58px !important;
+          font-size: 16px !important;
           font-weight: 800 !important;
-          padding: 5px 5px 5px 16px !important;
-          text-align: left !important;
+          padding: 3px 2px !important;
+          text-align: center !important;
           border-radius: 9px !important;
           color: #ffe7b4 !important;
-          background: rgba(4,7,10,0.82) !important;
-          border: 1px solid rgba(236,178,86,0.34) !important;
+          background: transparent !important;
+          border: none !important;
         }
         .preset-chip {
           font-size: 11px;
