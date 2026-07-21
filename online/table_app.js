@@ -2033,7 +2033,10 @@ function refreshBetControls(hand = getLatestHand(), hp = getMyHandPlayer()) {
   // without this the button kept showing a stale amount until the next full
   // render (panel said $18 while the button still read $45).
   if (el.betRaiseBtn && el.actionStrip?.classList.contains("raise-armed")) {
-    el.betRaiseBtn.textContent = `${isRaise ? "Raise" : "Bet"} ${fmtShort(normalized)}`;
+    const isShove = Number.isFinite(maxBet) && normalized >= maxBet - 1e-9;
+    el.betRaiseBtn.textContent = isShove
+      ? `All-in ${fmtShort(normalized)}`
+      : `${isRaise ? "Raise" : "Bet"} ${fmtShort(normalized)}`;
   }
 }
 
@@ -6066,7 +6069,7 @@ function renderActions() {
     el.betRaiseBtn.disabled = false;
     el.betRaiseBtn.setAttribute("aria-disabled", "false");
 
-    const { toCall, canAggress } = getBetBounds(hand, hp);
+    const { toCall, canAggress, maxBet } = getBetBounds(hand, hp);
     const raiseActionType = normalizeMoney(hand.current_bet || 0) > 0 ? "raise" : "bet";
     el.callBtn.textContent = toCall > 0 ? `Call ${fmtShort(toCall)}` : "Check";
     const raiseVerb = raiseActionType === "raise" ? "Raise" : "Bet";
@@ -6085,16 +6088,22 @@ function renderActions() {
       const panelOpen = state.landscapeRaisePanelOpen;
       el.presetRow.classList.toggle("hidden", !panelOpen);
       // On compact layouts the first Raise tap opens the amount panel and the
-      // second commits. While the panel is open the strip is "armed": hide Call
-      // (so the raise-in-progress can't be fat-fingered into a call — this was a
-      // reported mis-tap) and turn Raise into a filled "Raise $X" confirm that
-      // shows exactly what will be sent. Tapping the table backdrop cancels.
+      // second commits. While the panel is open the strip is "armed": the panel
+      // spans the whole stack, so Fold / Call / All-in are all hidden (they were
+      // mis-tap targets, and the slider at max IS the all-in) leaving just the
+      // one confirm button. The confirm reads "All-in $X" at max and "Raise $X"
+      // otherwise. Tapping the table backdrop cancels.
       if (panelOpen) {
         el.actionStrip.classList.add("raise-armed");
         el.callBtn.classList.add("hidden");
+        el.foldBtn.classList.add("hidden");
+        el.allInBtn.classList.add("hidden");
         el.betRaiseBtn.classList.add("astrip-raise-confirm");
         const amt = Number(getBetControlValue());
-        if (Number.isFinite(amt) && amt > 0) el.betRaiseBtn.textContent = `${raiseVerb} ${fmtShort(amt)}`;
+        if (Number.isFinite(amt) && amt > 0) {
+          const isShove = Number.isFinite(maxBet) && amt >= maxBet - 1e-9;
+          el.betRaiseBtn.textContent = isShove ? `All-in ${fmtShort(amt)}` : `${raiseVerb} ${fmtShort(amt)}`;
+        }
       }
     } else {
       el.presetRow.classList.remove("hidden");
@@ -6741,6 +6750,15 @@ function bindEvents() {
       state.landscapeRaisePanelOpen = true;
       renderActions();
       void maybeRequestRaiseTurnGrace("open-raise-panel");
+      return;
+    }
+    // Committing. If the chosen amount is the whole stack, that's a shove — send
+    // it as an explicit all-in (the armed confirm reads "All-in $X" here), so we
+    // never rely on the server having to coerce a raise-to-stack into all-in.
+    const { maxBet } = getBetBounds(hand, hp);
+    const amt = Number(getBetControlValue());
+    if (Number.isFinite(amt) && Number.isFinite(maxBet) && amt >= maxBet - 1e-9) {
+      submitTurnAction("All-in", "all_in");
       return;
     }
     submitTurnAction(actionType, actionType);
