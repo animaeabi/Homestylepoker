@@ -2163,9 +2163,10 @@ function setHeroPreaction(kind) {
     return;
   }
   const nextPreaction = { kind, key };
-  if (kind === "call_current") {
+  if (kind === "call_current" || kind === "call_any") {
     const { toCall } = getBetBounds(hand, hp);
     nextPreaction.amount = Number(toCall || 0);
+    nextPreaction.armedToCall = Number(toCall || 0);
   }
   state.heroPreaction = nextPreaction;
   state.heroPreactionExecuting = false;
@@ -2187,6 +2188,17 @@ function syncHeroPreaction(hand = getLatestHand(), hp = getMyHandPlayer()) {
   if (state.heroPreaction.kind === "call_current") {
     const agreedAmount = Number(state.heroPreaction.amount || 0);
     if (toCall <= 0 || Math.abs(toCall - agreedAmount) > 0.0001) {
+      clearHeroPreaction();
+    }
+  }
+  if (state.heroPreaction.kind === "call_any") {
+    // "Call Any" honors normal raises, but a surprise near-all-in that ballooned
+    // far past the amount armed against shouldn't be one-tapped away. Require a
+    // fresh decision when the live call is both stack-threatening (>=80% of the
+    // stack behind) and much larger than what was armed (>2x).
+    const stackBehind = normalizeMoney(Number(hp.stack_end || 0));
+    const armed = Number(state.heroPreaction.armedToCall || 0);
+    if (toCall > 0 && stackBehind > 0 && toCall >= stackBehind * 0.8 && toCall > armed * 2 + 0.0001) {
       clearHeroPreaction();
     }
   }
