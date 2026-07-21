@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { resolveShowdownPayouts } from "../_shared/showdown.ts";
 import { botThinkTimeMs, classifyOpponentProfile, combineOpponentProfiles, decideBotAction } from "../_shared/bot_engine.ts";
+import { decideBotExpressions } from "../_shared/bot_expression.ts";
 
 const STREET_STATES = new Set(["preflop", "flop", "turn", "river"]);
 const ACTIVE_RUNTIME_STATES = new Set(["preflop", "flop", "turn", "river", "showdown"]);
@@ -272,8 +273,164 @@ function createOnlineRpcClient() {
         p_group_player_id: groupPlayerId,
         p_seat_token: seatToken
       });
+    },
+
+    // Fire a bot's emoji reaction onto the same ephemeral realtime channel the
+    // human quick-chat reactions use, so it shows as a native bubble over the
+    // bot's seat. Cosmetic only -- failures are swallowed by the caller.
+    async broadcastReaction({
+      tableId,
+      handId,
+      seatNo,
+      name,
+      emoji,
+      text
+    }: {
+      tableId: string;
+      handId: string;
+      seatNo: number;
+      name?: string | null;
+      emoji: string;
+      text: string;
+    }) {
+      const payload = {
+        id: `botr_${handId}_${seatNo}_${Date.now()}`,
+        tableId,
+        handId,
+        playerId: null,
+        seatNo,
+        name: name || "Bot",
+        emoji,
+        text,
+        at: Date.now()
+      };
+      const res = await fetch(`${supabaseUrl}/realtime/v1/api/broadcast`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "apikey": serviceRoleKey,
+          "Authorization": `Bearer ${serviceRoleKey}`
+        },
+        body: JSON.stringify({
+          messages: [{ topic: `table-chat:${tableId}`, event: "table_reaction", payload }]
+        })
+      });
+      if (!res.ok) {
+        throw new Error(`broadcast_failed_${res.status}`);
+      }
+    },
+
+    // Flip a bot's cards face-up for the table (a voluntary show). Mirrors what
+    // online_reveal_hand_cards does for humans, but the runtime writes directly
+    // since that RPC refuses bot seats.
+    async showHandPlayerCards({
+      handId,
+      tableId,
+      groupPlayerId,
+      seatNo
+    }: {
+      handId: string;
+      tableId: string;
+      groupPlayerId: string;
+      seatNo: number;
+    }) {
+      const { error } = await client
+        .from("online_hand_players")
+        .update({ manually_shown: true })
+        .eq("hand_id", handId)
+        .eq("group_player_id", groupPlayerId);
+      if (error) throw normalizeSupabaseError("[showHandPlayerCards]", error);
+      await callRpc("online_append_hand_event", {
+        p_hand_id: handId,
+        p_table_id: tableId,
+        p_event_type: "cards_visibility_changed",
+        p_actor_group_player_id: groupPlayerId,
+        p_payload: { seat_no: seatNo, shown: true }
+      });
     }
   };
+}
+
+// After a hand settles, let the bots emote: an occasional emoji reaction over
+// their seat, and now and then a voluntary card-show (a bluff flash after a
+// steal). Entirely best-effort -- any failure here must never affect the hand.
+async function runBotExpressions({
+  onlineClient,
+  handId,
+  tableId
+}: {
+  onlineClient: ReturnType<typeof createOnlineRpcClient>;
+  handId: string;
+  tableId: string;
+}) {
+  const state = await onlineClient.getHandState({ handId, sinceSeq: null });
+  const hand = state?.hand || {};
+  const rawPlayers = Array.isArray(state?.players) ? state.players : [];
+  const events = Array.isArray(state?.events) ? state.events : [];
+
+  let lastAggressorGpid: string | null = null;
+  for (const ev of events) {
+    if (ev?.event_type !== "action_taken") continue;
+    const action = String(ev?.payload?.action_type || "");
+    if (action === "bet" || action === "raise" || action === "all_in") {
+      lastAggressorGpid = ev?.actor_group_player_id || lastAggressorGpid;
+    }
+  }
+
+  const players = rawPlayers.map((p: any) => ({
+    seatNo: Number(p.seat_no),
+    groupPlayerId: p.group_player_id || null,
+    folded: !!p.folded,
+    resultAmount: Number(p.result_amount || 0),
+    committed: Number(p.committed || 0),
+    holeCards: Array.isArray(p.hole_cards) ? p.hole_cards : [],
+    wasAggressor: Boolean(p.group_player_id) && String(p.group_player_id) === String(lastAggressorGpid)
+  }));
+
+  const botSeats = (await onlineClient.listActiveBotSeats({ tableId })).map((s: any) => ({
+    seatNo: Number(s.seat_no),
+    groupPlayerId: String(s.group_player_id),
+    personality: s.bot_personality || "TAG",
+    name: null as string | null
+  }));
+  if (!botSeats.length) return;
+
+  const table = await onlineClient.getTableById({ tableId });
+  const expressions = decideBotExpressions({
+    players,
+    botSeats,
+    potTotal: Number(hand?.pot_total || 0),
+    bigBlind: Number(table?.big_blind || 2)
+  });
+
+  for (const ex of expressions) {
+    if (ex.reaction) {
+      try {
+        await onlineClient.broadcastReaction({
+          tableId,
+          handId,
+          seatNo: ex.seatNo,
+          name: ex.name,
+          emoji: ex.reaction.emoji,
+          text: ex.reaction.text
+        });
+      } catch (error) {
+        console.error("[runBotExpressions] reaction failed", error instanceof Error ? error.message : String(error));
+      }
+    }
+    if (ex.showCards) {
+      try {
+        await onlineClient.showHandPlayerCards({
+          handId,
+          tableId,
+          groupPlayerId: ex.groupPlayerId,
+          seatNo: ex.seatNo
+        });
+      } catch (error) {
+        console.error("[runBotExpressions] show cards failed", error instanceof Error ? error.message : String(error));
+      }
+    }
+  }
 }
 
 function buildShowdownPayoutsFromHandState(handState: any) {
@@ -308,12 +465,23 @@ async function settleShowdownFromState({
   if (!payouts.length) {
     throw new Error("No payouts computed from showdown state.");
   }
-  return onlineClient.settleShowdown({
+  const settleResult = await onlineClient.settleShowdown({
     handId,
     payouts,
     actorGroupPlayerId,
     note
   });
+  // Bots emote once the hand is in the books. Best-effort and isolated so a
+  // reaction/show-cards hiccup never blocks settlement.
+  try {
+    const tableId = state?.hand?.table_id;
+    if (tableId) {
+      await runBotExpressions({ onlineClient, handId, tableId });
+    }
+  } catch (error) {
+    console.error("[settleShowdownFromState] bot expression failed", error instanceof Error ? error.message : String(error));
+  }
+  return settleResult;
 }
 
 function didSeatAggressInCurrentHand(events: any[], groupPlayerId: string | null) {
