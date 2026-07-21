@@ -634,12 +634,15 @@
         }
       }
 
+      /* One clean half-turn. The scale rises to a single gentle peak at the
+         edge-on midpoint and settles back to 1 — monotonic on each side so the
+         card never appears to "re-flip" or pop after it has turned over. */
       @keyframes boardCardFlip {
         0% {
           transform: rotateY(0deg) scale(1);
         }
-        52% {
-          transform: rotateY(92deg) scale(1.03);
+        50% {
+          transform: rotateY(90deg) scale(1.05);
         }
         100% {
           transform: rotateY(180deg) scale(1);
@@ -650,11 +653,11 @@
       /* Turn — drama: a slow, weighty flip. */
       .board-flight-card[data-reveal-tone="turn"] .board-flight-card__inner {
         animation-name: boardCardFlipTurn;
-        animation-timing-function: cubic-bezier(0.66, 0, 0.2, 1);
+        animation-timing-function: cubic-bezier(0.62, 0.02, 0.2, 1);
       }
       @keyframes boardCardFlipTurn {
         0% { transform: rotateY(0deg) scale(1); }
-        56% { transform: rotateY(88deg) scale(1.07); }
+        50% { transform: rotateY(90deg) scale(1.08); }
         100% { transform: rotateY(180deg) scale(1); }
       }
       /* Turn — a golden bloom swells as the card turns over. */
@@ -675,15 +678,17 @@
         100% { opacity: 0; box-shadow: 0 0 14px 2px rgba(240, 200, 110, 0); }
       }
 
-      /* River — chaos: a fast, punchy flip that overshoots before it settles. */
+      /* River — chaos: a fast, hard, punchy flip. The energy comes from speed
+         and the impact flash, not from a scale that dips and springs back (that
+         post-turn rebound was what read as a second flip). Easing stays under
+         1.0 on the way out so the rotation never overshoots 180° and snaps back. */
       .board-flight-card[data-reveal-tone="river"] .board-flight-card__inner {
         animation-name: boardCardFlipRiver;
-        animation-timing-function: cubic-bezier(0.3, 0.86, 0.12, 1.12);
+        animation-timing-function: cubic-bezier(0.32, 0.9, 0.24, 1);
       }
       @keyframes boardCardFlipRiver {
         0% { transform: rotateY(0deg) scale(1); }
-        46% { transform: rotateY(96deg) scale(1.13); }
-        74% { transform: rotateY(172deg) scale(0.965); }
+        50% { transform: rotateY(90deg) scale(1.12); }
         100% { transform: rotateY(180deg) scale(1); }
       }
       /* River — a bright impact flash the instant the card slams down. */
@@ -2147,6 +2152,30 @@
 
       .astrip-allin:hover { background: rgba(251,146,60,0.12); }
 
+      /* Armed confirm state for the compact two-tap raise. Higher specificity +
+         !important so it wins over the per-layout compact .astrip-raise rules
+         regardless of source order. A filled, glowing gold reads unmistakably as
+         "tap again to send this raise." */
+      .action-strip.raise-armed .astrip-raise-confirm {
+        background: linear-gradient(180deg, #f4c86a 0%, #d99a2f 52%, #b9791d 100%) !important;
+        color: #241704 !important;
+        border: 1px solid rgba(255,239,198,0.72) !important;
+        box-shadow:
+          inset 0 1px 0 rgba(255,255,255,0.5),
+          0 8px 20px rgba(0,0,0,0.4),
+          0 0 20px rgba(236,178,86,0.4) !important;
+        font-weight: 900 !important;
+        animation: raiseConfirmPulse 1.6s ease-in-out infinite;
+      }
+      @keyframes raiseConfirmPulse {
+        0%, 100% { box-shadow: inset 0 1px 0 rgba(255,255,255,0.5), 0 8px 20px rgba(0,0,0,0.4), 0 0 16px rgba(236,178,86,0.34); }
+        50% { box-shadow: inset 0 1px 0 rgba(255,255,255,0.5), 0 8px 20px rgba(0,0,0,0.4), 0 0 26px rgba(236,178,86,0.5); }
+      }
+      @keyframes raisePanelIn {
+        0% { opacity: 0; transform: translateX(-6px) scale(0.97); }
+        100% { opacity: 1; transform: translateX(0) scale(1); }
+      }
+
       .action-strip.preaction-mode .astrip-allin {
         display: none !important;
       }
@@ -2251,11 +2280,16 @@
         display: flex;
         justify-content: center;
         align-items: center;
-        gap: 6px;
-        padding: 4px 12px 6px;
-        background: transparent;
-        border-top: none;
-        box-shadow: none;
+        gap: 8px;
+        padding: 8px 14px;
+        margin: 2px auto 0;
+        width: fit-content;
+        background: linear-gradient(180deg, rgba(11,16,22,0.72), rgba(7,11,16,0.6));
+        border: 1px solid rgba(236,178,86,0.2);
+        border-radius: 16px;
+        box-shadow: 0 10px 26px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.04);
+        backdrop-filter: blur(12px) saturate(1.08);
+        -webkit-backdrop-filter: blur(12px) saturate(1.08);
       }
 
       .preset-amount-wrap {
@@ -2342,17 +2376,18 @@
       .preset-chip {
         font: inherit;
         font-size: 11px;
-        font-weight: 600;
-        padding: 4px 12px;
+        font-weight: 700;
+        padding: 5px 13px;
         border-radius: 999px;
-        border: 1px solid var(--border);
-        background: rgba(255,255,255,0.04);
-        color: var(--text-muted);
+        border: 1px solid rgba(236,178,86,0.3);
+        background: rgba(236,178,86,0.12);
+        color: #f2e6cd;
         cursor: pointer;
-        transition: all 0.12s;
+        transition: background 0.12s, transform 0.08s, color 0.12s;
       }
 
-      .preset-chip:hover { background: rgba(255,255,255,0.08); color: var(--text); }
+      .preset-chip:hover { background: rgba(236,178,86,0.22); color: #fff4d9; }
+      .preset-chip:active { transform: scale(0.94); background: rgba(236,178,86,0.32); }
 
       /* Hand Log */
       .hand-log {
@@ -4111,12 +4146,16 @@
             "slider frac3"
             "slider frac4";
           align-items: center;
-          background: transparent !important;
-          padding: 6px 6px !important;
-          gap: 7px 4px !important;
-          border: none !important;
-          border-radius: 0;
-          box-shadow: none !important;
+          /* Cohesive panel surface (matches the action-strip card treatment). */
+          background: linear-gradient(180deg, rgba(11,16,22,0.9), rgba(7,11,16,0.82)) !important;
+          padding: 9px 8px !important;
+          gap: 6px 4px !important;
+          border: 1px solid rgba(236,178,86,0.3) !important;
+          border-radius: 16px !important;
+          box-shadow: 0 14px 32px rgba(0,0,0,0.46), inset 0 1px 0 rgba(255,255,255,0.05) !important;
+          backdrop-filter: blur(16px) saturate(1.1);
+          -webkit-backdrop-filter: blur(16px) saturate(1.1);
+          animation: raisePanelIn 0.16s ease-out;
         }
         .preset-slider-wrap {
           grid-area: slider;
@@ -4148,26 +4187,30 @@
         .preset-amount-label { display: none !important; }
         .preset-amount-input {
           width: 100% !important;
-          font-size: 9px !important;
+          font-size: 11px !important;
           font-weight: 800 !important;
-          padding: 3px 4px !important;
+          padding: 4px 4px !important;
           border-radius: 8px !important;
-          background: rgba(6,10,10,0.72) !important;
-          border: 1px solid rgba(236,178,86,0.26) !important;
+          color: #ffe7b4 !important;
+          background: rgba(4,7,10,0.82) !important;
+          border: 1px solid rgba(236,178,86,0.34) !important;
         }
         .preset-chip {
-          font-size: 8px;
+          font-size: 9px;
+          font-weight: 700;
           text-align: center;
-          width: 86%;
+          width: 90%;
           justify-self: center;
-          min-height: 18px;
+          min-height: 22px;
           line-height: 1;
-          padding: 2px 0;
+          padding: 3px 0;
           border-radius: 999px;
-          color: #e9decb;
-          background: rgba(12,18,18,0.7);
-          border: 1px solid rgba(236,178,86,0.26);
+          color: #f2e6cd;
+          background: rgba(236,178,86,0.12);
+          border: 1px solid rgba(236,178,86,0.3);
+          transition: background 0.12s, transform 0.08s;
         }
+        .preset-chip:active { transform: scale(0.94); background: rgba(236,178,86,0.28); }
         .preset-chip[data-fraction="0.33"] { grid-area: frac1; }
         .preset-chip[data-fraction="0.5"] { grid-area: frac2; }
         .preset-chip[data-fraction="0.75"] { grid-area: frac3; }
@@ -4783,9 +4826,9 @@
           left: calc(166px + env(safe-area-inset-left));
           bottom: max(0px, env(safe-area-inset-bottom));
           z-index: 24;
-          width: 140px;
+          width: 150px;
           display: grid;
-          grid-template-columns: 18px 1fr;
+          grid-template-columns: 20px 1fr;
           grid-template-areas:
             "slider amount"
             "slider frac1"
@@ -4793,12 +4836,16 @@
             "slider frac3"
             "slider frac4";
           align-items: center;
-          background: transparent !important;
-          padding: 6px 6px !important;
-          gap: 8px 4px !important;
-          border: none !important;
-          border-radius: 0;
-          box-shadow: none !important;
+          /* One cohesive panel surface instead of a scatter of floating controls. */
+          background: linear-gradient(180deg, rgba(11,16,22,0.9), rgba(7,11,16,0.82)) !important;
+          padding: 10px 9px !important;
+          gap: 7px 6px !important;
+          border: 1px solid rgba(236,178,86,0.3) !important;
+          border-radius: 16px !important;
+          box-shadow: 0 14px 34px rgba(0,0,0,0.46), inset 0 1px 0 rgba(255,255,255,0.05) !important;
+          backdrop-filter: blur(16px) saturate(1.1);
+          -webkit-backdrop-filter: blur(16px) saturate(1.1);
+          animation: raisePanelIn 0.16s ease-out;
         }
         .preset-slider-wrap {
           grid-area: slider;
@@ -4831,26 +4878,30 @@
         .preset-amount-label { display: none !important; }
         .preset-amount-input {
           width: 100% !important;
-          font-size: 10px !important;
+          font-size: 12px !important;
           font-weight: 800 !important;
-          padding: 4px 5px !important;
+          padding: 5px 5px !important;
           border-radius: 9px !important;
-          background: rgba(6,10,10,0.72) !important;
-          border: 1px solid rgba(236,178,86,0.26) !important;
+          color: #ffe7b4 !important;
+          background: rgba(4,7,10,0.82) !important;
+          border: 1px solid rgba(236,178,86,0.34) !important;
         }
         .preset-chip {
-          font-size: 8px;
+          font-size: 9px;
+          font-weight: 700;
           text-align: center;
-          width: 82%;
+          width: 88%;
           justify-self: center;
-          min-height: 20px;
+          min-height: 24px;
           line-height: 1;
-          padding: 3px 0;
+          padding: 4px 0;
           border-radius: 999px;
-          color: #e9decb;
-          background: rgba(12,18,18,0.7);
-          border: 1px solid rgba(236,178,86,0.26);
+          color: #f2e6cd;
+          background: rgba(236,178,86,0.12);
+          border: 1px solid rgba(236,178,86,0.3);
+          transition: background 0.12s, transform 0.08s;
         }
+        .preset-chip:active { transform: scale(0.94); background: rgba(236,178,86,0.28); }
         .preset-chip[data-fraction="0.33"] { grid-area: frac1; }
         .preset-chip[data-fraction="0.5"] { grid-area: frac2; }
         .preset-chip[data-fraction="0.75"] { grid-area: frac3; }
@@ -5222,6 +5273,6 @@
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
     <script src="./online/table_fx_geometry.js?v=203"></script>
-    <script type="module" src="./online/table_app.js?v=203"></script>
+    <script type="module" src="./online/table_app.js?v=204"></script>
   </body>
 </html>
