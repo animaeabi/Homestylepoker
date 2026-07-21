@@ -1999,23 +1999,40 @@ function decideBotActionCore({
 
     const potOdds = toCall / Math.max(1, pot + toCall);
     // Real win probability via Monte Carlo -- samples the remaining board and
-    // random opponent hands and counts how often we win. This replaces the old
-    // class-based strength floors (a hack for the heuristic score topping out
-    // around 0.5-0.6, which folded sets and two pair to overbets). Draws are
-    // already captured because we deal out future board cards, so nothing extra
-    // is added. Facing a bet the villain's range beats random hands, so shade the
-    // equity down a little -- more for bigger bets. (Range-weighted sampling from
-    // betting-line hand reading refines this later.)
+    // opponent hands and counts how often we win. Replaces the old class-based
+    // strength floors (a hack for the heuristic topping out ~0.5-0.6, which
+    // folded sets and two pair to overbets). Draws are already captured (we deal
+    // future board cards).
+    //
+    // Betting-line hand reading: rather than assume opponents hold random junk,
+    // infer how strong their range is from THIS hand's line -- a bigger bet, a
+    // later street, and a read that they don't bluff all mean a tighter, more
+    // connected range -- and bias the sampled opponent hands toward it. A nit
+    // betting big into the river is modelled near the nuts; a station or a
+    // bluff-heavy villain much looser.
+    let villainTightness = clamp(potOdds * 1.1, 0, 0.6);
+    if (street === "river") villainTightness += 0.12;
+    else if (street === "turn") villainTightness += 0.05;
+    const opRead = opponentProfile || null;
+    if (opRead) {
+      const opTags = opRead.tags || [];
+      if (opTags.includes("nit")) villainTightness += 0.15;
+      if (opTags.includes("station")) villainTightness -= 0.15;
+      if (opTags.includes("bluff-heavy")) villainTightness -= 0.18;
+      if (Number(opRead.foldToBet || 0) > 0.6) villainTightness += 0.08;
+      if (Number(opRead.aggression || 0) > 1.6) villainTightness -= 0.1;
+    }
+    villainTightness = clamp(villainTightness, 0, 0.85);
+
     let callEquity = effectiveStrength;
     const mcEquity = monteCarloEquity({
       holeCards,
       boardCards,
       opponents: clamp(activeSeatCount - 1, 1, 4),
+      villainTightness,
     });
     if (Number.isFinite(mcEquity)) {
-      const betPressure = clamp(toCall / Math.max(1, pot + toCall), 0, 1);
-      const rangeTax = clamp(betPressure * 0.18, 0, 0.1);
-      callEquity = clamp(mcEquity - rangeTax, 0, 1);
+      callEquity = clamp(mcEquity, 0, 1);
     }
     if (callEquity < potOdds) {
       // Curiosity / float call when priced badly — small, but mood- and
