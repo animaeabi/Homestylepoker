@@ -644,6 +644,19 @@ async function processBotAction({
     })
     .filter(Boolean);
   const opponentProfile = combineOpponentProfiles(activeOpponentReads);
+  // Table image: the bot's OWN read-profile, as the rest of the field sees it.
+  // Now that bots are tracked, its own row is in profileRows.
+  const selfProfileRow = Array.isArray(profileRows)
+    ? profileRows.find((row: any) => String(row?.group_player_id || "") === String(botPlayer.group_player_id || ""))
+    : null;
+  const selfImageProfile = selfProfileRow
+    ? buildOpponentRead({
+        profileRow: selfProfileRow,
+        handPlayer: botPlayer,
+        tableBigBlind: Math.max(1, Number(table?.big_blind || 2)),
+        avgStackBb: averageStackBb,
+      })
+    : null;
   const streetActionShape = summarizeStreetActionShape(
     handState?.events || [],
     String(liveHand?.state || hand.state || "preflop"),
@@ -728,6 +741,7 @@ async function processBotAction({
         activeSeatCount: players.filter((player: any) => !player.folded).length,
         wasAggressor: didSeatAggressInCurrentHand(handState?.events || [], actingSeat.group_player_id),
         opponentProfile,
+        selfImageProfile,
         streetAggressionCount: streetActionShape.aggressionCount,
         preflopLimperCount: streetActionShape.limperCount,
         effectiveStackBb,
