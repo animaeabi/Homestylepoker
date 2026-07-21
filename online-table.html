@@ -274,6 +274,20 @@
         to { transform: rotate(360deg); }
       }
 
+      .table-boot-exit {
+        margin-top: 6px;
+        padding: 10px 20px;
+        border-radius: 999px;
+        border: 1px solid rgba(236,178,86,0.5);
+        background: linear-gradient(180deg, rgba(24,20,12,0.9), rgba(14,11,7,0.95));
+        color: rgba(248,216,155,0.95);
+        font-size: 13px;
+        font-weight: 800;
+        letter-spacing: 0.04em;
+        cursor: pointer;
+      }
+      .table-boot-exit.hidden { display: none; }
+
       /* Top Bar */
       .top-bar {
         display: flex;
@@ -4913,6 +4927,7 @@
       <div class="table-boot-overlay hidden" id="tableBootOverlay" aria-live="polite" aria-hidden="true">
         <div class="table-boot-spinner" aria-hidden="true"></div>
         <div class="table-boot-label" id="tableBootLabel">Loading Table...</div>
+        <button type="button" class="table-boot-exit hidden" id="tableBootExit">Back to lobby</button>
       </div>
 
       <div class="config-overlay hidden" id="configOverlay">
@@ -5140,7 +5155,7 @@
     <div class="voice-audio-rack" id="voiceAudioRack" aria-hidden="true"></div>
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
-    <script src="./online/table_fx_geometry.js?v=195"></script>
-    <script type="module" src="./online/table_app.js?v=195"></script>
+    <script src="./online/table_fx_geometry.js?v=196"></script>
+    <script type="module" src="./online/table_app.js?v=196"></script>
   </body>
 </html>

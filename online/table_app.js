@@ -105,6 +105,7 @@ const el = {
   landscapeBarToggle: document.getElementById("landscapeBarToggle"),
   tableBootOverlay: document.getElementById("tableBootOverlay"),
   tableBootLabel: document.getElementById("tableBootLabel"),
+  tableBootExit: document.getElementById("tableBootExit"),
   tbTitle: document.getElementById("tbTitle"),
   tbBlinds: document.getElementById("tbBlinds"),
   tbPlayers: document.getElementById("tbPlayers"),
@@ -3088,6 +3089,18 @@ function setTableBooting(enabled, label = "Loading Table...") {
   el.tableBootOverlay?.classList.toggle("hidden", !enabled);
   el.tableBootOverlay?.setAttribute("aria-hidden", enabled ? "false" : "true");
   if (el.tableBootLabel) el.tableBootLabel.textContent = label;
+  // Escape hatch: if the table never finishes booting (network hiccup, blocked
+  // socket), reveal a "Back to lobby" button after a grace period so the player
+  // isn't stranded on an endless spinner.
+  if (state.tableBootExitTimer) { clearTimeout(state.tableBootExitTimer); state.tableBootExitTimer = null; }
+  if (enabled) {
+    if (el.tableBootExit) el.tableBootExit.classList.add("hidden");
+    state.tableBootExitTimer = setTimeout(() => {
+      if (state.tableBooting) el.tableBootExit?.classList.remove("hidden");
+    }, 12000);
+  } else if (el.tableBootExit) {
+    el.tableBootExit.classList.add("hidden");
+  }
 }
 
 function syncLandscapeTopBar(forceCollapse = false) {
@@ -4167,7 +4180,15 @@ function queueRtRefresh() {
   state.rtRefreshTimer = setTimeout(() => {
     state.rtRefreshQueued = false;
     state.rtRefreshTimer = null;
-    if (!state.loading && state.tableId) loadGameState();
+    if (!state.tableId) return;
+    if (state.loading) {
+      // A load is already in flight and its server read may predate this event
+      // (so dropping it would leave state stale — e.g. "your turn" — for up to
+      // the ~5s poll-staleness fallback). Re-queue instead of dropping.
+      queueRtRefresh();
+      return;
+    }
+    loadGameState();
   }, REALTIME_DEBOUNCE_MS);
 }
 
@@ -4543,7 +4564,7 @@ async function loadTableState() {
       // sit on "Reconnecting…" forever — and don't let a stale ?table id in the
       // URL keep resurrecting a dead table on reload. Leave for the lobby.
       state.loading = false;
-      toast("This table has ended — returning to the lobby…", "");
+      toast(deadTableToast(err), "");
       returnToLobbyDeadTable();
       return;
     }
@@ -4762,7 +4783,7 @@ async function loadGameState({ forceFull = false } = {}) {
       // the poll only ever runs this fast path, so the dead-table error was
       // swallowed here on every tick and the lobby redirect never happened.
       state.loading = false;
-      toast("This table has ended — returning to the lobby…", "");
+      toast(deadTableToast(err), "");
       returnToLobbyDeadTable();
       return;
     }
@@ -4978,7 +4999,7 @@ async function doRebuy() {
     toast("Chips added!", "success");
     await loadTableState();
   } catch (err) {
-    toast(err.message || "Rebuy failed", "error");
+    toast(friendlyOnlineError(err, "Rebuy failed — try again."), "error");
   }
 }
 
@@ -6390,6 +6411,57 @@ function isDeadTableError(err) {
   return DEAD_TABLE_ERROR_SIGNATURES.some((sig) => msg.includes(sig));
 }
 
+// A dead-table error that is really just THIS viewer's seat/token being gone
+// (not the whole table). Used to show "your seat expired" instead of the
+// alarming "this table has ended" when other players may still be playing.
+const SEAT_GONE_SIGNATURES = ["active_seat_not_found", "actor_not_seated", "seat_active_elsewhere"];
+function deadTableToast(err) {
+  const msg = String(err?.message || err || "").toLowerCase();
+  if (SEAT_GONE_SIGNATURES.some((sig) => msg.includes(sig))) {
+    return "Your seat expired — returning to the lobby…";
+  }
+  return "This table has ended — returning to the lobby…";
+}
+
+function isRateLimitError(err) {
+  return String(err?.message || err || "").toLowerCase().includes("action_rate_limited");
+}
+
+// Map raw server exception strings to human copy. The server raises snake_case
+// codes (wrapped as "[online_submit_action] raise_below_min (P0001)"); without
+// this the player sees that verbatim.
+const ONLINE_ERROR_MESSAGES = {
+  raise_below_min: "That raise is below the minimum.",
+  raise_target_too_low: "Your raise must be more than the current bet.",
+  raise_exceeds_stack: "You don't have enough chips for that raise.",
+  raise_add_invalid: "That raise amount isn't valid.",
+  bet_below_big_blind: "Minimum bet is one big blind.",
+  positive_amount_required: "Enter an amount first.",
+  nothing_to_call: "There's nothing to call — check instead.",
+  cannot_check: "You can't check facing a bet.",
+  use_raise_not_bet: "There's already a bet — raise instead.",
+  use_bet_not_raise: "No bet yet — bet instead.",
+  no_opponents_left_to_raise: "No opponents left to raise.",
+  no_stack: "You're out of chips.",
+  cannot_rebuy_during_active_hand: "You can only rebuy between hands.",
+  rebuy_amount_invalid: "Enter a valid rebuy amount.",
+  already_at_max_buy_in: "You're already at the maximum buy-in.",
+  seat_active_elsewhere: "That seat is active on another device.",
+  seat_token_invalid: "This seat is controlled on another device.",
+  seat_token_required: "Your seat session expired — rejoin the table.",
+  action_rate_limited: "You're acting too fast — try again.",
+  request_timeout: "The connection is slow — try again.",
+  not_enough_active_players: "Need at least two players with chips to deal.",
+  online_hand_already_active: "A hand is already in progress.",
+};
+function friendlyOnlineError(err, fallback = "Something went wrong — try again.") {
+  const msg = String(err?.message || err || "").toLowerCase();
+  for (const code in ONLINE_ERROR_MESSAGES) {
+    if (msg.includes(code)) return ONLINE_ERROR_MESSAGES[code];
+  }
+  return fallback;
+}
+
 // Escape a dead table: drop the ?table id from the URL and reload so init()
 // shows the lobby instead of re-entering a table that no longer exists (which
 // is what made reloads useless — the pinned ?table id kept resurrecting the
@@ -6444,7 +6516,23 @@ async function submitTurnAction(label, actionType) {
   renderActions();
   state.loading = true;
   try {
-    await doAction(actionType, payload);
+    // Retry once on the 500ms per-hand rate limit (fast legit play can trip it).
+    // The clientActionId is stable across this retry, so the server dedupe
+    // prevents a double action.
+    let rlAttempt = 0;
+    while (true) {
+      try {
+        await doAction(actionType, payload);
+        break;
+      } catch (e) {
+        if (isRateLimitError(e) && rlAttempt < 1) {
+          rlAttempt += 1;
+          await new Promise((r) => setTimeout(r, 600));
+          continue;
+        }
+        throw e;
+      }
+    }
     // The action landed — retire its idempotency key so the next decision
     // always gets a fresh one.
     state.lastActionAttempt = null;
@@ -6474,7 +6562,7 @@ async function submitTurnAction(label, actionType) {
     renderActions();
     if (isDeadTableError(err)) {
       // The table/seat is gone — leave it and go back to the lobby.
-      toast("This table has ended — returning to the lobby…", "");
+      toast(deadTableToast(err), "");
       returnToLobbyDeadTable();
     } else if (isStaleHandError(err)) {
       // Our cached hand id no longer matches the server's live state. Resync
@@ -6487,7 +6575,7 @@ async function submitTurnAction(label, actionType) {
         toast("Table updated — check the current hand and try again.", "");
       } catch (syncErr) {
         if (isDeadTableError(syncErr) || isStaleHandError(syncErr)) {
-          toast("This table has ended — returning to the lobby…", "");
+          toast(deadTableToast(syncErr), "");
           returnToLobbyDeadTable();
         } else {
           console.warn("[submitTurnAction resync]", syncErr);
@@ -6495,7 +6583,7 @@ async function submitTurnAction(label, actionType) {
         }
       }
     } else {
-      toast(err.message || `${label} failed`, "error");
+      toast(friendlyOnlineError(err, `${label} failed — try again.`), "error");
     }
   } finally {
     state.heroPreactionExecuting = false;
@@ -6505,6 +6593,9 @@ async function submitTurnAction(label, actionType) {
 
 // ============ EVENT HANDLERS ============
 function bindEvents() {
+  el.tableBootExit?.addEventListener("click", () => {
+    returnToLobbyDeadTable();
+  });
   el.foldBtn.addEventListener("click", () => {
     const hand = getLatestHand();
     const hp = getMyHandPlayer();
