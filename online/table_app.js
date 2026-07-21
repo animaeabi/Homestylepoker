@@ -6066,6 +6066,10 @@ function renderActions() {
     el.allInBtn.textContent = `All-in`;
     el.betRaiseBtn.classList.toggle("hidden", !canAggress);
     el.allInBtn.classList.toggle("hidden", !canAggress);
+    // "armed" = the compact amount panel is open and the next Raise tap commits.
+    // Reset it every render; the compact branch re-adds it when the panel is up.
+    el.actionStrip.classList.remove("raise-armed");
+    el.betRaiseBtn.classList.remove("astrip-raise-confirm");
     if (!canAggress) {
       state.landscapeRaisePanelOpen = false;
       el.presetRow.classList.add("hidden");
@@ -6073,9 +6077,14 @@ function renderActions() {
       const panelOpen = state.landscapeRaisePanelOpen;
       el.presetRow.classList.toggle("hidden", !panelOpen);
       // On compact layouts the first Raise tap opens the amount panel and the
-      // second commits. Make the commit unambiguous: show the amount that will
-      // actually be sent while the panel is open.
+      // second commits. While the panel is open the strip is "armed": hide Call
+      // (so the raise-in-progress can't be fat-fingered into a call — this was a
+      // reported mis-tap) and turn Raise into a filled "Raise $X" confirm that
+      // shows exactly what will be sent. Tapping the table backdrop cancels.
       if (panelOpen) {
+        el.actionStrip.classList.add("raise-armed");
+        el.callBtn.classList.add("hidden");
+        el.betRaiseBtn.classList.add("astrip-raise-confirm");
         const amt = Number(getBetControlValue());
         if (Number.isFinite(amt) && amt > 0) el.betRaiseBtn.textContent = `${raiseVerb} ${fmtShort(amt)}`;
       }
