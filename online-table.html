@@ -4170,19 +4170,19 @@
              panel and the buttons read as one cluster, not two separated blocks. */
           bottom: calc(env(safe-area-inset-bottom) + 138px);
           z-index: 24;
-          width: 158px;
+          width: 168px;
           display: grid;
-          grid-template-columns: 18px 1fr 1fr;
+          grid-template-columns: 1fr 1fr;
           grid-template-areas:
-            "slider amount amount"
-            "slider frac1  frac2"
-            "slider frac3  frac4";
+            "amount amount"
+            "slider slider"
+            "frac1  frac2"
+            "frac3  frac4";
           align-items: center;
-          /* Frosted glass — translucent so the board behind stays visible, and
-             short (2x2 chips) so it sits below the community-card row. */
+          /* Neutral charcoal glass so it doesn't take on the felt's green. */
           background: linear-gradient(180deg, rgba(17,20,28,0.82), rgba(10,12,18,0.78)) !important;
-          padding: 8px 9px !important;
-          gap: 6px !important;
+          padding: 9px 10px !important;
+          gap: 7px !important;
           border: 1px solid rgba(236,178,86,0.34) !important;
           border-radius: 16px !important;
           box-shadow: 0 12px 30px rgba(0,0,0,0.42), inset 0 1px 0 rgba(255,255,255,0.09) !important;
@@ -4192,38 +4192,47 @@
         }
         .preset-slider-wrap {
           grid-area: slider;
-          width: 20px;
-          height: 100%;
-          min-height: 92px;
+          width: 100%;
+          min-height: 0;
+          height: 26px;
           display: flex;
           align-items: center;
           justify-content: center;
-          border-radius: 10px;
+          padding: 0 2px;
+          border-radius: 0;
           background: transparent;
           border: none;
         }
+        /* Horizontal slider in its own full-width row (overrides the base
+           vertical writing-mode; the vertical thumb-in-the-corner looked broken). */
         .preset-slider-vertical {
-          width: 12px;
-          height: 78px;
+          writing-mode: horizontal-tb !important;
+          direction: ltr !important;
+          width: 100% !important;
+          height: 22px !important;
         }
+        .preset-slider-vertical::-webkit-slider-runnable-track { width: 100%; height: 6px; }
+        .preset-slider-vertical::-webkit-slider-thumb { margin-top: -8px; }
+        .preset-slider-vertical::-moz-range-track { width: 100%; height: 6px; }
         .preset-amount-wrap {
           grid-area: amount;
           display: flex !important;
-          width: 100%;
-          align-items: center;
+          width: auto;
+          justify-self: center;
+          align-items: baseline;
           justify-content: center;
-          padding: 3px 4px;
+          padding: 4px 16px;
           border-radius: 999px;
           background: rgba(0,0,0,0.34);
           border: 1px solid rgba(236,178,86,0.26);
         }
         .preset-amount-label { display: none !important; }
         .preset-amount-input {
-          width: 52px !important;
+          width: 44px !important;
           font-size: 15px !important;
           font-weight: 800 !important;
-          padding: 3px 2px !important;
-          text-align: center !important;
+          padding: 0 !important;
+          text-align: left !important;
           border-radius: 8px !important;
           color: #ffe7b4 !important;
           background: transparent !important;
@@ -4860,18 +4869,19 @@
           left: calc(166px + env(safe-area-inset-left));
           bottom: max(0px, env(safe-area-inset-bottom));
           z-index: 24;
-          width: 162px;
+          width: 172px;
           display: grid;
-          grid-template-columns: 20px 1fr 1fr;
+          grid-template-columns: 1fr 1fr;
           grid-template-areas:
-            "slider amount amount"
-            "slider frac1  frac2"
-            "slider frac3  frac4";
+            "amount amount"
+            "slider slider"
+            "frac1  frac2"
+            "frac3  frac4";
           align-items: center;
-          /* Frosted glass, short (2x2 chips) so it stays clear of the board. */
+          /* Neutral charcoal glass so it doesn't take on the felt's green. */
           background: linear-gradient(180deg, rgba(17,20,28,0.82), rgba(10,12,18,0.78)) !important;
-          padding: 9px 9px !important;
-          gap: 6px !important;
+          padding: 9px 10px !important;
+          gap: 7px !important;
           border: 1px solid rgba(236,178,86,0.34) !important;
           border-radius: 16px !important;
           box-shadow: 0 12px 30px rgba(0,0,0,0.42), inset 0 1px 0 rgba(255,255,255,0.09) !important;
@@ -4881,39 +4891,46 @@
         }
         .preset-slider-wrap {
           grid-area: slider;
-          width: 20px;
-          height: 100%;
-          min-height: 96px;
+          width: 100%;
+          min-height: 0;
+          height: 26px;
           display: flex;
           align-items: center;
           justify-content: center;
-          border-radius: 10px;
+          padding: 0 2px;
+          border-radius: 0;
           background: transparent;
           border: none;
         }
         .preset-slider-vertical {
-          width: 12px;
-          height: 82px;
+          writing-mode: horizontal-tb !important;
+          direction: ltr !important;
+          width: 100% !important;
+          height: 22px !important;
         }
+        .preset-slider-vertical::-webkit-slider-runnable-track { width: 100%; height: 6px; }
+        .preset-slider-vertical::-webkit-slider-thumb { margin-top: -8px; }
+        .preset-slider-vertical::-moz-range-track { width: 100%; height: 6px; }
         .preset-amount-wrap {
           grid-area: amount;
           display: flex !important;
-          width: 100%;
-          align-items: center;
+          width: auto;
+          justify-self: center;
+          align-items: baseline;
           justify-content: center;
-          gap: 6px;
-          padding: 4px 6px;
+          gap: 0;
+          padding: 4px 18px;
           border-radius: 999px;
           background: rgba(0,0,0,0.34);
           border: 1px solid rgba(236,178,86,0.26);
         }
         .preset-amount-label { display: none !important; }
         .preset-amount-input {
-          width: 58px !important;
+          width: 48px !important;
           font-size: 16px !important;
           font-weight: 800 !important;
-          padding: 3px 2px !important;
-          text-align: center !important;
+          padding: 0 !important;
+          text-align: left !important;
           border-radius: 9px !important;
           color: #ffe7b4 !important;
           background: transparent !important;
