@@ -2294,9 +2294,27 @@
 
       .preset-amount-wrap {
         display: none;
+        position: relative;
         align-items: center;
         gap: 6px;
         padding-right: 4px;
+      }
+
+      /* Currency prefix for the compact amount field. The wrap is display:none on
+         desktop, so this only shows in the compact raise panels where the field
+         is visible. Absolutely positioned + pointer-events:none so it never
+         fights the number input regardless of its flex alignment. */
+      .preset-amount-wrap::before {
+        content: "$";
+        position: absolute;
+        left: 9px;
+        top: 50%;
+        transform: translateY(-50%);
+        font-size: 11px;
+        font-weight: 800;
+        color: #ffe7b4;
+        pointer-events: none;
+        z-index: 2;
       }
 
       .preset-amount-label {
@@ -4146,13 +4164,14 @@
             "slider frac3"
             "slider frac4";
           align-items: center;
-          /* Cohesive panel surface (matches the action-strip card treatment). */
-          background: linear-gradient(180deg, rgba(11,16,22,0.9), rgba(7,11,16,0.82)) !important;
+          /* Cohesive, near-opaque panel so it cleanly covers the left-side seat
+             bubbles it sits in front of instead of letting them ghost through. */
+          background: linear-gradient(180deg, rgba(9,13,18,0.985), rgba(6,9,13,0.965)) !important;
           padding: 9px 8px !important;
           gap: 6px 4px !important;
-          border: 1px solid rgba(236,178,86,0.3) !important;
+          border: 1px solid rgba(236,178,86,0.34) !important;
           border-radius: 16px !important;
-          box-shadow: 0 14px 32px rgba(0,0,0,0.46), inset 0 1px 0 rgba(255,255,255,0.05) !important;
+          box-shadow: 0 14px 32px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.05) !important;
           backdrop-filter: blur(16px) saturate(1.1);
           -webkit-backdrop-filter: blur(16px) saturate(1.1);
           animation: raisePanelIn 0.16s ease-out;
@@ -4161,7 +4180,7 @@
           grid-area: slider;
           width: 16px;
           height: 100%;
-          min-height: 146px;
+          min-height: 128px;
           display: flex;
           align-items: center;
           justify-content: center;
@@ -4171,7 +4190,7 @@
         }
         .preset-slider-vertical {
           width: 10px;
-          height: 96px;
+          height: 86px;
         }
         .preset-amount-wrap {
           grid-area: amount;
@@ -4189,7 +4208,8 @@
           width: 100% !important;
           font-size: 11px !important;
           font-weight: 800 !important;
-          padding: 4px 4px !important;
+          padding: 4px 4px 4px 15px !important;
+          text-align: left !important;
           border-radius: 8px !important;
           color: #ffe7b4 !important;
           background: rgba(4,7,10,0.82) !important;
@@ -4836,13 +4856,14 @@
             "slider frac3"
             "slider frac4";
           align-items: center;
-          /* One cohesive panel surface instead of a scatter of floating controls. */
-          background: linear-gradient(180deg, rgba(11,16,22,0.9), rgba(7,11,16,0.82)) !important;
+          /* Near-opaque cohesive panel so it cleanly covers any seat bubble it
+             sits in front of instead of a scatter of see-through controls. */
+          background: linear-gradient(180deg, rgba(9,13,18,0.985), rgba(6,9,13,0.965)) !important;
           padding: 10px 9px !important;
           gap: 7px 6px !important;
-          border: 1px solid rgba(236,178,86,0.3) !important;
+          border: 1px solid rgba(236,178,86,0.34) !important;
           border-radius: 16px !important;
-          box-shadow: 0 14px 34px rgba(0,0,0,0.46), inset 0 1px 0 rgba(255,255,255,0.05) !important;
+          box-shadow: 0 14px 34px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.05) !important;
           backdrop-filter: blur(16px) saturate(1.1);
           -webkit-backdrop-filter: blur(16px) saturate(1.1);
           animation: raisePanelIn 0.16s ease-out;
@@ -4851,7 +4872,7 @@
           grid-area: slider;
           width: 17px;
           height: 100%;
-          min-height: 156px;
+          min-height: 138px;
           display: flex;
           align-items: center;
           justify-content: center;
@@ -4861,14 +4882,14 @@
         }
         .preset-slider-vertical {
           width: 12px;
-          height: 104px;
+          height: 94px;
         }
         .preset-amount-wrap {
           grid-area: amount;
           display: flex !important;
           width: 100%;
           align-items: center;
-          justify-content: space-between;
+          justify-content: center;
           gap: 6px;
           padding: 4px 6px;
           border-radius: 999px;
@@ -4880,7 +4901,8 @@
           width: 100% !important;
           font-size: 12px !important;
           font-weight: 800 !important;
-          padding: 5px 5px !important;
+          padding: 5px 5px 5px 16px !important;
+          text-align: left !important;
           border-radius: 9px !important;
           color: #ffe7b4 !important;
           background: rgba(4,7,10,0.82) !important;
