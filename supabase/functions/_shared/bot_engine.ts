@@ -794,6 +794,67 @@ function canContinueVsThreeBet({
   return false;
 }
 
+// A bounded, per-hand "risk mood" in ~[-0.16, +0.16]. The deterministic half is
+// seeded from the hole cards + seat so a bot plays a whole street with a
+// consistent temperament (loose this hand, cautious the next); the random half
+// keeps it genuinely unpredictable so a human can't read a fixed range. Positive
+// = greedier (peel/chase/hero-call more), negative = tighter. It shifts the
+// mixing around the EV center; it never overrides clear +EV/-EV math.
+function handRiskMood(holeCards: string[] | undefined, seatNo: number, street: string, personality: BotPersonality) {
+  const seed = `${holeCards?.[0] || ""}${holeCards?.[1] || ""}|${seatNo}|${street}`;
+  let h = 2166136261;
+  for (let i = 0; i < seed.length; i += 1) {
+    h ^= seed.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  const deterministic = ((h >>> 0) % 1000) / 1000 - 0.5; // stable per hand
+  const jitter = rand(-0.5, 0.5);                         // live variance
+  const style = PREFLOP_STYLE[personality] || PREFLOP_STYLE.TAG;
+  return clamp((deterministic * 0.6 + jitter * 0.4) * 0.22 + style.riskShift * 0.5, -0.16, 0.16);
+}
+
+// How willing the bot is to peel/gamble beyond its disciplined range when facing
+// a raise. Kept small (<=~0.3) so the EV center holds, but never zero so "big
+// raise = auto-fold" is never a safe read. Weighted toward implied-odds hands
+// (pairs to set-mine, suited connectors), position, personality, the opponent
+// read, and the current risk mood; shrinks as the price grows.
+function curiosityContinueProb({
+  features,
+  tier,
+  toCallBb,
+  effectiveStackBb,
+  position,
+  personality,
+  readShift,
+  mood,
+}: {
+  features: PreflopFeatures;
+  tier: PreflopTier;
+  toCallBb: number;
+  effectiveStackBb: number;
+  position: PositionBand;
+  personality: BotPersonality;
+  readShift: number;
+  mood: number;
+}) {
+  if (toCallBb <= 0) return 0;
+  if (toCallBb > effectiveStackBb * 0.5 || toCallBb > 24) return 0.02;
+  const inPos = isInPosition(position);
+  let p = 0.05;
+  p += tier === "trash" ? -0.02 : tier === "marginal" ? 0.01 : 0.04;
+  if (features.paired) p += 0.06;
+  if (features.suited && features.connected) p += 0.05;
+  else if (features.suited) p += 0.02;
+  if (inPos) p += 0.03;
+  if (personality === "Station") p += 0.06;
+  else if (personality === "LAG") p += 0.03;
+  else if (personality === "Rock") p -= 0.03;
+  p += (readShift || 0) * 0.3;
+  p += (mood || 0);
+  p *= clamp(1 - (toCallBb - 3) / 22, 0.3, 1);
+  return clamp(p, 0.02, 0.3);
+}
+
 function stackToPotRatio(stack: number, pot: number, toCall: number) {
   return Math.max(0, stack - toCall) / Math.max(1, pot + toCall);
 }
@@ -1439,6 +1500,24 @@ function decideStructuredPreflopAction({
   const readShift = preflopReadShift(opponentProfile || null, personality);
   const handScore = features.tierScore + rawStrength * 0.9;
 
+  // Facing a raise, don't fold a fixed range every time — peel occasionally so
+  // the decision stays unpredictable and priced by mood/read, not a hard cap.
+  const riskMood = handRiskMood(holeCards, seatNo, "preflop", personality);
+  const curiosityFold = () => (
+    coinFlip(curiosityContinueProb({
+      features,
+      tier: features.tier,
+      toCallBb,
+      effectiveStackBb,
+      position,
+      personality,
+      readShift,
+      mood: riskMood,
+    }))
+      ? { actionType: "call", amount: null as number | null }
+      : { actionType: "fold", amount: null as number | null }
+  );
+
   const raiseTargetAmount = (targetBb: number) => {
     const cappedCommitmentBb = maxPreflopCommitmentBb({
       tier: features.tier,
@@ -1551,7 +1630,7 @@ function decideStructuredPreflopAction({
       })) {
         return { actionType: "call", amount: null as number | null };
       }
-      return { actionType: "fold", amount: null as number | null };
+      return curiosityFold();
     }
 
     if (features.tier === "value") {
@@ -1573,7 +1652,7 @@ function decideStructuredPreflopAction({
       })) {
         return { actionType: "call", amount: null as number | null };
       }
-      return { actionType: "fold", amount: null as number | null };
+      return curiosityFold();
     }
 
     if (canFlatOpen({
@@ -1587,7 +1666,7 @@ function decideStructuredPreflopAction({
     })) {
       return { actionType: "call", amount: null as number | null };
     }
-    return { actionType: "fold", amount: null as number | null };
+    return curiosityFold();
   }
 
   if (bucket === "vs_3bet") {
@@ -1622,7 +1701,7 @@ function decideStructuredPreflopAction({
       return { actionType: "call", amount: null as number | null };
     }
 
-    return { actionType: "fold", amount: null as number | null };
+    return curiosityFold();
   }
 
   if (features.tier === "premium") {
@@ -1631,7 +1710,7 @@ function decideStructuredPreflopAction({
       return { actionType: "call", amount: null as number | null };
     }
   }
-  return { actionType: "fold", amount: null as number | null };
+  return curiosityFold();
 }
 
 function decideBotActionCore({
@@ -1708,6 +1787,9 @@ function decideBotActionCore({
     activeSeatCount,
   });
   const profile = PROFILES[livePersonality] || PROFILES.TAG;
+  // Per-hand risk mood (postflop): nudges call/fold mixing so the bot doesn't
+  // fold or call a fixed range every time — keeps it unreadable and un-trappable.
+  const riskMood = isPreflop ? 0 : handRiskMood(holeCards, seatNo, street, livePersonality);
 
   const posMult = positionMultiplier(seatNo || 0, buttonSeat || 0, totalSeats || 6, activeSeatCount || 2);
   const opAdj = opponentAdjustments(opponentProfile || null, livePersonality);
@@ -1931,9 +2013,10 @@ function decideBotActionCore({
     }
     callEquity += drawStrength * 0.8;
     if (callEquity < potOdds) {
-      // Rare curiosity call at a sane price only — the old flat 20% called
-      // anything at any price.
-      return (potOdds <= 0.35 && coinFlip(0.06))
+      // Curiosity / float call when priced badly — small, but mood- and
+      // draw-weighted so "I bet, they always fold" is never a safe read.
+      const curioProb = clamp(0.05 + Math.max(0, riskMood) + (postflop.holeParticipates ? 0.03 : 0), 0.02, 0.28);
+      return (potOdds <= 0.42 && coinFlip(curioProb))
         ? { actionType: "call", amount: null as number | null }
         : { actionType: "fold", amount: null as number | null };
     }
@@ -1943,8 +2026,8 @@ function decideBotActionCore({
     // flip folded strong hands 30% of the time even getting great odds).
     const equityMargin = callEquity - potOdds;
     const continueProb = equityMargin >= 0.25
-      ? 0.97
-      : clamp(adjustedCallRate + equityMargin, 0.4, 0.95);
+      ? clamp(0.97 + riskMood * 0.15, 0.9, 0.99)
+      : clamp(adjustedCallRate + equityMargin + riskMood, 0.38, 0.97);
     return coinFlip(continueProb) ? { actionType: "call", amount: null as number | null } : { actionType: "fold", amount: null as number | null };
   }
 
