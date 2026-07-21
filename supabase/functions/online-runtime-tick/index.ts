@@ -458,8 +458,11 @@ async function processBotAction({
   const averageStackBb = liveOpponents.length
     ? liveOpponents.reduce((sum: number, player: any) => sum + (toNumber(player.stack_end, 0) / Math.max(1, Number(table?.big_blind || 2))), 0) / liveOpponents.length
     : (toNumber(botPlayer.stack_end, 0) / Math.max(1, Number(table?.big_blind || 2)));
-  const activeHumanReads = liveOpponents
-    .filter((player: any) => !player.is_bot)
+  // Read EVERY live opponent, humans and bots alike — bots are meant to profit
+  // off each other, not just the humans. Untracked opponents fall back to a
+  // low-confidence default, so combineOpponentProfiles still leans on whoever
+  // there's the most history for (usually the humans).
+  const activeOpponentReads = liveOpponents
     .map((player: any) => {
       const profileRow = Array.isArray(profileRows)
         ? profileRows.find((row: any) => String(row?.group_player_id || "") === String(player.group_player_id || ""))
@@ -472,7 +475,7 @@ async function processBotAction({
       });
     })
     .filter(Boolean);
-  const opponentProfile = combineOpponentProfiles(activeHumanReads);
+  const opponentProfile = combineOpponentProfiles(activeOpponentReads);
   const streetActionShape = summarizeStreetActionShape(
     handState?.events || [],
     String(liveHand?.state || hand.state || "preflop"),
