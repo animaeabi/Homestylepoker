@@ -282,7 +282,7 @@ function splitCents(totalCents, seats) {
   }));
 }
 
-export function resolveShowdownPayouts({ boardCards, players }) {
+export function resolveShowdownPayouts({ boardCards, players, buttonSeat = null }) {
   const board = (boardCards || []).map(toCard);
   if (board.length !== 5) throw new Error("Board must contain exactly 5 cards.");
 
@@ -319,7 +319,14 @@ export function resolveShowdownPayouts({ boardCards, players }) {
     }
 
     const cents = Math.round(Number(pot.amount || 0) * 100);
-    const shares = splitCents(cents, winners.sort((a, b) => a - b));
+    // Standard odd-chip rule: extra cent(s) go to the first winner(s) left of
+    // the button (mirrors the server-side settler).
+    const orderedWinners = buttonSeat != null
+      ? winners.sort((a, b) =>
+        (((a - Number(buttonSeat) - 1) % 1024) + 1024) % 1024
+        - (((b - Number(buttonSeat) - 1) % 1024) + 1024) % 1024)
+      : winners.sort((a, b) => a - b);
+    const shares = splitCents(cents, orderedWinners);
     for (const share of shares) {
       payoutCents.set(share.seatNo, (payoutCents.get(share.seatNo) || 0) + share.cents);
     }

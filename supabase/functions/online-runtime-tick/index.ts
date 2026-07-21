@@ -287,7 +287,8 @@ function buildShowdownPayoutsFromHandState(handState: any) {
 
   return resolveShowdownPayouts({
     boardCards: Array.isArray(hand.board_cards) ? hand.board_cards : [],
-    players
+    players,
+    buttonSeat: hand.button_seat != null ? Number(hand.button_seat) : null
   });
 }
 
@@ -334,8 +335,17 @@ function summarizeStreetActionShape(events: any[], street: string, bigBlind: num
     if (ev?.event_type !== "action_taken") continue;
     if (String(ev?.payload?.street || "") !== String(street || "")) continue;
     const action = String(ev?.payload?.action_type || "");
-    if (action === "raise" || action === "bet" || action === "all_in") {
+    if (action === "raise" || action === "bet") {
       aggressionCount += 1;
+      continue;
+    }
+    if (action === "all_in") {
+      // An all-in only counts as aggression when it actually put in MORE than
+      // the price it was facing; a call-for-less all-in isn't a raise, and
+      // counting it as one made bots read limped pots as 3-bet pots.
+      const amount = Number(ev?.payload?.amount || 0);
+      const toCallBefore = Number(ev?.payload?.to_call_before || 0);
+      if (amount > toCallBefore + 1e-9) aggressionCount += 1;
       continue;
     }
     if (
@@ -424,6 +434,20 @@ async function processBotAction({
     return { handId: hand.id, state: hand.state, advanced: 0, settled: false, skipped: true, reason: "bot_player_not_found" };
   }
 
+  // The batch scan's action_seat can be stale by the time this hand's turn in
+  // the loop arrives. Re-resolve the acting seat from the LIVE hand so the
+  // decision inputs and the submit credentials always belong to the same seat.
+  if (liveHand?.action_seat != null && Number(liveHand.action_seat) !== Number(hand.action_seat)) {
+    const liveSeat = await onlineClient.getActiveSeatByNumber({
+      tableId: hand.table_id,
+      seatNo: Number(liveHand.action_seat)
+    });
+    if (!liveSeat?.is_bot || !liveSeat?.group_player_id || !liveSeat?.seat_token) {
+      return { handId: hand.id, state: currentState, advanced: 0, settled: false, skipped: true, reason: "action_seat_moved" };
+    }
+    actingSeat = liveSeat;
+  }
+
   const liveOpponents = players.filter((player: any) =>
     Number(player.seat_no) !== Number(botPlayer.seat_no)
     && !player.folded
@@ -477,7 +501,13 @@ async function processBotAction({
   const shouldForceTimeoutAction = elapsedMs >= turnTimeoutMs;
 
   if (!shouldForceTimeoutAction && elapsedMs < thinkMs) {
-    return { handId: hand.id, state: hand.state, advanced: 0, settled: false, skipped: true, reason: "awaiting_bot_think" };
+    // Sleep out the remaining think time (bounded) instead of discarding the
+    // dispatch — the discard meant the fast post-action nudge never acted and
+    // bots waited for the next 10s cron tick, making bot-vs-bot streets crawl.
+    const waitMs = Math.min(Math.max(0, thinkMs - elapsedMs), 2500);
+    if (waitMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+    }
   }
 
   if (!actingSeat?.group_player_id || !actingSeat?.seat_token) {
@@ -532,12 +562,27 @@ async function processBotAction({
         effectiveStackBb,
         startingStackBb: Number(table?.starting_stack || 0) / Math.max(1, Number(table?.big_blind || 2)),
         averageOpponentStackBb: averageStackBb,
+        // Awareness inputs: the legal minimum raise, whether anyone can still
+        // respond to a raise, and whether betting is reopened for this seat.
+        minRaise: Number(liveHand?.min_raise || 0),
+        raiseEligibleOpponents: players.filter((player: any) =>
+          Number(player.seat_no) !== Number(botPlayer.seat_no)
+          && !player.folded
+          && !player.all_in
+          && (toNumber(player.stack_end, 0) + toNumber(player.street_contribution, 0)) > Number(liveHand?.current_bet || 0)
+        ).length,
+        raiseLocked: String(botPlayer.raise_locked_street || "") === String(liveHand?.state || hand.state || ""),
       });
     } catch (_error) {
       decision = timeoutFallbackDecision;
     }
   }
 
+  // Turn-scoped idempotency key: stable across racing dispatchers (cron tick +
+  // post-action nudge) for the SAME turn, so the server dedupe actually
+  // prevents a double action; changes when the turn changes.
+  const turnStamp = Date.parse(String(liveHand?.last_action_at || hand.last_action_at || "")) || 0;
+  const turnSeat = Number(liveHand?.action_seat ?? hand.action_seat ?? 0);
   try {
     await onlineClient.submitAction({
       handId: hand.id,
@@ -545,23 +590,41 @@ async function processBotAction({
       actionType: decision.actionType,
       amount: decision.amount,
       seatToken: actingSeat.seat_token,
-      clientActionId: `${shouldForceTimeoutAction ? "runtime_bot_timeout" : "runtime_bot_action"}:${hand.id}:${actingSeat.id}:${Date.now()}`
+      clientActionId: `${shouldForceTimeoutAction ? "runtime_bot_timeout" : "runtime_bot_action"}:${hand.id}:${turnSeat}:${turnStamp}`
     });
   } catch (error) {
-    const alreadyUsingFallback =
-      decision.actionType === timeoutFallbackDecision.actionType &&
-      decision.amount == null;
-    if (alreadyUsingFallback) {
+    const message = String((error as any)?.message || error || "").toLowerCase();
+    // Turn races / throttles: someone else already acted or we're temporarily
+    // limited. Do NOT act on stale intent — let the next nudge/tick serve the
+    // real state.
+    if (message.includes("not_actor_turn")
+      || message.includes("action_rate_limited")
+      || message.includes("hand_not_accepting_actions")
+      || message.includes("online_hand_not_found")
+      || message.includes("actor_already_")) {
+      return { handId: hand.id, state: currentState, advanced: 0, settled: false, skipped: true, reason: "transient_submit_conflict" };
+    }
+    // A genuine validation rejection means the engine produced an illegal
+    // action — log it loudly (this used to be silent) and take the SAFE line:
+    // call when facing a bet, check when not. The old fallback folded, which
+    // made bots surrender the exact hands they were trying to raise.
+    console.error("[processBotAction] rejected", decision.actionType, decision.amount, message);
+    const safeFallback = {
+      actionType: toCall > 0 ? "call" : "check",
+      amount: null as number | null,
+    };
+    const alreadySafe = decision.actionType === safeFallback.actionType && decision.amount == null;
+    if (alreadySafe) {
       throw error;
     }
-    decision = timeoutFallbackDecision;
+    decision = safeFallback;
     await onlineClient.submitAction({
       handId: hand.id,
       actorGroupPlayerId: actingSeat.group_player_id,
       actionType: decision.actionType,
       amount: decision.amount,
       seatToken: actingSeat.seat_token,
-      clientActionId: `runtime_bot_timeout:${hand.id}:${actingSeat.id}:${Date.now()}`
+      clientActionId: `runtime_bot_fallback:${hand.id}:${turnSeat}:${turnStamp}`
     });
   }
 
@@ -713,7 +776,15 @@ async function processHandForRuntime({
       });
     }
 
-    if (elapsedSecs < turnTimeoutSecs) {
+    // A player who enabled "auto-check when available" checks immediately
+    // (before the timeout) whenever checking is free, instead of stalling the
+    // table for the full decision clock. Previously this preference only
+    // changed a log label and did nothing.
+    const autoCheckEligible = Boolean(
+      actingSeat?.auto_check_when_available && actingSeat?.group_player_id && actingSeat?.seat_token
+    );
+
+    if (elapsedSecs < turnTimeoutSecs && !autoCheckEligible) {
       return {
         handId,
         state: currentState,
@@ -733,6 +804,19 @@ async function processHandForRuntime({
       0,
       Number(currentHand?.current_bet || 0) - Number(actingPlayer?.street_contribution || 0)
     );
+
+    // Auto-check seat facing a live price before the clock runs out: don't act
+    // for them — wait for their real decision (or the timeout).
+    if (autoCheckEligible && toCall > 0 && elapsedSecs < turnTimeoutSecs) {
+      return {
+        handId,
+        state: currentState,
+        advanced,
+        settled,
+        skipped: true,
+        reason: "awaiting_actor_action"
+      };
+    }
 
     // Poker-correct timeout behavior: if checking is free, timeout should always resolve as check.
     // Only a live price to call should convert the timeout into a fold.
@@ -894,16 +978,17 @@ async function runRuntimeTick({
       closed_tables: Number(expireResult?.closed_tables || 0)
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (
-      !message.includes("online_runtime_expire_stale_human_seats") &&
-      !message.includes("service_role_required")
-    ) {
-      throw error;
-    }
+    // Seat expiry is housekeeping — never let it abort the whole tick (a raw
+    // network error here used to skip every table in the cycle).
+    console.error("[runRuntimeTick] expireStaleHumanSeats failed", error instanceof Error ? error.message : String(error));
   }
 
-  const hands = await onlineClient.listProcessableHands({ tableId, limit });
+  let hands: any[] = [];
+  try {
+    hands = await onlineClient.listProcessableHands({ tableId, limit });
+  } catch (error) {
+    console.error("[runRuntimeTick] listProcessableHands failed", error instanceof Error ? error.message : String(error));
+  }
   const report = {
     expiredSeatReport,
     scanned: hands.length,
@@ -934,7 +1019,12 @@ async function runRuntimeTick({
     }
   }
 
-  let dueTables = await onlineClient.listAutoDealCandidates({ limit });
+  let dueTables: any[] = [];
+  try {
+    dueTables = await onlineClient.listAutoDealCandidates({ limit });
+  } catch (error) {
+    console.error("[runRuntimeTick] listAutoDealCandidates failed", error instanceof Error ? error.message : String(error));
+  }
   if (tableId) {
     dueTables = (dueTables || []).filter((entry: any) => entry?.table_id === tableId);
   }
