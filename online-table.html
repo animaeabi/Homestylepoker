@@ -4137,7 +4137,9 @@
         .action-strip {
           position: absolute;
           left: max(8px, calc(env(safe-area-inset-left) + 8px));
-          bottom: calc(env(safe-area-inset-bottom) + 18px);
+          /* Sit the button stack low so ALL-IN (the bottom button) lines up with
+             the hero player tag at the foot of the table. */
+          bottom: calc(env(safe-area-inset-bottom) + 2px);
           z-index: 24;
           width: 118px;
           padding: 7px !important;
@@ -4168,7 +4170,9 @@
         .preset-row {
           position: absolute;
           left: max(8px, calc(env(safe-area-inset-left) + 8px));
-          bottom: calc(env(safe-area-inset-bottom) + 214px);
+          /* Sit just above the FOLD button (top of the action stack) so the bet
+             panel and the buttons read as one cluster, not two separated blocks. */
+          bottom: calc(env(safe-area-inset-bottom) + 138px);
           z-index: 24;
           width: 158px;
           display: grid;
