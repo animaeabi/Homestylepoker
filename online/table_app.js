@@ -5002,6 +5002,13 @@ function getLastAggressor(hand) {
 async function doRebuy() {
   const token = getSeatToken();
   if (!token) { toast("Not seated.", "error"); return; }
+  // Confirm before adding money — this is a ledger action and the button sits
+  // next to the hero nameplate where a stray tap is easy.
+  const buyIn = Number(getTable()?.starting_stack || 0);
+  const confirmMsg = buyIn > 0 ? `Buy in up to ${fmtShort(buyIn)}?` : "Add chips?";
+  if (typeof window !== "undefined" && typeof window.confirm === "function" && !window.confirm(confirmMsg)) {
+    return;
+  }
   try {
     await online.rebuyChips({
       tableId: state.tableId,
@@ -5813,6 +5820,23 @@ function renderMyHand() {
     badgesEl.appendChild(lbl);
   }
 
+  // Show the hero's own all-in equity. Opponent equities render into their seat
+  // nodes, but the hero's seat node is hidden on mobile — so during a runout the
+  // player couldn't see their own win %. renderSeats (which runs first) has
+  // already populated state.equityCache for the current board.
+  if (!clearedSettledHand && hand && isActionStreet(hand.state) && badgesEl
+      && hp && !hp.folded
+      && getHandPlayers().some((p) => !p.folded && p.all_in)) {
+    const eqKey = `${hand.id}|${hand.state}|${JSON.stringify(hand.board_cards)}`;
+    const eq = (state.equityCacheKey === eqKey ? state.equityCache : null)?.get(mySeat.seat_no);
+    if (eq != null) {
+      const eqEl = document.createElement("span");
+      eqEl.className = "seat-pos-label hero-equity-badge";
+      eqEl.textContent = `${eq}%`;
+      badgesEl.appendChild(eqEl);
+    }
+  }
+
   const visibleHoleCards = !clearedSettledHand && Array.isArray(hp?.hole_cards)
     ? hp.hole_cards.map(normCard).filter(Boolean)
     : [];
@@ -6007,7 +6031,8 @@ function renderActions() {
     const { toCall, canAggress } = getBetBounds(hand, hp);
     const raiseActionType = normalizeMoney(hand.current_bet || 0) > 0 ? "raise" : "bet";
     el.callBtn.textContent = toCall > 0 ? `Call ${fmtShort(toCall)}` : "Check";
-    el.betRaiseBtn.textContent = raiseActionType === "raise" ? "Raise" : "Bet";
+    const raiseVerb = raiseActionType === "raise" ? "Raise" : "Bet";
+    el.betRaiseBtn.textContent = raiseVerb;
     el.allInBtn.textContent = `All-in`;
     el.betRaiseBtn.classList.toggle("hidden", !canAggress);
     el.allInBtn.classList.toggle("hidden", !canAggress);
@@ -6015,7 +6040,15 @@ function renderActions() {
       state.landscapeRaisePanelOpen = false;
       el.presetRow.classList.add("hidden");
     } else if (compactActions) {
-      el.presetRow.classList.toggle("hidden", !state.landscapeRaisePanelOpen);
+      const panelOpen = state.landscapeRaisePanelOpen;
+      el.presetRow.classList.toggle("hidden", !panelOpen);
+      // On compact layouts the first Raise tap opens the amount panel and the
+      // second commits. Make the commit unambiguous: show the amount that will
+      // actually be sent while the panel is open.
+      if (panelOpen) {
+        const amt = Number(getBetControlValue());
+        if (Number.isFinite(amt) && amt > 0) el.betRaiseBtn.textContent = `${raiseVerb} ${fmtShort(amt)}`;
+      }
     } else {
       el.presetRow.classList.remove("hidden");
     }
@@ -6023,7 +6056,9 @@ function renderActions() {
   } else if (preactionMode) {
     el.actionStrip.classList.remove("hidden");
     el.presetRow.classList.add("hidden");
-    el.landscapeRaisePanelOpen = false;
+    // Was a typo (el.* instead of state.*), so the raise panel's open flag never
+    // actually reset here and could leak into a later turn as a pre-opened panel.
+    state.landscapeRaisePanelOpen = false;
     el.foldBtn.classList.remove("hidden");
     el.betRaiseBtn.classList.remove("hidden");
     el.allInBtn.classList.add("hidden");

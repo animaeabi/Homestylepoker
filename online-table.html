@@ -2289,6 +2289,9 @@
         direction: rtl;
         background: transparent;
         cursor: pointer;
+        /* Stop a slider drag from scrolling the page on touch, so the bet slider
+           doesn't fight the gesture mid-adjust. */
+        touch-action: none;
       }
 
       .preset-slider-vertical::-webkit-slider-runnable-track {
@@ -2479,8 +2482,8 @@
       /* Toast */
       .toast-container {
         position: fixed;
-        top: 16px;
-        right: 16px;
+        top: max(16px, calc(env(safe-area-inset-top) + 8px));
+        right: max(16px, calc(env(safe-area-inset-right) + 8px));
         z-index: 1000;
         display: flex;
         flex-direction: column;
@@ -4692,8 +4695,10 @@
 
         .action-strip {
           position: absolute;
-          left: 12px;
-          bottom: 0;
+          left: max(12px, calc(env(safe-area-inset-left) + 12px));
+          /* Lift the strip above the iPhone home-indicator gesture bar so Fold
+             isn't tapped in the swipe-to-switch-apps zone. */
+          bottom: max(0px, env(safe-area-inset-bottom));
           z-index: 24;
           width: 148px;
           padding: 8px !important;
@@ -4724,8 +4729,8 @@
 
         .preset-row {
           position: absolute;
-          left: 166px;
-          bottom: 0;
+          left: calc(166px + env(safe-area-inset-left));
+          bottom: max(0px, env(safe-area-inset-bottom));
           z-index: 24;
           width: 140px;
           display: grid;
@@ -5155,7 +5160,7 @@
     <div class="voice-audio-rack" id="voiceAudioRack" aria-hidden="true"></div>
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
-    <script src="./online/table_fx_geometry.js?v=197"></script>
-    <script type="module" src="./online/table_app.js?v=197"></script>
+    <script src="./online/table_fx_geometry.js?v=198"></script>
+    <script type="module" src="./online/table_app.js?v=198"></script>
   </body>
 </html>
