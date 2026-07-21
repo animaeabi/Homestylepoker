@@ -1,4 +1,5 @@
 import { describeSevenCardHand } from "./showdown.ts";
+import { monteCarloEquity } from "./equity.ts";
 
 export type BotPersonality = "TAG" | "LAG" | "Rock" | "Station";
 export type OpponentTag =
@@ -1997,21 +1998,25 @@ function decideBotActionCore({
     }
 
     const potOdds = toCall / Math.max(1, pot + toCall);
-    // Estimate call equity with class-based floors when a hole card actually
-    // participates in the made hand. The raw composite strength score maxes out
-    // around 0.5-0.6 even for sets, so comparing it directly to pot odds made
-    // the bot fold sets and two pair to overbets ~80% of the time.
+    // Real win probability via Monte Carlo -- samples the remaining board and
+    // random opponent hands and counts how often we win. This replaces the old
+    // class-based strength floors (a hack for the heuristic score topping out
+    // around 0.5-0.6, which folded sets and two pair to overbets). Draws are
+    // already captured because we deal out future board cards, so nothing extra
+    // is added. Facing a bet the villain's range beats random hands, so shade the
+    // equity down a little -- more for bigger bets. (Range-weighted sampling from
+    // betting-line hand reading refines this later.)
     let callEquity = effectiveStrength;
-    if (!isPreflop && postflop.holeParticipates) {
-      const cls = madeClassRank || 0;
-      if (cls >= 6) callEquity = Math.max(callEquity, 0.9);
-      else if (cls === 5) callEquity = Math.max(callEquity, 0.8);
-      else if (cls === 4) callEquity = Math.max(callEquity, 0.75);
-      else if (cls === 3) callEquity = Math.max(callEquity, 0.7);
-      else if (cls === 2) callEquity = Math.max(callEquity, 0.6);
-      else if (cls === 1 && effectiveStrength >= 0.4) callEquity = Math.max(callEquity, 0.45);
+    const mcEquity = monteCarloEquity({
+      holeCards,
+      boardCards,
+      opponents: clamp(activeSeatCount - 1, 1, 4),
+    });
+    if (Number.isFinite(mcEquity)) {
+      const betPressure = clamp(toCall / Math.max(1, pot + toCall), 0, 1);
+      const rangeTax = clamp(betPressure * 0.18, 0, 0.1);
+      callEquity = clamp(mcEquity - rangeTax, 0, 1);
     }
-    callEquity += drawStrength * 0.8;
     if (callEquity < potOdds) {
       // Curiosity / float call when priced badly — small, but mood- and
       // draw-weighted so "I bet, they always fold" is never a safe read.
