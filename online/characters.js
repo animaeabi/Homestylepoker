@@ -22,63 +22,69 @@ export const CHARACTERS = [
   {
     id: "negranope",
     name: "Dandy Negranope",
-    title: "The People's Champ",
-    trait: "All smiles and small talk -- reads your soul while asking about your weekend.",
+    title: "The Chatterbox Soul-Reader",
+    trait: "Friendly and endlessly talkative -- reads your soul through conversation.",
   },
   {
     id: "donk",
     name: "Tommy Donk",
-    title: "The Splash Machine",
-    trait: "Never met a pot he didn't want to blow up. Chaos is the strategy.",
+    title: "The Donk Bomb Specialist",
+    trait: "Aggressive bluffing and chaos-driven actions. A wild, unpredictable splash artist.",
   },
   {
     id: "holes",
     name: "Fedor Holes",
-    title: "The High-Stakes Assassin",
-    trait: "Ice-cold nosebleed grinder. Plays for more than you make in a year.",
+    title: "The High-Roller Luxury Squeezer",
+    trait: "A smug high-roller living the luxurious life. Aggressive with high stakes.",
   },
   {
     id: "haxxon",
     name: "Eye-Sack Haxxon",
-    title: "The Solver",
-    trait: "Runs the numbers in his head. Balanced to a fault, unbothered by tilt.",
+    title: "The GTO Math Menace",
+    trait: "A mathematical approach powered by pure GTO strategy. Balanced to a fault.",
   },
   {
     id: "eyev",
     name: "Finn Eyev",
-    title: "The Phenom",
-    trait: "Silky smooth and utterly fearless. Makes the impossible fold look easy.",
+    title: "The Frost-Heart Bluffer",
+    trait: "Looks like he plays like winter itself. Calculated, cold power poker.",
   },
   {
     id: "hellsmouth",
     name: "Fill Hell's Mouth",
-    title: "The Poker Brat",
-    trait: "Wins with elegance, loses with fireworks. Will tell you all about it.",
+    title: "The Table Tantrum Titan",
+    trait: "Loud and emotional -- believes every card is a personal attack.",
   },
   {
     id: "sydell",
     name: "Epic Sydell",
-    title: "The Zen Master",
-    trait: "Calm, quiet, endless. Grinds you down without ever changing expression.",
+    title: "The Stone Statue Grinder",
+    trait: "A calm appearance hiding immense internal focus. Deliberate and methodical.",
   },
   {
     id: "hunger",
     name: "Stew Hunger",
-    title: "The Comeback Kid",
-    trait: "Pure gamble, pure genius. Down to the felt one hand, chip leader the next.",
+    title: "The Hyper Caffeine Genius",
+    trait: "A card prodigy running on high-octane energy. Jittery and relentless.",
   },
   {
     id: "grease",
     name: "Cheap Grease",
-    title: "The Nit",
-    trait: "Folds all day, then shows you the nuts. If he bets, you're already beat.",
+    title: "The Greasy Trap-Layer",
+    trait: "A patient grinder who counts every chip. Value-focused and patient.",
+  },
+  {
+    id: "pony",
+    name: "Pony Gee",
+    title: "The Table Talk Aggressor",
+    trait: "A relentless verbal warrior with soul-crushing table talk. A hyper-aggressive verbal general.",
   },
 ];
 
 // Fill in asset paths from the id so we never drift the strings apart.
 for (const c of CHARACTERS) {
-  c.avatar = `${AVATAR_DIR}/${c.id}.png`;
-  c.flavorCard = `${CARD_DIR}/${c.id}.png`;
+  c.avatar = `${AVATAR_DIR}/${c.id}.jpg`;
+  c.flavorCard = `${CARD_DIR}/${c.id}.jpg`;
 }
 
 const BY_ID = new Map(CHARACTERS.map((c) => [c.id, c]));

@@ -84,7 +84,13 @@ export const CHARACTER_STYLES: Record<string, CharacterStyle> = {
     preflop: { openShift: -0.5, threeBetShift: -0.4, riskShift: -0.12 },
     expressiveness: 0.7,
   },
-  // tbd10: reserved for the 10th character (pending its card).
+  // Pony Gee -- table-talk aggressor, relentless pressure, needles constantly.
+  pony: {
+    base: "LAG",
+    profile: { bluffRate: 0.24, callRate: 0.86, cbetRate: 0.88, raiseAbove: 0.4 },
+    preflop: { openShift: 0.7, threeBetShift: 0.75, jamShift: 0.1, riskShift: 0.13 },
+    expressiveness: 1.5,
+  },
 };
 
 export function resolveCharacterStyle(characterId?: string | null): CharacterStyle | null {
