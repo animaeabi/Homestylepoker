@@ -11,6 +11,7 @@ export type BotSeatInfo = {
   groupPlayerId: string;
   personality: BotPersonalityName | string;
   name?: string | null;
+  expressiveness?: number; // per-character emote multiplier (overrides personality default)
 };
 
 export type SettledPlayer = {
@@ -95,7 +96,7 @@ export function decideBotExpressions({
     const bot = botByGpid.get(String(p.groupPlayerId));
     if (!bot) continue;
 
-    const expr = expressiveness(String(bot.personality));
+    const expr = typeof bot.expressiveness === "number" ? bot.expressiveness : expressiveness(String(bot.personality));
     const net = Number(p.resultAmount || 0);
     const won = net > 0;
     const lostBig = net <= -(bb * 12);

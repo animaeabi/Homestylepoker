@@ -3,6 +3,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../config.js";
 import { createOnlinePokerClient } from "./client.js?v=203";
 import { computeSidePots, describeSevenCardHand, resolveShowdownPayouts } from "./showdown.js?v=203";
 import { randomPersonality, randomBotName, OpponentTracker } from "./bot_engine.js";
+import { CHARACTERS, getCharacter, pickNextCharacter } from "./characters.js?v=211";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -155,6 +156,14 @@ const el = {
   configBackdrop: document.getElementById("configBackdrop"),
   configClose: document.getElementById("configClose"),
   configPanel: document.getElementById("configPanel"),
+  characterOverlay: document.getElementById("characterOverlay"),
+  characterBackdrop: document.getElementById("characterBackdrop"),
+  characterClose: document.getElementById("characterClose"),
+  characterCardArt: document.getElementById("characterCardArt"),
+  characterCardImg: document.getElementById("characterCardImg"),
+  characterCardName: document.getElementById("characterCardName"),
+  characterCardTitle: document.getElementById("characterCardTitle"),
+  characterCardTrait: document.getElementById("characterCardTrait"),
   cfgSB: document.getElementById("cfgSB"),
   cfgBB: document.getElementById("cfgBB"),
   cfgTurnTime: document.getElementById("cfgTurnTime"),
@@ -4957,6 +4966,34 @@ function closeConfigPanel() {
   el.configOverlay.classList.add("hidden");
 }
 
+// Tapping a signature-character bot opens its flavor card: art + name + title +
+// trait. Deliberately never renders play style (that's server-only), satisfying
+// "show the card without the play style".
+function openCharacterCard(characterId) {
+  const character = getCharacter(characterId);
+  if (!character || !el.characterOverlay) return;
+  if (el.characterCardName) el.characterCardName.textContent = character.name;
+  if (el.characterCardTitle) el.characterCardTitle.textContent = character.title || "";
+  if (el.characterCardTrait) el.characterCardTrait.textContent = character.trait || "";
+  if (el.characterCardArt && el.characterCardImg) {
+    el.characterCardArt.classList.remove("no-art");
+    el.characterCardImg.style.display = "";
+    el.characterCardImg.alt = character.name;
+    // If the flavor-card crop hasn't shipped yet, collapse the art area so the
+    // modal still reads cleanly with just the text.
+    el.characterCardImg.onerror = () => {
+      el.characterCardImg.style.display = "none";
+      el.characterCardArt.classList.add("no-art");
+    };
+    el.characterCardImg.src = character.flavorCard;
+  }
+  el.characterOverlay.classList.remove("hidden");
+}
+
+function closeCharacterCard() {
+  if (el.characterOverlay) el.characterOverlay.classList.add("hidden");
+}
+
 function setToggle(activeId, inactiveId) {
   document.getElementById(activeId)?.classList.add("active");
   document.getElementById(inactiveId)?.classList.remove("active");
@@ -5122,8 +5159,15 @@ function getBotInfo(seatNo) {
 
 async function addBot(seatNo) {
   if (!canManageHand()) { toast("Only the host can add bots.", "error"); return; }
+  // Each bot IS a signature character. Pick the next one not already seated so a
+  // table shows distinct personalities; the server resolves its play style from
+  // the character id. bot_personality is a harmless fallback for the engine.
+  const usedCharacterIds = getSeats()
+    .map((s) => s?.bot_character)
+    .filter(Boolean);
+  const character = pickNextCharacter(usedCharacterIds);
   const personality = randomPersonality();
-  const name = `Bot ${randomBotName()}`;
+  const name = character.name;
 
   try {
     const identity = await online.ensureLobbyPlayer({ name });
@@ -5133,6 +5177,7 @@ async function addBot(seatNo) {
       preferredSeat: seatNo,
       isBot: true,
       botPersonality: personality,
+      botCharacter: character.id,
       // Bot joins are host-gated server-side now: prove we're the host.
       actorGroupPlayerId: state.identity?.groupPlayerId || null,
       actorSeatToken: getSeatToken() || null,
@@ -5143,6 +5188,7 @@ async function addBot(seatNo) {
         groupPlayerId: identity.group_player_id,
         seatToken: seat.seat_token,
         personality,
+        character: character.id,
         name,
       });
       saveBotSeats();
@@ -5554,16 +5600,34 @@ function renderSeats() {
       if (activeVoiceSpeakerId && pid === activeVoiceSpeakerId) node.classList.add("voice-speaking");
 
       const botInfo = getBotInfo(seat.seat_no);
+      const character = isBot ? getCharacter(seat.bot_character) : null;
       const displayName = botInfo ? botInfo.name : seatName(pid);
       const color = SEAT_COLORS[(seat.seat_no - 1) % SEAT_COLORS.length];
       const avatarEl = document.createElement("div");
       avatarEl.className = "seat-avatar";
       avatarEl.dataset.seat = String(seat.seat_no);
+      // Initials stay underneath as the fallback if the portrait art is missing.
       applyAvatarTheme(avatarEl, {
         seed: `${pid || seat.player_name || displayName}:${seat.seat_no}`,
         name: displayName,
         isBot,
       });
+      if (character) {
+        avatarEl.classList.add("character-avatar");
+        const portrait = document.createElement("img");
+        portrait.className = "character-portrait";
+        portrait.src = character.avatar;
+        portrait.alt = character.name;
+        // If the crop hasn't shipped yet, drop back to initials silently.
+        portrait.addEventListener("error", () => { portrait.remove(); });
+        avatarEl.appendChild(portrait);
+        avatarEl.classList.add("tappable");
+        avatarEl.title = `${character.name} — ${character.title}`;
+        avatarEl.addEventListener("click", (e) => {
+          e.stopPropagation();
+          openCharacterCard(character.id);
+        });
+      }
       node.appendChild(avatarEl);
 
       const header = document.createElement("div");
@@ -6891,6 +6955,9 @@ function bindEvents() {
   el.hamburgerBtn.addEventListener("click", () => openConfigPanel());
   el.configBackdrop.addEventListener("click", () => closeConfigPanel());
   el.configClose.addEventListener("click", () => closeConfigPanel());
+
+  if (el.characterBackdrop) el.characterBackdrop.addEventListener("click", () => closeCharacterCard());
+  if (el.characterClose) el.characterClose.addEventListener("click", () => closeCharacterCard());
 
   el.configPanel.querySelectorAll(".config-tab").forEach(tab => {
     tab.addEventListener("click", () => {

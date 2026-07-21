@@ -3,6 +3,7 @@ import { resolveShowdownPayouts } from "../_shared/showdown.ts";
 import { botThinkTimeMs, classifyOpponentProfile, combineOpponentProfiles, decideBotAction } from "../_shared/bot_engine.ts";
 import { decideBotExpressions } from "../_shared/bot_expression.ts";
 import { monteCarloEquity } from "../_shared/equity.ts";
+import { resolveCharacterStyle } from "../_shared/characters.ts";
 
 const STREET_STATES = new Set(["preflop", "flop", "turn", "river"]);
 const ACTIVE_RUNTIME_STATES = new Set(["preflop", "flop", "turn", "river", "showdown"]);
@@ -108,7 +109,7 @@ function createOnlineRpcClient() {
     async getActiveSeatByNumber({ tableId, seatNo }: { tableId: string; seatNo: number }) {
       const { data, error } = await client
         .from("online_table_seats")
-        .select("id, group_player_id, seat_token, is_bot, bot_personality, bot_rebuy_count, chip_stack, auto_check_when_available")
+        .select("id, group_player_id, seat_token, is_bot, bot_personality, bot_character, bot_rebuy_count, chip_stack, auto_check_when_available")
         .eq("table_id", tableId)
         .eq("seat_no", seatNo)
         .is("left_at", null)
@@ -120,7 +121,7 @@ function createOnlineRpcClient() {
     async listActiveBotSeats({ tableId }: { tableId: string }) {
       const { data, error } = await client
         .from("online_table_seats")
-        .select("id, seat_no, group_player_id, seat_token, bot_personality, bot_rebuy_count, chip_stack")
+        .select("id, seat_no, group_player_id, seat_token, bot_personality, bot_character, bot_rebuy_count, chip_stack")
         .eq("table_id", tableId)
         .eq("is_bot", true)
         .is("left_at", null)
@@ -404,12 +405,16 @@ async function runBotExpressions({
     wasAggressor: Boolean(p.group_player_id) && String(p.group_player_id) === String(lastAggressorGpid)
   }));
 
-  const botSeats = (await onlineClient.listActiveBotSeats({ tableId })).map((s: any) => ({
-    seatNo: Number(s.seat_no),
-    groupPlayerId: String(s.group_player_id),
-    personality: s.bot_personality || "TAG",
-    name: null as string | null
-  }));
+  const botSeats = (await onlineClient.listActiveBotSeats({ tableId })).map((s: any) => {
+    const ch = resolveCharacterStyle(s.bot_character);
+    return {
+      seatNo: Number(s.seat_no),
+      groupPlayerId: String(s.group_player_id),
+      personality: ch ? ch.base : (s.bot_personality || "TAG"),
+      name: null as string | null,
+      expressiveness: ch && typeof ch.expressiveness === "number" ? ch.expressiveness : undefined
+    };
+  });
   if (!botSeats.length) return;
 
   const table = await onlineClient.getTableById({ tableId });
@@ -768,10 +773,15 @@ async function processBotAction({
   };
   let decision = timeoutFallbackDecision;
 
+  // The seat's signature character (if any) sets the base personality and feeds
+  // per-character style overrides into the engine.
+  const character = resolveCharacterStyle(actingSeat.bot_character);
+
   if (!shouldForceTimeoutAction) {
     try {
       decision = decideBotAction({
-        personality: actingSeat.bot_personality || "TAG",
+        personality: character ? character.base : (actingSeat.bot_personality || "TAG"),
+        styleOverrides: character ? { profile: character.profile, preflop: character.preflop } : null,
         holeCards: Array.isArray(botPlayer.hole_cards) ? botPlayer.hole_cards : [],
         boardCards: Array.isArray(liveHand?.board_cards) ? liveHand.board_cards : [],
         pot: Number(liveHand?.pot_total || 0),

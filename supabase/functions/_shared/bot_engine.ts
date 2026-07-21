@@ -1464,6 +1464,7 @@ function decideStructuredPreflopAction({
   streetAggressionCount = 0,
   preflopLimperCount = 0,
   effectiveStackBbHint = null,
+  preflopStyleOverride = null,
 }: {
   personality: BotPersonality;
   holeCards: string[];
@@ -1481,6 +1482,7 @@ function decideStructuredPreflopAction({
   streetAggressionCount?: number;
   preflopLimperCount?: number;
   effectiveStackBbHint?: number | null;
+  preflopStyleOverride?: Record<string, number> | null;
 }) {
   const blind = Math.max(1, Number(bigBlind || 2));
   const toCall = Math.max(0, Number(currentBet || 0) - Number(streetContribution || 0));
@@ -1497,7 +1499,7 @@ function decideStructuredPreflopAction({
   const inPosition = isInPosition(position);
   const features = preflopFeatures(holeCards?.[0], holeCards?.[1]);
   const bucket = classifyPreflopBucket(Number(streetAggressionCount || 0), Number(preflopLimperCount || 0));
-  const style = PREFLOP_STYLE[personality] || PREFLOP_STYLE.TAG;
+  const style = { ...(PREFLOP_STYLE[personality] || PREFLOP_STYLE.TAG), ...(preflopStyleOverride || {}) };
   const readShift = preflopReadShift(opponentProfile || null, personality);
   const handScore = features.tierScore + rawStrength * 0.9;
 
@@ -1732,6 +1734,7 @@ function decideBotActionCore({
   opponentProfile,
   selfImageProfile = null,
   banditNudge = 0,
+  styleOverrides = null,
   streetAggressionCount = 0,
   preflopLimperCount = 0,
   effectiveStackBb = null,
@@ -1755,6 +1758,7 @@ function decideBotActionCore({
   opponentProfile?: OpponentProfile;
   selfImageProfile?: OpponentProfile | null;
   banditNudge?: number;
+  styleOverrides?: { profile?: Record<string, number>; preflop?: Record<string, number> } | null;
   streetAggressionCount?: number;
   preflopLimperCount?: number;
   effectiveStackBb?: number | null;
@@ -1791,7 +1795,7 @@ function decideBotActionCore({
     opponentProfile,
     activeSeatCount,
   });
-  const profile = PROFILES[livePersonality] || PROFILES.TAG;
+  const profile = { ...(PROFILES[livePersonality] || PROFILES.TAG), ...(styleOverrides && styleOverrides.profile ? styleOverrides.profile : {}) };
   // Per-hand risk mood (postflop): nudges call/fold mixing so the bot doesn't
   // fold or call a fixed range every time — keeps it unreadable and un-trappable.
   const riskMood = isPreflop ? 0 : handRiskMood(holeCards, seatNo, street, livePersonality);
@@ -1864,6 +1868,7 @@ function decideBotActionCore({
       streetAggressionCount,
       preflopLimperCount,
       effectiveStackBbHint: effectiveStackForStreetBb,
+      preflopStyleOverride: styleOverrides && styleOverrides.preflop ? styleOverrides.preflop : null,
     });
   }
 
