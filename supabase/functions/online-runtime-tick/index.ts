@@ -2,6 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { resolveShowdownPayouts } from "../_shared/showdown.ts";
 import { botThinkTimeMs, classifyOpponentProfile, combineOpponentProfiles, decideBotAction } from "../_shared/bot_engine.ts";
 import { decideBotExpressions } from "../_shared/bot_expression.ts";
+import { monteCarloEquity } from "../_shared/equity.ts";
 
 const STREET_STATES = new Set(["preflop", "flop", "turn", "river"]);
 const ACTIVE_RUNTIME_STATES = new Set(["preflop", "flop", "turn", "river", "showdown"]);
@@ -143,6 +144,22 @@ function createOnlineRpcClient() {
       return callRpc("online_get_bot_opponent_profiles", {
         p_table_id: tableId
       });
+    },
+
+    async getBotBanditStats({ tableId }: { tableId: string }) {
+      return callRpc("online_bot_bandit_get", { p_table_id: tableId });
+    },
+
+    async recordBotBluff({ handId, groupPlayerId, bucket }: { handId: string; groupPlayerId: string; bucket: string }) {
+      return callRpc("online_bot_bandit_record", {
+        p_hand_id: handId,
+        p_group_player_id: groupPlayerId,
+        p_bucket: bucket
+      });
+    },
+
+    async settleBotBandit({ handId }: { handId: string }) {
+      return callRpc("online_bot_bandit_settle", { p_hand_id: handId });
     },
 
     async updateBotSeat({
@@ -481,6 +498,12 @@ async function settleShowdownFromState({
   } catch (error) {
     console.error("[settleShowdownFromState] bot expression failed", error instanceof Error ? error.message : String(error));
   }
+  // Bluff bandit: score any bluffs fired this hand.
+  try {
+    await onlineClient.settleBotBandit({ handId });
+  } catch (error) {
+    console.error("[settleShowdownFromState] bandit settle failed", error instanceof Error ? error.message : String(error));
+  }
   return settleResult;
 }
 
@@ -657,6 +680,28 @@ async function processBotAction({
         avgStackBb: averageStackBb,
       })
     : null;
+
+  // Bluff bandit: nudge this bot's bluff frequency toward what has actually been
+  // working for it at this street (foldy table -> bluff more; sticky -> less).
+  const banditStreet = String(liveHand?.state || hand.state || "preflop");
+  let banditNudge = 0;
+  try {
+    const banditStats: any = await onlineClient.getBotBanditStats({ tableId: hand.table_id });
+    const cell = banditStats && typeof banditStats === "object"
+      ? banditStats[`${String(botPlayer.group_player_id || "")}|${banditStreet}`]
+      : null;
+    const attempts = Number(cell?.attempts || 0);
+    const successes = Number(cell?.successes || 0);
+    if (attempts > 0) {
+      const prior = 0.42;
+      const rate = (successes + prior * 6) / (attempts + 6);
+      const conf = attempts / (attempts + 8);
+      banditNudge = Math.max(-0.06, Math.min(0.06, (rate - prior) * 0.5 * conf));
+    }
+  } catch (_error) {
+    banditNudge = 0;
+  }
+
   const streetActionShape = summarizeStreetActionShape(
     handState?.events || [],
     String(liveHand?.state || hand.state || "preflop"),
@@ -742,6 +787,7 @@ async function processBotAction({
         wasAggressor: didSeatAggressInCurrentHand(handState?.events || [], actingSeat.group_player_id),
         opponentProfile,
         selfImageProfile,
+        banditNudge,
         streetAggressionCount: streetActionShape.aggressionCount,
         preflopLimperCount: streetActionShape.limperCount,
         effectiveStackBb,
@@ -811,6 +857,33 @@ async function processBotAction({
       seatToken: actingSeat.seat_token,
       clientActionId: `runtime_bot_fallback:${hand.id}:${turnSeat}:${turnStamp}`
     });
+  }
+
+  // Bluff bandit: if the action that went in was postflop aggression with weak
+  // equity, log it as a bluff/semibluff attempt to be scored at settle.
+  if (
+    banditStreet !== "preflop"
+    && (decision.actionType === "bet" || decision.actionType === "raise" || decision.actionType === "all_in")
+    && Array.isArray(botPlayer.hole_cards) && botPlayer.hole_cards.length >= 2
+    && Array.isArray(liveHand?.board_cards) && liveHand.board_cards.length >= 3
+  ) {
+    try {
+      const bluffEquity = monteCarloEquity({
+        holeCards: botPlayer.hole_cards,
+        boardCards: liveHand.board_cards,
+        opponents: 1,
+        samples: 120
+      });
+      if (bluffEquity < 0.5) {
+        await onlineClient.recordBotBluff({
+          handId: hand.id,
+          groupPlayerId: actingSeat.group_player_id,
+          bucket: banditStreet
+        });
+      }
+    } catch (_error) {
+      // bandit logging is best-effort
+    }
   }
 
   const postActionState = await onlineClient.getHandState({ handId: hand.id, sinceSeq: null });

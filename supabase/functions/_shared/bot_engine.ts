@@ -1731,6 +1731,7 @@ function decideBotActionCore({
   wasAggressor,
   opponentProfile,
   selfImageProfile = null,
+  banditNudge = 0,
   streetAggressionCount = 0,
   preflopLimperCount = 0,
   effectiveStackBb = null,
@@ -1753,6 +1754,7 @@ function decideBotActionCore({
   wasAggressor: boolean;
   opponentProfile?: OpponentProfile;
   selfImageProfile?: OpponentProfile | null;
+  banditNudge?: number;
   streetAggressionCount?: number;
   preflopLimperCount?: number;
   effectiveStackBb?: number | null;
@@ -1816,7 +1818,9 @@ function decideBotActionCore({
   }
   const noise = rand(-0.05, 0.05);
   const effectiveStrength = Math.min(1.0, Math.max(0.0, rawStrength * posMult + noise));
-  const adjustedBluffRate = clamp(profile.bluffRate + opAdj.bluffMod + imageBluffAdj, 0, 0.3);
+  // banditNudge is the learned adjustment from this bot's actual bluff-through
+  // rate at this street (foldy table -> bluff more; sticky -> bluff less).
+  const adjustedBluffRate = clamp(profile.bluffRate + opAdj.bluffMod + imageBluffAdj + Number(banditNudge || 0), 0, 0.3);
   const adjustedFoldThreshold = isPreflop
     ? Math.max(0.1, profile.preflopFoldBelow + opAdj.foldMod)
     : Math.max(0.1, profile.postflopFoldBelow + opAdj.foldMod);
