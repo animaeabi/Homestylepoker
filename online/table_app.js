@@ -1963,9 +1963,9 @@ function shouldShowBlindPositionLabel(hand, handPlayer, seatNo) {
 // the board-level seats at the oval's widest point and the bottom CORNERS left
 // free for the hero's controls (bottom-left) and voice/chat FABs (bottom-right).
 const DENSE_SEATS = {
-  7: [ {x:50,y:10}, {x:11,y:36},{x:89,y:36}, {x:6,y:56},{x:94,y:56}, {x:15,y:75},{x:85,y:75} ],
-  8: [ {x:32,y:10},{x:68,y:10}, {x:11,y:34},{x:89,y:34}, {x:6,y:54},{x:94,y:54}, {x:15,y:74},{x:85,y:74} ],
-  9: [ {x:50,y:9}, {x:11,y:27},{x:89,y:27}, {x:6,y:45},{x:94,y:45}, {x:6,y:63},{x:94,y:63}, {x:17,y:78},{x:83,y:78} ],
+  7: [ {x:50,y:5}, {x:8,y:26},{x:92,y:26}, {x:4,y:54},{x:96,y:54}, {x:13,y:75},{x:87,y:75} ],
+  8: [ {x:30,y:6},{x:70,y:6}, {x:7,y:20},{x:93,y:20}, {x:4,y:54},{x:96,y:54}, {x:6,y:74},{x:94,y:74} ],
+  9: [ {x:50,y:5}, {x:8,y:17},{x:92,y:17}, {x:4,y:38},{x:96,y:38}, {x:4,y:58},{x:96,y:58}, {x:13,y:76},{x:87,y:76} ],
 };
 
 function getSeatContributionAnchor(pos, { hero = false } = {}) {
