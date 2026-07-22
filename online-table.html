@@ -1348,6 +1348,20 @@
          hidden behind a nameplate. */
       #tableView.board-dense .table-center { z-index: 12; }
       #tableView.board-dense .board-cards .card { position: relative; z-index: 13; }
+      /* Keep the "Acting" indicator narrow so it never reaches the side seats. */
+      #tableView.board-dense .turn-indicator { max-width: min(178px, 46vw); }
+      /* Showdown hole-cards for the side seats are flung toward the board and
+         collide with it -- shrink them on dense tables so they stay compact. */
+      #tableView.board-dense .seat-cards-row.showdown .card {
+        width: 30px !important;
+        height: 43px !important;
+        font-size: 12px !important;
+      }
+      #tableView.board-dense .seat-cards-row.showdown .card-sm {
+        width: 28px !important;
+        height: 40px !important;
+        font-size: 11px !important;
+      }
 
       /* Cards */
       .card {
@@ -2032,6 +2046,14 @@
       .seat-bet--bottom-chin {
         left: 50%;
         top: calc(100% + 6px);
+        transform: translateX(-50%);
+      }
+
+      /* Dense-table anchor: label centered ABOVE the avatar (for the bottom row,
+         where a below-chin would run off the bottom of the screen). */
+      .seat-bet--top-chin {
+        left: 50%;
+        bottom: calc(100% + 6px);
         transform: translateX(-50%);
       }
 
@@ -5741,6 +5763,6 @@
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
     <script src="./online/table_fx_geometry.js?v=203"></script>
-    <script type="module" src="./online/table_app.js?v=234"></script>
+    <script type="module" src="./online/table_app.js?v=235"></script>
   </body>
 </html>
