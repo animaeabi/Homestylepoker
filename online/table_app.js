@@ -6203,18 +6203,40 @@ function renderSeats() {
   if (state.reactionOverlays.size) requestAnimationFrame(clampSpeechBubbles);
 }
 
-// Shift any speech bubble that overflows the viewport horizontally back inside.
+// Keep speech bubbles on-screen AND off other players' nameplates. A bubble sits
+// above its own speaker; if it overlaps another seat (e.g. a lower player's
+// bubble rising onto the player above them), lift it into the open felt to
+// clear that seat. Horizontal overflow is nudged back inside the frame.
 function clampSpeechBubbles() {
   const vw = window.innerWidth || document.documentElement?.clientWidth || 0;
   if (!vw) return;
   const margin = 6;
+  const seatRects = [...document.querySelectorAll(".seat-node:not(.empty)")]
+    .map((n) => ({ node: n, r: n.getBoundingClientRect() }));
   document.querySelectorAll(".seat-reaction-popup--speech").forEach((b) => {
+    const own = b.closest(".seat-node");
+    // Reset to the baseline "above" position before measuring.
     b.style.transform = "translateX(-50%)";
-    const r = b.getBoundingClientRect();
+    b.style.bottom = "";
+    let r = b.getBoundingClientRect();
+
+    // 1) Horizontal viewport clamp.
     let nudge = 0;
     if (r.left < margin) nudge = margin - r.left;
     else if (r.right > vw - margin) nudge = (vw - margin) - r.right;
-    if (nudge) b.style.transform = `translateX(calc(-50% + ${Math.round(nudge)}px))`;
+    if (nudge) {
+      b.style.transform = `translateX(calc(-50% + ${Math.round(nudge)}px))`;
+      r = b.getBoundingClientRect();
+    }
+
+    // 2) Lift above any OTHER seat plate it currently covers.
+    let lift = 0;
+    for (const { node, r: sr } of seatRects) {
+      if (node === own) continue;
+      const overlaps = r.left < sr.right && sr.left < r.right && r.top < sr.bottom && sr.top < r.bottom;
+      if (overlaps) lift = Math.max(lift, r.bottom - sr.top + 6);
+    }
+    if (lift > 0) b.style.bottom = `calc(100% + 8px + ${Math.round(lift)}px)`;
   });
 }
 
