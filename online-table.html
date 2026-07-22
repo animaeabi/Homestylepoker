@@ -1692,6 +1692,21 @@
       }
 
       .seat-node.folded { opacity: 0.45; }
+
+      /* A folded player who is currently talking: keep THEM dimmed (plate +
+         avatar + name), but not via opacity on the node -- that would gray out
+         their speech bubble too. Instead dim the plate with a translucent
+         background and dim the inner content directly, leaving the bubble (and
+         action popups) at full opacity. Wins over the .folded opacity rules
+         (incl. the mobile !important ones) via higher specificity. */
+      .seat-node.folded.speaking {
+        opacity: 1 !important;
+        background: rgba(18, 26, 22, 0.5);
+        border-color: rgba(255, 255, 255, 0.035);
+      }
+      .seat-node.folded.speaking > *:not(.seat-reaction-popup):not(.hero-reaction-popup):not(.seat-action-popup):not(.hero-action-popup) {
+        opacity: 0.42;
+      }
       .my-hand-area.folded {
         opacity: 0.52;
         filter: grayscale(0.55);
@@ -5634,6 +5649,6 @@
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
     <script src="./online/table_fx_geometry.js?v=203"></script>
-    <script type="module" src="./online/table_app.js?v=226"></script>
+    <script type="module" src="./online/table_app.js?v=227"></script>
   </body>
 </html>
