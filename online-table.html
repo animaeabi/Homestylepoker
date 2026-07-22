@@ -3026,12 +3026,6 @@
         color: rgba(255,255,255,0.42);
       }
 
-      .chat-header-actions {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-      }
-
       .chat-close {
         width: 22px;
         height: 22px;
@@ -3041,28 +3035,44 @@
         color: rgba(255,255,255,0.6);
       }
 
-      /* Read-chat-aloud toggle. Off by default (the first tap is the user
-         gesture browsers require to start audio); gold when on. */
-      .chat-voice-toggle {
-        width: 22px;
-        height: 22px;
-        border: 1px solid rgba(255,255,255,0.08);
-        border-radius: 8px;
-        background: rgba(255,255,255,0.02);
+      /* Standalone voice toggle, pinned to the TOP-LEFT of the whole UI so you
+         can turn character voices on/off without opening chat. It sits just
+         below the collapse (▼) chip. Off by default (the first tap is the user
+         gesture browsers require to start audio); glows gold when on. */
+      .voice-toggle-fab {
+        position: fixed;
+        top: max(52px, calc(env(safe-area-inset-top) + 52px));
+        left: max(8px, calc(env(safe-area-inset-left) + 8px));
+        z-index: 62;
+        width: 38px;
+        height: 38px;
+        border-radius: 50%;
+        border: 1px solid rgba(228,205,146,0.28);
+        background:
+          linear-gradient(180deg, rgba(11,17,21,0.82), rgba(7,12,16,0.78));
+        backdrop-filter: blur(14px) saturate(1.1);
+        -webkit-backdrop-filter: blur(14px) saturate(1.1);
         display: inline-flex;
         align-items: center;
         justify-content: center;
         cursor: pointer;
         padding: 0;
         line-height: 1;
-        opacity: 0.7;
+        opacity: 0.82;
+        box-shadow: 0 8px 20px rgba(0,0,0,0.3);
+        transition: transform 0.08s ease, background 0.15s ease, border-color 0.15s ease;
       }
-      .chat-voice-toggle .chat-voice-icon { font-size: 12px; }
-      .chat-voice-toggle.active {
+      .voice-toggle-fab:active { transform: scale(0.92); }
+      .voice-toggle-fab .chat-voice-icon { font-size: 17px; }
+      .voice-toggle-fab.active {
         opacity: 1;
-        border-color: rgba(228,205,146,0.5);
-        background: rgba(228,205,146,0.14);
+        border-color: rgba(236,178,86,0.7);
+        background:
+          linear-gradient(180deg, rgba(236,178,86,0.24), rgba(180,130,50,0.16)),
+          linear-gradient(180deg, rgba(11,17,21,0.82), rgba(7,12,16,0.78));
+        box-shadow: 0 0 0 1px rgba(236,178,86,0.28), 0 8px 20px rgba(0,0,0,0.34);
       }
+      .voice-toggle-fab.hidden { display: none !important; }
 
       .chat-list {
         flex: 1;
@@ -5374,6 +5384,9 @@
         </div>
       </header>
       <button class="landscape-bar-toggle hidden" id="landscapeBarToggle" type="button" aria-label="Show controls" aria-expanded="false">▼</button>
+      <button class="voice-toggle-fab" id="chatVoiceToggle" type="button" aria-pressed="false" aria-label="Read big moments aloud" title="Read big moments aloud">
+        <span class="chat-voice-icon" aria-hidden="true">🔈</span>
+      </button>
       <div class="table-boot-overlay hidden" id="tableBootOverlay" aria-live="polite" aria-hidden="true">
         <div class="table-boot-spinner" aria-hidden="true"></div>
         <div class="table-boot-label" id="tableBootLabel">Loading Table...</div>
@@ -5603,12 +5616,7 @@
           <div class="chat-title">Table Chat</div>
           <div class="chat-subtitle">Recent table chat</div>
         </div>
-        <div class="chat-header-actions">
-          <button class="chat-voice-toggle" id="chatVoiceToggle" type="button" aria-pressed="false" aria-label="Read chat aloud" title="Read chat aloud">
-            <span class="chat-voice-icon" aria-hidden="true">🔈</span>
-          </button>
-          <button class="chat-close" id="chatClose" type="button" aria-label="Close chat">✕</button>
-        </div>
+        <button class="chat-close" id="chatClose" type="button" aria-label="Close chat">✕</button>
       </div>
       <div class="chat-list" id="chatList">
         <div class="chat-empty" id="chatEmpty">Say hello to the table. Recent messages stay with this table so late joiners can catch up.</div>
