@@ -828,6 +828,7 @@ function curiosityContinueProb({
   personality,
   readShift,
   mood,
+  defendShift = 0,
 }: {
   features: PreflopFeatures;
   tier: PreflopTier;
@@ -837,10 +838,12 @@ function curiosityContinueProb({
   personality: BotPersonality;
   readShift: number;
   mood: number;
+  defendShift?: number;
 }) {
   if (toCallBb <= 0) return 0;
   if (toCallBb > effectiveStackBb * 0.5 || toCallBb > 24) return 0.02;
   const inPos = isInPosition(position);
+  const inBigBlind = position === "big_blind" || position === "heads_up_big_blind";
   let p = 0.05;
   p += tier === "trash" ? -0.02 : tier === "marginal" ? 0.01 : 0.04;
   if (features.paired) p += 0.06;
@@ -852,8 +855,15 @@ function curiosityContinueProb({
   else if (personality === "Rock") p -= 0.03;
   p += (readShift || 0) * 0.3;
   p += (mood || 0);
+  // Character gamble factor: table-talkers and maniacs look raises up more so a
+  // pot-size open doesn't clear the whole table every time. Fades as the price
+  // climbs so it never turns into stack-off spew.
+  const gamble = Math.max(0, Number(defendShift || 0));
+  if (gamble > 0) p += gamble * (toCallBb <= 6 ? 1 : 0.35);
+  // BB closes the action at a discount — defend it like a human would.
+  if (inBigBlind && toCallBb <= 4.5) p += 0.08;
   p *= clamp(1 - (toCallBb - 3) / 22, 0.3, 1);
-  return clamp(p, 0.02, 0.3);
+  return clamp(p, 0.02, 0.3 + gamble + (inBigBlind ? 0.06 : 0));
 }
 
 function stackToPotRatio(stack: number, pot: number, toCall: number) {
@@ -1516,6 +1526,7 @@ function decideStructuredPreflopAction({
       personality,
       readShift,
       mood: riskMood,
+      defendShift: Number((style as Record<string, number>).defendShift || 0),
     }))
       ? { actionType: "call", amount: null as number | null }
       : { actionType: "fold", amount: null as number | null }
