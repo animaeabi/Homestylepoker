@@ -1370,6 +1370,17 @@ async function sendChatMessage(rawText) {
     if (persisted) {
       queueRtRefresh();
     }
+    // Poke the runtime so a seated character can talk back. Fire-and-forget:
+    // the reply arrives through the normal chat channels a beat later.
+    supabase.functions.invoke("online-runtime-tick", {
+      body: {
+        mode: "chat_reply",
+        table_id: state.tableId,
+        group_player_id: state.identity.groupPlayerId,
+        seat_token: seatToken,
+        text,
+      },
+    }).catch(() => { /* banter is best-effort */ });
   } catch (err) {
     toast(err?.message || "Chat failed", "error");
   }
