@@ -2834,13 +2834,19 @@ function getActionPopupAnchor(pos = {}) {
   return "above";
 }
 
-function getReactionPopupAnchor(pos = {}) {
-  // Side-anchored bubbles clip outside the phone frame (left/right seats sit
-  // at the table edge), so: top seats bubble BELOW (under their cards),
-  // everyone else bubbles ABOVE. The hero's bubble is separately positioned
-  // above their cards.
+function getReactionPopupAnchor(pos = {}, { speech = false } = {}) {
+  // Top seats bubble BELOW (under their cards); everyone else ABOVE. The hero's
+  // bubble is separately positioned above their cards.
+  const px = Number.parseFloat(pos.x);
   const py = Number.parseFloat(pos.y);
   if (Number.isFinite(py) && py <= 20) return "below-cards";
+  // Chat bubbles are wider than emoji reactions, so a centered bubble over an
+  // edge seat clips off the phone frame. Open those toward the table center
+  // (like the action popups) instead of stamping across the screen.
+  if (speech) {
+    if (Number.isFinite(px) && px <= 26) return "right";
+    if (Number.isFinite(px) && px >= 74) return "left";
+  }
   return "above";
 }
 
@@ -6001,7 +6007,7 @@ function renderSeats() {
       const reactionData = state.reactionOverlays.get(seat.seat_no);
       if (reactionData && Date.now() < reactionData.until && (!hand?.id || !reactionData.handId || reactionData.handId === hand.id)) {
         const reactionBubble = buildReactionPopup(reactionData, {
-          anchor: getReactionPopupAnchor(pos),
+          anchor: getReactionPopupAnchor(pos, { speech: Boolean(reactionData.speech) }),
         });
         if (reactionBubble) node.appendChild(reactionBubble);
       }
