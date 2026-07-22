@@ -809,7 +809,8 @@ declare
   v_players jsonb;
   v_events jsonb;
   v_viewer_seat_no int;
-  v_reveal_all boolean := false;
+  v_settled boolean := false;
+  v_contested boolean := false;
 begin
   select * into v_hand_row
   from online_hands h
@@ -820,7 +821,17 @@ begin
   end if;
 
   v_hand := to_jsonb(v_hand_row) - 'deck_cards' - 'deck_cards_encrypted';
-  v_reveal_all := v_hand_row.state in ('showdown', 'settled');
+  v_settled := v_hand_row.state in ('showdown', 'settled');
+
+  -- A showdown is "contested" only if two or more players are still live: those
+  -- contenders must expose their cards to resolve the pot. An uncontested pot
+  -- (everyone else folded) has a single live player who is not required to show.
+  if v_settled then
+    select count(*) filter (where not folded) >= 2
+    into v_contested
+    from online_hand_players
+    where hand_id = p_hand_id;
+  end if;
 
   if p_viewer_group_player_id is not null
      and coalesce(nullif(trim(p_viewer_seat_token), ''), '') <> ''
@@ -844,8 +855,9 @@ begin
   select coalesce(
     jsonb_agg(
       case
-        when v_reveal_all
-             or (v_viewer_seat_no is not null and hp.seat_no = v_viewer_seat_no)
+        when (v_viewer_seat_no is not null and hp.seat_no = v_viewer_seat_no)
+             or coalesce(hp.manually_shown, false)
+             or (v_settled and v_contested and not coalesce(hp.folded, false))
           then to_jsonb(hp)
         else (to_jsonb(hp) - 'hole_cards') || jsonb_build_object('hole_cards', '[]'::jsonb)
       end
