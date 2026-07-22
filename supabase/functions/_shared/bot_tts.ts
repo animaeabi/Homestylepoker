@@ -32,7 +32,7 @@ const CHAR_STYLE: Record<string, string> = {
   holes:     "Read this smoothly and confidently, calm and a touch smug, like a zen assassin:",
   haxxon:    "Read this crisply and precisely, dry and clever, like a smirking analyst landing a point:",
   eyev:      "Read this coolly and evenly, ice-cold and unbothered, with quiet menace:",
-  hellsmouth:"Read this fast and theatrical, indignant and worked-up, like an outraged poker brat mid-rant:",
+  hellsmouth:"Read this as a mature Midwestern American man in his 60s, chest-resonant and deliberate when composed -- but the instant there's any outrage, speed up, climb into a nasal, high-pitched aggrieved whine and clip the words, like the Poker Brat mid-tantrum:",
   sydell:    "Read this softly and wryly, understated and modest, like a quiet old veteran who's seen it all:",
   hunger:    "Read this fast, brash and hyper, restless and full of gamble:",
   grease:    "Read this dry, weary and grumbling, like a tight old nit who hates spending a chip:",
