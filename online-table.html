@@ -2092,11 +2092,9 @@
       /* Deal button on table surface */
       .table-deal-btn {
         position: absolute;
-        top: 10px;
-        right: 10px;
-        bottom: auto;
-        left: auto;
-        transform: none;
+        bottom: 38%;
+        left: 50%;
+        transform: translateX(-50%);
         z-index: 20;
         font: inherit;
         font-size: 14px;
@@ -2116,7 +2114,18 @@
         background-size: 100% 100%;
       }
 
-      .table-deal-btn:hover:not(:disabled) { filter: brightness(1.1); transform: scale(1.03); }
+      .table-deal-btn:hover:not(:disabled) { filter: brightness(1.1); transform: translateX(-50%) scale(1.03); }
+      /* Between hands the button tucks into the top-right corner so it never
+         stomps on revealed cards or the winner celebration. At game start
+         (no prior hand) it stays centered on the felt where players expect it. */
+      .table-deal-btn.corner {
+        top: 10px;
+        right: 10px;
+        bottom: auto;
+        left: auto;
+        transform: none;
+      }
+      .table-deal-btn.corner:hover:not(:disabled) { transform: scale(1.03); }
       .table-deal-btn:disabled { opacity: 0.5; cursor: not-allowed; }
       .table-deal-btn.countdown {
         opacity: 0.94;
@@ -2131,8 +2140,9 @@
       }
       .table-deal-btn.countdown:hover:not(:disabled) {
         filter: none;
-        transform: none;
+        transform: translateX(-50%);
       }
+      .table-deal-btn.corner.countdown:hover:not(:disabled) { transform: none; }
 
       /* Action Strip -- slim single row */
       .action-strip {
@@ -4432,7 +4442,8 @@
         .seat-win-amount { font-size: 14px !important; }
         .seat-rebuy-btn { font-size: 11px !important; padding: 6px 14px !important; }
         .seat-popover { z-index: 30 !important; }
-        .table-deal-btn { top: 8px !important; right: 8px !important; bottom: auto !important; left: auto !important; transform: none !important; font-size: 14px !important; padding: 10px 22px !important; }
+        .table-deal-btn { bottom: 22% !important; font-size: 16px !important; padding: 12px 32px !important; }
+        .table-deal-btn.corner { top: 8px !important; right: 8px !important; bottom: auto !important; left: auto !important; transform: none !important; font-size: 14px !important; padding: 10px 22px !important; }
         .table-deal-btn.countdown { font-size: 12px !important; letter-spacing: 0.05em !important; }
 
         @supports (-webkit-touch-callout: none) {
@@ -5130,12 +5141,15 @@
         .seat-win-amount { font-size: 13px !important; }
         .seat-rebuy-btn { font-size: 11px !important; padding: 6px 14px !important; }
         .seat-popover { z-index: 30 !important; }
-        .table-deal-btn {
+        .table-deal-btn.corner {
           top: 8px !important;
           right: 8px !important;
           bottom: auto !important;
           left: auto !important;
           transform: none !important;
+        }
+        .table-deal-btn {
+          bottom: clamp(78px, 22%, 108px) !important;
           font-size: 14px !important;
           font-weight: 800 !important;
           padding: 9px 24px !important;
@@ -5510,6 +5524,6 @@
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
     <script src="./online/table_fx_geometry.js?v=203"></script>
-    <script type="module" src="./online/table_app.js?v=216"></script>
+    <script type="module" src="./online/table_app.js?v=217"></script>
   </body>
 </html>
