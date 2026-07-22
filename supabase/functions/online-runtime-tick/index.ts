@@ -5,7 +5,7 @@ import { decideBotExpressions, decideMidHandExpression } from "../_shared/bot_ex
 import { monteCarloEquity } from "../_shared/equity.ts";
 import { resolveCharacterStyle } from "../_shared/characters.ts";
 import { hasBanter, pickBanterLine, pickComebackLine } from "../_shared/bot_banter.ts";
-import { cannedReply, generateGeminiReply, generateLlmReply, pickResponder } from "../_shared/bot_chat_reply.ts";
+import { AMBIENT_BEATS, cannedReply, generateAmbientLine, generateGeminiReply, generateLlmReply, pickResponder } from "../_shared/bot_chat_reply.ts";
 
 const STREET_STATES = new Set(["preflop", "flop", "turn", "river"]);
 const ACTIVE_RUNTIME_STATES = new Set(["preflop", "flop", "turn", "river", "showdown"]);
@@ -1716,6 +1716,124 @@ async function handleChatReply({
   return json({ ok: true, replied: true, by: responder.name });
 }
 
+// Ambient "table talk": the client fires this during quiet stretches (nobody
+// chatting, between hands). A seated character opens an OFF-hand conversation --
+// a story, a superstition, ribbing a rival by name -- and one or two others
+// thread a reply, so the table feels like a room of regulars hanging out.
+// Authenticated by the caller's own seat token (proof they're present), like
+// chat_reply. LLM-driven (Gemini/Anthropic); silently no-ops without a key.
+async function handleTableTalk({
+  onlineClient,
+  payload
+}: {
+  onlineClient: ReturnType<typeof createOnlineRpcClient>;
+  payload: Record<string, unknown>;
+}) {
+  const tableId = asText(payload?.table_id);
+  const groupPlayerId = asText(payload?.group_player_id);
+  const seatToken = asText(payload?.seat_token);
+  if (!tableId || !groupPlayerId || !seatToken) {
+    return json({ ok: false, error: "table_talk_requires_table_player_token" }, 400);
+  }
+
+  // Prove the caller is really this seated player (present at the table).
+  const { data: senderSeat, error: seatErr } = await onlineClient.client
+    .from("online_table_seats")
+    .select("seat_no, is_bot")
+    .eq("table_id", tableId)
+    .eq("group_player_id", groupPlayerId)
+    .eq("seat_token", seatToken)
+    .is("left_at", null)
+    .maybeSingle();
+  if (seatErr || !senderSeat || senderSeat.is_bot) {
+    return json({ ok: false, error: "table_talk_seat_not_found" }, 403);
+  }
+
+  const geminiKey = asText(Deno.env.get("GEMINI_API_KEY"));
+  const anthropicKey = asText(Deno.env.get("ANTHROPIC_API_KEY"));
+  const provider: "gemini" | "anthropic" | null = geminiKey ? "gemini" : (anthropicKey ? "anthropic" : null);
+  const apiKey = geminiKey || anthropicKey;
+  // Ambient talk is a live-model bonus layer; with no key we simply stay quiet
+  // (the canned banks fire on real actions instead).
+  if (!provider || !apiKey) return json({ ok: true, talked: false, reason: "no_llm" });
+
+  const identities = await onlineClient.listSeatIdentities({ tableId });
+  const bots = identities
+    .filter((s: any) => s.isBot && s.botCharacter)
+    .map((s: any) => {
+      const ch = resolveCharacterStyle(s.botCharacter);
+      return {
+        characterId: String(s.botCharacter),
+        groupPlayerId: s.groupPlayerId,
+        name: String(s.name || "Bot"),
+        expressiveness: ch && typeof ch.expressiveness === "number" ? ch.expressiveness : 1
+      };
+    });
+  if (!bots.length) return json({ ok: true, talked: false, reason: "no_characters" });
+
+  const roster = identities.map((s: any) => String(s.name || "Player")).filter(Boolean);
+  const { data: recent } = await onlineClient.client
+    .from("online_table_chat_messages")
+    .select("message, group_player_id, created_at")
+    .eq("table_id", tableId)
+    .order("created_at", { ascending: false })
+    .limit(8);
+  const nameByGpid = new Map(identities.map((s: any) => [s.groupPlayerId, s.name || "Player"]));
+  const chatHistory = (recent || [])
+    .reverse()
+    .map((m: any) => ({ name: String(nameByGpid.get(m.group_player_id) || "Player"), text: String(m.message || "") }));
+
+  // Weighted pick of an opener (chattier characters lead more often).
+  const totalW = bots.reduce((s, b) => s + Math.max(0.3, b.expressiveness), 0);
+  let roll = Math.random() * totalW;
+  let opener = bots[0];
+  for (const b of bots) { roll -= Math.max(0.3, b.expressiveness); if (roll <= 0) { opener = b; break; } }
+
+  // Pick a beat; if it names a rival, mostly a fellow character, sometimes the
+  // human -- so they mostly talk among themselves but pull the player in too.
+  const otherNames = roster.filter((n) => n !== opener.name);
+  const rival = otherNames.length ? otherNames[Math.floor(Math.random() * otherNames.length)] : "the table";
+  const beat = AMBIENT_BEATS[Math.floor(Math.random() * AMBIENT_BEATS.length)].replaceAll("{rival}", rival);
+
+  let line: string | null = null;
+  try {
+    line = await generateAmbientLine({ provider, apiKey, model: asText(Deno.env.get("CHAT_REPLY_MODEL")), speaker: opener, roster, chatHistory, beat });
+  } catch (error) {
+    console.error("[table_talk] opener failed", error instanceof Error ? error.message : String(error));
+  }
+  if (!line) return json({ ok: true, talked: false, reason: "no_line" });
+  await new Promise((resolve) => setTimeout(resolve, 200 + Math.floor(Math.random() * 500)));
+  await onlineClient.postBotChat({ tableId, groupPlayerId: opener.groupPlayerId, message: line });
+
+  // Thread: one or two other characters respond, so it reads as a conversation.
+  const running = [...chatHistory, { name: opener.name, text: line }];
+  let lastSpeaker = opener;
+  let lastLine = line;
+  let hopProb = 0.7;
+  for (let hop = 0; hop < 2; hop++) {
+    if (Math.random() >= hopProb) break;
+    const others = bots.filter((b) => b.groupPlayerId !== lastSpeaker.groupPlayerId);
+    if (!others.length) break;
+    const next = others[Math.floor(Math.random() * others.length)];
+    let reply: string | null = null;
+    try {
+      reply = await generateAmbientLine({ provider, apiKey, model: asText(Deno.env.get("CHAT_REPLY_MODEL")), speaker: next, roster, chatHistory: running, respondingTo: { name: lastSpeaker.name, text: lastLine } });
+    } catch (error) {
+      console.error("[table_talk] thread failed", error instanceof Error ? error.message : String(error));
+      break;
+    }
+    if (!reply) break;
+    await new Promise((resolve) => setTimeout(resolve, 500 + Math.floor(Math.random() * 900)));
+    await onlineClient.postBotChat({ tableId, groupPlayerId: next.groupPlayerId, message: reply });
+    running.push({ name: next.name, text: reply });
+    lastSpeaker = next;
+    lastLine = reply;
+    hopProb *= 0.55;
+  }
+
+  return json({ ok: true, talked: true, by: opener.name });
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return json({ ok: true }, 200);
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
@@ -1731,6 +1849,13 @@ Deno.serve(async (req) => {
     if (mode === "chat_reply") {
       const onlineClient = createOnlineRpcClient();
       return await handleChatReply({ onlineClient, payload });
+    }
+
+    // Ambient table talk is also client-initiated (fired during quiet lulls),
+    // so it authenticates by seat token too, not the dispatch secret.
+    if (mode === "table_talk") {
+      const onlineClient = createOnlineRpcClient();
+      return await handleTableTalk({ onlineClient, payload });
     }
 
     if (!hasValidRuntimeDispatchSecret(req)) {
