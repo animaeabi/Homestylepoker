@@ -1356,9 +1356,14 @@ function addChatMessage(message, { self = false } = {}) {
   if (!self && !state.chatOpen) state.chatUnread += 1;
   if (!self) {
     addChatSpeechOverlay({ playerId: message?.playerId || null, text });
-    // Read live incoming lines aloud (no-op unless the user enabled voices).
-    // Only fires here, on the live path -- never for the backlog on reload.
-    speakChatLine({ playerId: message?.playerId || null, text });
+    // Read live incoming lines aloud (no-op unless voices are on AND the line is
+    // a server-flagged "punchy" one). Only on the live path -- never the backlog.
+    speakChatLine({
+      playerId: message?.playerId || null,
+      text,
+      voice: message?.voice,
+      character: message?.character || null,
+    });
   }
   renderChatUi();
 }
@@ -2979,114 +2984,84 @@ function addChatSpeechOverlay(message) {
 }
 
 // ============ CHARACTER VOICES (text-to-speech) ============
-// Reads incoming chat aloud so the characters "talk". Pluggable by design: the
-// current engine is the browser's built-in speech synthesis (free, unlimited,
-// on-device). A future server engine (e.g. Google WaveNet) can replace
-// chatVoice.speak() without touching any call site. Off by default -- the first
-// tap on the toggle is the user gesture browsers require to start audio.
-//
-// The on-device browser engine is DISABLED: on iOS the web only exposes Apple's
-// old robotic voices, which sound bad. The toggle stays hidden and speak() is a
-// no-op until a natural server engine (Google WaveNet) is wired in -- at which
-// point this flips true and the same toggle drives real voices.
-const DEVICE_TTS_ENABLED = false;
-const TTS_VOICE_PROFILES = {
-  negranope: { rate: 1.05, pitch: 1.06 },
-  donk:      { rate: 0.92, pitch: 0.86 },
-  holes:     { rate: 0.97, pitch: 1.0 },
-  haxxon:    { rate: 1.0,  pitch: 0.93 },
-  eyev:      { rate: 0.85, pitch: 0.78 },
-  hellsmouth:{ rate: 1.14, pitch: 1.2 },
-  sydell:    { rate: 0.9,  pitch: 0.96 },
-  hunger:    { rate: 1.24, pitch: 1.12 },
-  grease:    { rate: 0.85, pitch: 0.82 },
-  pony:      { rate: 1.18, pitch: 1.15 },
-};
-const TTS_DEFAULT_PROFILE = { rate: 1.0, pitch: 1.0 };
+// Reads the "punchy" character lines aloud in their own voices. The audio is
+// rendered SERVER-side by Gemini TTS (natural neural voices, not the robotic
+// on-device ones) and streamed back as a WAV the client plays. Gemini's free
+// TTS is ~3 requests/min, so the client only voices flagged lines (all-in
+// taunts, pot-win gloats, bullying you by name) and throttles to ~1 per 20s.
+// Off by default; the first tap on the toggle is the gesture that unlocks audio.
+const VOICE_MIN_GAP_MS = 20000;        // ~3/min, safely under the free TTS cap
+const VOICE_SILENT_WAV = "data:audio/wav;base64,UklGRuQDAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YcADAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
 const chatVoice = {
-  provider: "webspeech",
+  provider: "gemini",
   enabled: false,
-  ready: false,
-  _unlocked: false,
-  _queued: 0,
-  voices: [],
-  byCharacter: new Map(),
+  _audio: null,
+  _lastAt: 0,
+  _inflight: false,
+  _backoffUntil: 0,
 
-  supported() {
-    return typeof window !== "undefined" && "speechSynthesis" in window && "SpeechSynthesisUtterance" in window;
+  supported() { return typeof Audio !== "undefined"; },
+
+  ensureAudio() {
+    if (!this._audio) { this._audio = new Audio(); this._audio.preload = "auto"; }
+    return this._audio;
   },
 
-  loadVoices() {
-    if (!this.supported()) return;
-    const all = window.speechSynthesis.getVoices() || [];
-    const en = all.filter((v) => /^en([-_]|$)/i.test(v.lang || ""));
-    this.voices = en.length ? en : all;
-    this.ready = this.voices.length > 0;
-    // Spread the characters across the available voices so they sound distinct
-    // where the device has several; pitch/rate differentiate the rest.
-    this.byCharacter.clear();
-    if (this.voices.length) {
-      Object.keys(TTS_VOICE_PROFILES).forEach((id, i) => {
-        this.byCharacter.set(id, this.voices[(i * 3) % this.voices.length]);
-      });
-    }
-  },
-
-  stripForSpeech(text) {
-    return String(text || "")
-      .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}\u{FE0F}\u{1F900}-\u{1F9FF}]/gu, "")
-      .replace(/\s+/g, " ")
-      .trim()
-      .slice(0, 220);
-  },
-
-  // Speak a near-silent utterance inside a user gesture to unlock audio on iOS.
+  // Play a tiny silent clip inside a user gesture so iOS unlocks audio for the
+  // (programmatic) lines that follow.
   unlock() {
-    if (this._unlocked || !this.supported()) return;
+    if (!this.supported()) return;
     try {
-      const u = new SpeechSynthesisUtterance(" ");
-      u.volume = 0;
-      window.speechSynthesis.speak(u);
-      this._unlocked = true;
+      const a = this.ensureAudio();
+      a.src = VOICE_SILENT_WAV;
+      a.play().catch(() => { /* ignore */ });
     } catch { /* ignore */ }
   },
 
   setEnabled(on) {
     this.enabled = Boolean(on);
     try { localStorage.setItem("hsp_tts_enabled", this.enabled ? "1" : "0"); } catch { /* ignore */ }
-    if (!this.supported()) return;
-    if (this.enabled) {
-      this.loadVoices();
-      try { window.speechSynthesis.resume(); } catch { /* ignore */ }
-    } else {
-      try { window.speechSynthesis.cancel(); } catch { /* ignore */ }
-    }
+    if (!this.enabled && this._audio) { try { this._audio.pause(); } catch { /* ignore */ } }
   },
 
-  speak(characterId, text) {
-    if (!DEVICE_TTS_ENABLED && this.provider === "webspeech") return;
-    if (!this.enabled || !this.supported()) return;
-    const clean = this.stripForSpeech(text);
-    if (!clean) return;
-    if (!this.ready) this.loadVoices();
-    // Don't fall behind during rapid ambient bursts -- cap the queue depth so
-    // speech stays roughly current with the table instead of lagging.
-    if (this._queued >= 3) return;
+  // Voice a line. Only `priority` (server-flagged punchy) lines are spoken, and
+  // no more than one per VOICE_MIN_GAP_MS to stay under the free TTS rate cap.
+  async speak(characterId, text, { priority = false } = {}) {
+    if (!this.enabled || !this.supported() || !priority) return;
+    const now = Date.now();
+    if (now < this._backoffUntil) return;
+    if (now - this._lastAt < VOICE_MIN_GAP_MS) return;
+    if (this._inflight) return;
+    if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+    const seatToken = getSeatToken();
+    if (!seatToken || !state.tableId || !state.identity) return;
+
+    this._inflight = true;
+    this._lastAt = now;   // reserve the slot up front to keep spacing even on error
     try {
-      const u = new SpeechSynthesisUtterance(clean);
-      const profile = TTS_VOICE_PROFILES[characterId] || TTS_DEFAULT_PROFILE;
-      u.rate = profile.rate;
-      u.pitch = profile.pitch;
-      u.volume = 1.0;
-      const v = this.byCharacter.get(characterId);
-      if (v) u.voice = v;
-      this._queued += 1;
-      const done = () => { this._queued = Math.max(0, this._queued - 1); };
-      u.onend = done;
-      u.onerror = done;
-      window.speechSynthesis.speak(u);
-    } catch { /* ignore */ }
+      const { data, error } = await supabase.functions.invoke("online-runtime-tick", {
+        body: {
+          mode: "tts",
+          table_id: state.tableId,
+          group_player_id: state.identity.groupPlayerId,
+          seat_token: seatToken,
+          text: String(text || "").slice(0, 240),
+          character: characterId || "",
+        },
+      });
+      if (error) {
+        // Rate-limited: back off so we don't hammer the free quota.
+        if (/429/.test(String(error.message || ""))) this._backoffUntil = Date.now() + 30000;
+        return;
+      }
+      if (!data || !data.audio) return;
+      const a = this.ensureAudio();
+      a.src = "data:audio/wav;base64," + data.audio;
+      a.play().catch(() => { /* autoplay/gesture -- ignore */ });
+    } catch { /* best-effort */ } finally {
+      this._inflight = false;
+    }
   },
 };
 
@@ -3096,10 +3071,13 @@ function characterIdForPlayer(playerId) {
   return seat?.bot_character || null;
 }
 
+// message.voice (set server-side) marks a "punchy" line worth reading aloud;
+// message.character carries the speaker's character id when known.
 function speakChatLine(message) {
   const text = String(message?.text || "").trim();
   if (!text) return;
-  chatVoice.speak(characterIdForPlayer(message?.playerId || null), text);
+  const characterId = message?.character || characterIdForPlayer(message?.playerId || null);
+  chatVoice.speak(characterId, text, { priority: Boolean(message?.voice) });
 }
 
 function updateVoiceToggleUi() {
@@ -3109,27 +3087,13 @@ function updateVoiceToggleUi() {
   el.chatVoiceToggle.setAttribute("aria-pressed", on ? "true" : "false");
   const icon = el.chatVoiceToggle.querySelector(".chat-voice-icon");
   if (icon) icon.textContent = on ? "🔊" : "🔈";
-  el.chatVoiceToggle.title = on ? "Character voices on" : "Read chat aloud";
+  el.chatVoiceToggle.title = on ? "Character voices on" : "Read big moments aloud";
 }
 
 function initChatVoice() {
-  // Device engine disabled (robotic iOS voices): hide the toggle and make sure
-  // it's off, even for players who'd enabled it before. Re-enable when a natural
-  // server engine is wired in.
-  if (!DEVICE_TTS_ENABLED && chatVoice.provider === "webspeech") {
-    chatVoice.enabled = false;
-    try { localStorage.setItem("hsp_tts_enabled", "0"); } catch { /* ignore */ }
-    try { if (chatVoice.supported()) window.speechSynthesis.cancel(); } catch { /* ignore */ }
-    el.chatVoiceToggle?.classList.add("hidden");
-    return;
-  }
   if (el.chatVoiceToggle && !chatVoice.supported()) {
     el.chatVoiceToggle.classList.add("hidden");
     return;
-  }
-  if (chatVoice.supported()) {
-    chatVoice.loadVoices();
-    try { window.speechSynthesis.onvoiceschanged = () => chatVoice.loadVoices(); } catch { /* ignore */ }
   }
   let stored = "0";
   try { stored = localStorage.getItem("hsp_tts_enabled") || "0"; } catch { /* ignore */ }
@@ -7437,7 +7401,7 @@ function bindEvents() {
     chatVoice.setEnabled(next);
     if (next) chatVoice.unlock();           // this tap is the gesture that unlocks audio
     updateVoiceToggleUi();
-    toast(next ? "Character voices on 🔊" : "Character voices off", next ? "success" : "");
+    toast(next ? "Voices on — big moments spoken aloud 🔊" : "Voices off", next ? "success" : "");
   });
   initChatVoice();
 
