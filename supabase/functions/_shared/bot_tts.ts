@@ -4,20 +4,22 @@
 // CLIENT throttles and only voices "punchy" lines -- this module just renders.
 
 // One distinct prebuilt Gemini voice per character (all names from Google's
-// 30-voice set), chosen to fit the persona.
+// 30-voice set). Every signature character is MALE, so every voice here must be
+// a male prebuilt voice -- Aoede (was on negranope) and Kore (the old default)
+// are female and were producing a female voice for male characters.
 const CHAR_VOICE: Record<string, string> = {
-  negranope: "Aoede",      // warm, chatty
-  donk:      "Charon",     // low, flat
-  holes:     "Iapetus",    // serene
-  haxxon:    "Rasalgethi", // measured, dry
-  eyev:      "Enceladus",  // cool, minimal
-  hellsmouth:"Fenrir",     // intense, dramatic
-  sydell:    "Umbriel",    // gentle
-  hunger:    "Puck",       // energetic
-  grease:    "Algenib",    // gravelly, weary
-  pony:      "Orus",       // bold, loud
+  negranope: "Achird",     // warm, friendly, chatty (male)
+  donk:      "Charon",     // low, flat (male)
+  holes:     "Iapetus",    // serene, clear (male)
+  haxxon:    "Rasalgethi", // measured, dry (male)
+  eyev:      "Enceladus",  // cool, breathy, minimal (male)
+  hellsmouth:"Fenrir",     // intense, excitable (male)
+  sydell:    "Umbriel",    // gentle, easy-going (male)
+  hunger:    "Puck",       // energetic, upbeat (male)
+  grease:    "Algenib",    // gravelly, weary (male)
+  pony:      "Orus",       // bold, firm, loud (male)
 };
-const DEFAULT_VOICE = "Kore";
+const DEFAULT_VOICE = "Algieba"; // smooth (male) -- safe fallback for any unmapped id
 
 // Delivery-style preamble (interpreted by the model, not spoken aloud). Each one
 // leads with "quick" / "natural" cues on purpose: with a flat prompt Gemini TTS
