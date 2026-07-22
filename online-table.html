@@ -1356,10 +1356,12 @@
       }
       #tableView.board-dense .seat-name { font-size: 9px !important; max-width: 56px !important; }
       #tableView.board-dense .seat-stack { font-size: 10px !important; }
-      /* Opponents' face-down hole-card backs shrink with the tag. */
+      /* Opponents' face-down hole-card backs: a touch smaller than default so
+         they fit the shrunk tags, but still clearly readable as a card fan (the
+         earlier 16x23 made them invisible slivers). */
       #tableView.board-dense .seat-cards-row.compact-opponent:not(.showdown) .card {
-        width: 16px !important;
-        height: 23px !important;
+        width: 30px !important;
+        height: 42px !important;
       }
 
       #tableView.board-dense .board-cards { gap: 5px !important; }
@@ -5789,6 +5791,6 @@
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
     <script src="./online/table_fx_geometry.js?v=203"></script>
-    <script type="module" src="./online/table_app.js?v=241"></script>
+    <script type="module" src="./online/table_app.js?v=242"></script>
   </body>
 </html>
