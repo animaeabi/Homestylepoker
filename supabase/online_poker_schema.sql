@@ -2844,12 +2844,16 @@ end;
 $$;
 
 grant usage on schema online_private to anon, authenticated, service_role;
-grant execute on function online_private.get_deck_crypto_key() to anon, authenticated, service_role;
-grant execute on function online_private.get_supabase_anon_key() to anon, authenticated, service_role;
-grant execute on function online_private.get_runtime_dispatch_secret() to anon, authenticated, service_role;
+-- These helpers return the deck-encryption key / secrets or pack/unpack the deck.
+-- They must be service-role-only: never grant them to anon or authenticated.
+-- They are only ever called from inside SECURITY DEFINER functions owned by
+-- postgres (shuffle / deal / advance), which run as the owner regardless.
+grant execute on function online_private.get_deck_crypto_key() to service_role;
+grant execute on function online_private.get_supabase_anon_key() to service_role;
+grant execute on function online_private.get_runtime_dispatch_secret() to service_role;
 grant execute on function online_set_runtime_dispatch_config(text, text) to service_role;
-grant execute on function online_private.pack_remaining_deck(jsonb) to anon, authenticated, service_role;
-grant execute on function online_private.unpack_remaining_deck(jsonb, text) to anon, authenticated, service_role;
+grant execute on function online_private.pack_remaining_deck(jsonb) to service_role;
+grant execute on function online_private.unpack_remaining_deck(jsonb, text) to service_role;
 grant execute on function online_private.prune_online_data(int, int, int) to service_role;
 
 create or replace function online_normalize_money(
@@ -5732,3 +5736,31 @@ as $$
   order by h.last_action_at asc nulls last
   limit greatest(coalesce(p_limit, 50), 1);
 $$;
+
+-- ===========================================================================
+-- Trusted-boundary function hardening (security)
+--
+-- These functions either apply authoritative game state (SECURITY DEFINER, so
+-- they bypass RLS) or are only meant for the server runtime. Postgres grants
+-- EXECUTE to PUBLIC by default on function creation, which would expose them to
+-- anon/authenticated. Lock them to the service role only. The browser client
+-- never calls any of these; the production settler is the service-role edge
+-- function; internal SQL callers run inside SECURITY DEFINER functions owned by
+-- postgres, which keeps EXECUTE as owner regardless.
+--
+-- online_settle_showdown: trusts caller-supplied payouts (does not recompute the
+--   winner), so an anon caller could otherwise award itself the pot at showdown.
+-- online_claim_table_seat: rotates + returns a seat token from two public UUIDs
+--   with no ownership proof.
+-- online_get_hand_state: returns the full deck + every hole card (SECURITY
+--   INVOKER, so RLS already denies anon, but revoke anyway as defense in depth).
+--   The browser uses online_get_hand_state_viewer instead.
+-- ===========================================================================
+revoke all on function online_settle_showdown(uuid, jsonb, uuid, text) from public, anon, authenticated;
+grant execute on function online_settle_showdown(uuid, jsonb, uuid, text) to service_role;
+
+revoke all on function online_claim_table_seat(uuid, uuid) from public, anon, authenticated;
+grant execute on function online_claim_table_seat(uuid, uuid) to service_role;
+
+revoke all on function online_get_hand_state(uuid, bigint) from public, anon, authenticated;
+grant execute on function online_get_hand_state(uuid, bigint) to service_role;
