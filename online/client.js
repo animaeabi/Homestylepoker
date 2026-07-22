@@ -100,6 +100,7 @@ export function createOnlinePokerClient(supabase) {
       seatToken = null,
       isBot = false,
       botPersonality = null,
+      botCharacter = null,
       actorGroupPlayerId = null,
       actorSeatToken = null
     }) {
@@ -111,6 +112,7 @@ export function createOnlinePokerClient(supabase) {
         p_seat_token: seatToken,
         p_is_bot: isBot,
         p_bot_personality: botPersonality,
+        p_bot_character: botCharacter,
         p_actor_group_player_id: actorGroupPlayerId,
         p_actor_seat_token: actorSeatToken
       });
