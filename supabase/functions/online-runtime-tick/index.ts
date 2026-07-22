@@ -5,7 +5,7 @@ import { decideBotExpressions, decideMidHandExpression } from "../_shared/bot_ex
 import { monteCarloEquity } from "../_shared/equity.ts";
 import { resolveCharacterStyle } from "../_shared/characters.ts";
 import { hasBanter, pickBanterLine, pickComebackLine } from "../_shared/bot_banter.ts";
-import { cannedReply, generateLlmReply, pickResponder } from "../_shared/bot_chat_reply.ts";
+import { cannedReply, generateGeminiReply, generateLlmReply, pickResponder } from "../_shared/bot_chat_reply.ts";
 
 const STREET_STATES = new Set(["preflop", "flop", "turn", "river"]);
 const ACTIVE_RUNTIME_STATES = new Set(["preflop", "flop", "turn", "river", "showdown"]);
@@ -1611,20 +1611,41 @@ async function handleChatReply({
     .map((m: any) => ({ name: String(nameByGpid.get(m.group_player_id) || "Player"), text: String(m.message || "") }));
 
   let reply: string | null = null;
-  const apiKey = asText(Deno.env.get("ANTHROPIC_API_KEY"));
-  if (apiKey) {
+  let usedLlm = false;
+  const geminiKey = asText(Deno.env.get("GEMINI_API_KEY"));
+  const anthropicKey = asText(Deno.env.get("ANTHROPIC_API_KEY"));
+  const llmArgs = {
+    responder,
+    playerName,
+    message,
+    chatHistory,
+    otherSeated: bots.filter((b) => b.groupPlayerId !== responder.groupPlayerId).map((b) => b.name),
+  };
+  // Prefer Gemini (AI Studio) when its key is set; fall back to Anthropic; then
+  // to the canned banks. Any backend error drops through to the next option so a
+  // provider hiccup never silences the table.
+  if (geminiKey) {
+    try {
+      reply = await generateGeminiReply({
+        apiKey: geminiKey,
+        model: asText(Deno.env.get("CHAT_REPLY_MODEL")),
+        ...llmArgs,
+      });
+      if (reply) usedLlm = true;
+    } catch (error) {
+      console.error("[chat_reply] gemini failed", error instanceof Error ? error.message : String(error));
+    }
+  }
+  if (!reply && anthropicKey) {
     try {
       reply = await generateLlmReply({
-        apiKey,
+        apiKey: anthropicKey,
         model: asText(Deno.env.get("CHAT_REPLY_MODEL")),
-        responder,
-        playerName,
-        message,
-        chatHistory,
-        otherSeated: bots.filter((b) => b.groupPlayerId !== responder.groupPlayerId).map((b) => b.name)
+        ...llmArgs,
       });
+      if (reply) usedLlm = true;
     } catch (error) {
-      console.error("[chat_reply] llm failed, falling back to canned", error instanceof Error ? error.message : String(error));
+      console.error("[chat_reply] anthropic failed, falling back to canned", error instanceof Error ? error.message : String(error));
     }
   }
   if (!reply) {
@@ -1632,8 +1653,11 @@ async function handleChatReply({
   }
   if (!reply) return json({ ok: true, replied: false, reason: "no_line" });
 
-  // A beat of "typing" so the reply doesn't land inhumanly fast.
-  await new Promise((resolve) => setTimeout(resolve, 700 + Math.floor(Math.random() * 1100)));
+  // A beat of "typing" so the reply doesn't land inhumanly fast. The LLM call
+  // already took ~1s of real latency, so only a small extra beat is needed
+  // there; canned replies are instant and need the full delay.
+  const typingMs = usedLlm ? 200 + Math.floor(Math.random() * 400) : 700 + Math.floor(Math.random() * 1100);
+  await new Promise((resolve) => setTimeout(resolve, typingMs));
 
   await onlineClient.postBotChat({
     tableId,
