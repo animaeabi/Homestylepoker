@@ -61,11 +61,11 @@ export const CHARACTER_STYLES: Record<string, CharacterStyle> = {
     expressiveness: 1.35,
     taunts: {
       aggro: [
-        { emoji: "\u{1F4A3}", text: "DONK BOMBS!" },
-        { emoji: "\u{1F680}", text: "Strap in!" },
+        { emoji: "\u{1F4A3}", text: "donk bomb. sorry" },
+        { emoji: "\u{1F937}", text: "i guess... all-in" },
       ],
-      call: [{ emoji: "\u{1F3B2}", text: "Let's gamble!" }],
-      fold: [{ emoji: "\u{1F624}", text: "Next hand goes BOOM" }],
+      call: [{ emoji: "\u{1F3B2}", text: "probably bad. calling" }],
+      fold: [{ emoji: "\u{1F634}", text: "eh" }],
     },
   },
   // Fedor Holes -- aggressive high-stakes, smug hero call-downs.
