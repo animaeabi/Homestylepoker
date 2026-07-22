@@ -1,7 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { resolveShowdownPayouts } from "../_shared/showdown.ts";
 import { botThinkTimeMs, classifyOpponentProfile, combineOpponentProfiles, decideBotAction } from "../_shared/bot_engine.ts";
-import { decideBotExpressions } from "../_shared/bot_expression.ts";
+import { decideBotExpressions, decideMidHandExpression } from "../_shared/bot_expression.ts";
 import { monteCarloEquity } from "../_shared/equity.ts";
 import { resolveCharacterStyle } from "../_shared/characters.ts";
 
@@ -867,6 +867,35 @@ async function processBotAction({
       seatToken: actingSeat.seat_token,
       clientActionId: `runtime_bot_fallback:${hand.id}:${turnSeat}:${turnStamp}`
     });
+  }
+
+  // Mid-hand table talk: characters occasionally flash an in-character line
+  // over their seat after a notable action (jam, big raise, big call/fold).
+  // Cosmetic and best-effort -- a broadcast hiccup never blocks the game.
+  try {
+    const bbForTalk = Math.max(1, Number(table?.big_blind || 2));
+    const talk = decideMidHandExpression({
+      actionType: decision.actionType,
+      street: String(liveHand?.state || hand.state || "preflop"),
+      potBb: Number(liveHand?.pot_total || 0) / bbForTalk,
+      toCallBb: Number(toCall || 0) / bbForTalk,
+      raiseToBb: decision.amount != null ? Number(decision.amount) / bbForTalk : null,
+      personality: character ? character.base : (actingSeat.bot_personality || "TAG"),
+      expressiveness: character && typeof character.expressiveness === "number" ? character.expressiveness : undefined,
+      taunts: character?.taunts || null,
+    });
+    if (talk) {
+      await onlineClient.broadcastReaction({
+        tableId,
+        handId: hand.id,
+        seatNo: Number(botPlayer.seat_no || 0),
+        name: null,
+        emoji: talk.emoji,
+        text: talk.text,
+      });
+    }
+  } catch (_error) {
+    // table talk is cosmetic
   }
 
   // Bluff bandit: if the action that went in was postflop aggression with weak

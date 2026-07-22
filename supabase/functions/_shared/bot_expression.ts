@@ -69,6 +69,64 @@ function chance(p: number) {
   return Math.random() < p;
 }
 
+// Mid-hand table talk: after a bot commits a notable action, it may flash an
+// in-character line (or a generic emoji) over its seat. Kept probabilistic and
+// rare-ish so it feels alive, not spammy; expressiveness scales the chatter.
+export function decideMidHandExpression({
+  actionType,
+  street,
+  potBb,
+  toCallBb,
+  raiseToBb,
+  personality,
+  expressiveness: expressivenessOverride,
+  taunts,
+}: {
+  actionType: string;
+  street: string;
+  potBb: number;
+  toCallBb: number;
+  raiseToBb?: number | null;
+  personality: string;
+  expressiveness?: number;
+  taunts?: {
+    aggro?: { emoji: string; text: string }[];
+    call?: { emoji: string; text: string }[];
+    fold?: { emoji: string; text: string }[];
+  } | null;
+}): BotReaction | null {
+  const expr = typeof expressivenessOverride === "number"
+    ? expressivenessOverride
+    : expressiveness(String(personality));
+  const bigPrice = Math.max(Number(toCallBb || 0), Number(raiseToBb || 0));
+  const pickTaunt = (list?: { emoji: string; text: string }[]) =>
+    (list && list.length ? list[Math.floor(Math.random() * list.length)] : null);
+
+  let p = 0;
+  let line: { emoji: string; text: string } | null = null;
+
+  if (actionType === "all_in") {
+    p = 0.5 * expr;
+    line = pickTaunt(taunts?.aggro) || pick([R.fire, R.smirk]);
+  } else if ((actionType === "bet" || actionType === "raise") && (bigPrice >= 8 || potBb >= 18)) {
+    p = 0.24 * expr;
+    line = pickTaunt(taunts?.aggro) || pick([R.smirk, R.fire]);
+  } else if (actionType === "call" && (toCallBb >= 8 || potBb >= 22)) {
+    p = 0.2 * expr;
+    line = pickTaunt(taunts?.call) || pick([R.think, R.sweat, R.wow]);
+  } else if (actionType === "fold" && toCallBb >= 8) {
+    p = 0.12 * expr;
+    line = pickTaunt(taunts?.fold) || pick([R.ok, R.think]);
+  } else if ((actionType === "bet" || actionType === "raise") && street !== "preflop") {
+    // Routine aggression: a whisper of table presence.
+    p = 0.05 * expr;
+    line = pickTaunt(taunts?.aggro) || pick([R.smirk, R.ok]);
+  }
+
+  if (!line || !chance(p)) return null;
+  return { key: "table_talk", emoji: line.emoji, text: line.text };
+}
+
 // Decide what (if anything) each bot expresses when a hand settles. Returns at
 // most a couple of expressions per hand so the table never spams.
 export function decideBotExpressions({
