@@ -5,6 +5,7 @@ import { decideBotExpressions, decideMidHandExpression } from "../_shared/bot_ex
 import { monteCarloEquity } from "../_shared/equity.ts";
 import { resolveCharacterStyle } from "../_shared/characters.ts";
 import { hasBanter, pickBanterLine, pickComebackLine } from "../_shared/bot_banter.ts";
+import { cannedReply, generateLlmReply, pickResponder } from "../_shared/bot_chat_reply.ts";
 
 const STREET_STATES = new Set(["preflop", "flop", "turn", "river"]);
 const ACTIVE_RUNTIME_STATES = new Set(["preflop", "flop", "turn", "river", "showdown"]);
@@ -1496,17 +1497,130 @@ async function runRuntimeTick({
   return report;
 }
 
+// A human posted in table chat -> pick a seated character and talk back.
+// Auth: the sender's own seat token. Engine: LLM when ANTHROPIC_API_KEY is a
+// configured secret, canned in-character banks otherwise. Best-effort by
+// design — any failure returns ok:false and the game never notices.
+async function handleChatReply({
+  onlineClient,
+  payload
+}: {
+  onlineClient: ReturnType<typeof createOnlineRpcClient>;
+  payload: Record<string, unknown>;
+}) {
+  const tableId = asText(payload?.table_id);
+  const groupPlayerId = asText(payload?.group_player_id);
+  const seatToken = asText(payload?.seat_token);
+  const message = String(payload?.text || "").trim().slice(0, 300);
+  if (!tableId || !groupPlayerId || !seatToken || !message) {
+    return json({ ok: false, error: "chat_reply_requires_table_player_token_text" }, 400);
+  }
+
+  // Prove the caller is really this seated player.
+  const { data: senderSeat, error: seatErr } = await onlineClient.client
+    .from("online_table_seats")
+    .select("seat_no, is_bot")
+    .eq("table_id", tableId)
+    .eq("group_player_id", groupPlayerId)
+    .eq("seat_token", seatToken)
+    .is("left_at", null)
+    .maybeSingle();
+  if (seatErr || !senderSeat || senderSeat.is_bot) {
+    return json({ ok: false, error: "chat_reply_seat_not_found" }, 403);
+  }
+
+  // Occasionally stay silent so it never feels like an auto-responder.
+  if (Math.random() < 0.12) {
+    return json({ ok: true, replied: false, reason: "chose_silence" });
+  }
+
+  const identities = await onlineClient.listSeatIdentities({ tableId });
+  const sender = identities.find((s: any) => s.groupPlayerId === groupPlayerId);
+  const playerName = sender?.name || "friend";
+  const bots = identities
+    .filter((s: any) => s.isBot && s.botCharacter)
+    .map((s: any) => {
+      const ch = resolveCharacterStyle(s.botCharacter);
+      return {
+        characterId: String(s.botCharacter),
+        groupPlayerId: s.groupPlayerId,
+        name: String(s.name || "Bot"),
+        expressiveness: ch && typeof ch.expressiveness === "number" ? ch.expressiveness : 1
+      };
+    });
+  if (!bots.length) {
+    return json({ ok: true, replied: false, reason: "no_characters_seated" });
+  }
+
+  const responder = pickResponder(message, bots);
+  if (!responder) return json({ ok: true, replied: false, reason: "no_responder" });
+
+  // Recent transcript for LLM context (oldest first).
+  const { data: recent } = await onlineClient.client
+    .from("online_table_chat_messages")
+    .select("message, group_player_id, created_at")
+    .eq("table_id", tableId)
+    .order("created_at", { ascending: false })
+    .limit(8);
+  const nameByGpid = new Map(identities.map((s: any) => [s.groupPlayerId, s.name || "Player"]));
+  const chatHistory = (recent || [])
+    .reverse()
+    .map((m: any) => ({ name: String(nameByGpid.get(m.group_player_id) || "Player"), text: String(m.message || "") }));
+
+  let reply: string | null = null;
+  const apiKey = asText(Deno.env.get("ANTHROPIC_API_KEY"));
+  if (apiKey) {
+    try {
+      reply = await generateLlmReply({
+        apiKey,
+        model: asText(Deno.env.get("CHAT_REPLY_MODEL")),
+        responder,
+        playerName,
+        message,
+        chatHistory,
+        otherSeated: bots.filter((b) => b.groupPlayerId !== responder.groupPlayerId).map((b) => b.name)
+      });
+    } catch (error) {
+      console.error("[chat_reply] llm failed, falling back to canned", error instanceof Error ? error.message : String(error));
+    }
+  }
+  if (!reply) {
+    reply = cannedReply({ characterId: responder.characterId, playerName, message });
+  }
+  if (!reply) return json({ ok: true, replied: false, reason: "no_line" });
+
+  // A beat of "typing" so the reply doesn't land inhumanly fast.
+  await new Promise((resolve) => setTimeout(resolve, 700 + Math.floor(Math.random() * 1100)));
+
+  await onlineClient.postBotChat({
+    tableId,
+    groupPlayerId: responder.groupPlayerId,
+    message: reply
+  });
+
+  return json({ ok: true, replied: true, by: responder.name });
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return json({ ok: true }, 200);
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
 
   try {
+    const payload = await req.json().catch(() => ({}));
+    const mode = asText(payload?.mode) || "tick";
+
+    // Chat replies are CLIENT-initiated (fired after a human posts in table
+    // chat), so they can't carry the server dispatch secret. They authenticate
+    // with the caller's own seat token instead — proof they're seated at the
+    // table they're talking at. Everything else still requires the secret.
+    if (mode === "chat_reply") {
+      const onlineClient = createOnlineRpcClient();
+      return await handleChatReply({ onlineClient, payload });
+    }
+
     if (!hasValidRuntimeDispatchSecret(req)) {
       return json({ ok: false, error: "unauthorized_runtime_dispatch" }, 401);
     }
-
-    const payload = await req.json().catch(() => ({}));
-    const mode = asText(payload?.mode) || "tick";
 
     const onlineClient = createOnlineRpcClient();
 
