@@ -1956,36 +1956,17 @@ function shouldShowBlindPositionLabel(hand, handPlayer, seatNo) {
   return hand.small_blind_seat === seatNo || hand.big_blind_seat === seatNo;
 }
 
-// On dense tables, hug the board-level side seats (mid-height, on the left/right
-// rail) further out so the full-size community board fits between them with real
-// clearance. Top/bottom seats and near-center seats are left where they are.
-function denseSeatShift(pos) {
-  const px = Number.parseFloat(pos?.x);
-  const py = Number.parseFloat(pos?.y);
-  if (!Number.isFinite(px) || !Number.isFinite(py)) return pos;
-  // Dense tables: run the ring tight against the rail so the whole center stays
-  // clear, and keep the bottom corners free for the hero's controls.
-  //
-  // Bottom-corner seats collide with the action panel (bottom-left) and the
-  // voice/chat FABs (bottom-right) -- lift them up the side rail, above that band.
-  if (py >= 80) {
-    const nx = px < 50 ? Math.max(8, px - 5) : Math.min(92, px + 5);
-    return { x: `${nx}%`, y: "74%" };
-  }
-  // Board-level side seats (the widest part of the oval): hug the rail hard so
-  // the community board clears with real room on both sides.
-  if (py >= 45 && py < 80) {
-    if (px < 40) return { x: `${Math.max(4, px - 6)}%`, y: pos.y };
-    if (px > 60) return { x: `${Math.min(96, px + 6)}%`, y: pos.y };
-  }
-  // Upper side seats: push out a touch too, but less -- the oval narrows up
-  // here, so hugging the rail means a smaller x offset than at the middle.
-  if (py > 14 && py < 45) {
-    if (px < 40) return { x: `${Math.max(6, px - 3)}%`, y: pos.y };
-    if (px > 60) return { x: `${Math.min(94, px + 3)}%`, y: pos.y };
-  }
-  return pos;
-}
+// Explicit rail-hugging seat positions for dense (8/9/10-max) portrait tables.
+// Indexed [seatsAroundTable][slotIndex]; the slot order matches PORTRAIT_SEATS,
+// so the clockwise ordering still maps each player to the right slot -- only the
+// coordinates change. Runs the ring tight against the rail, evenly spaced, with
+// the board-level seats at the oval's widest point and the bottom CORNERS left
+// free for the hero's controls (bottom-left) and voice/chat FABs (bottom-right).
+const DENSE_SEATS = {
+  7: [ {x:50,y:10}, {x:11,y:36},{x:89,y:36}, {x:6,y:56},{x:94,y:56}, {x:15,y:75},{x:85,y:75} ],
+  8: [ {x:32,y:10},{x:68,y:10}, {x:11,y:34},{x:89,y:34}, {x:6,y:54},{x:94,y:54}, {x:15,y:74},{x:85,y:74} ],
+  9: [ {x:50,y:9}, {x:11,y:27},{x:89,y:27}, {x:6,y:45},{x:94,y:45}, {x:6,y:63},{x:94,y:63}, {x:17,y:78},{x:83,y:78} ],
+};
 
 function getSeatContributionAnchor(pos, { hero = false } = {}) {
   if (hero) return "seat-bet--hero";
@@ -6181,10 +6162,12 @@ function renderSeats() {
         : ((seats.indexOf(seat) + rotateOffset) % total + total) % total;
     const posTotal = compactMobile ? tableTotal : total;
     let pos = seatPosition(posIdx + 1, posTotal);
-    // Dense tables: the side seats that sit at the community board's height are
-    // what crowd the cards. Nudge those (and only those) out toward the rail so
-    // the board keeps real clearance instead of just layering on top.
-    if (denseTable) pos = denseSeatShift(pos);
+    // Dense tables (near-full 8/9/10-max): swap in explicit rail-hugging
+    // positions so the whole center stays clear and the corners stay free.
+    if (denseTable) {
+      const d = DENSE_SEATS[posTotal]?.[posIdx];
+      if (d) pos = { x: `${d.x}%`, y: `${d.y}%` };
+    }
     const hp = hpBySeat.get(seat.seat_no);
     const occupied = seat.group_player_id && !seat.left_at;
     const pid = occupied ? seat.group_player_id : null;
