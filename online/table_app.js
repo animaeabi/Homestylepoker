@@ -6147,7 +6147,13 @@ function renderSeats() {
         const reactionBubble = buildReactionPopup(reactionData, {
           anchor: getReactionPopupAnchor(pos, { speech: Boolean(reactionData.speech) }),
         });
-        if (reactionBubble) node.appendChild(reactionBubble);
+        if (reactionBubble) {
+          node.appendChild(reactionBubble);
+          // A folded player is dimmed via opacity on the whole seat node, which
+          // would gray out their bubble too. Mark the seat so CSS dims the plate
+          // and contents WITHOUT an opacity group, keeping the bubble readable.
+          if (isFolded) node.classList.add("speaking");
+        }
       }
 
       const contributionLabel = getSeatContributionLabel({
