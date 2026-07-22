@@ -15,7 +15,7 @@ alter table online_table_seats
 -- current live 9-param definition (security definer, host check, ban check)
 -- and just threads the character id into both seat-claim branches.
 drop function if exists public.online_join_table(uuid, uuid, integer, numeric, text, boolean, text);
-drop function if exists public.online_join_table(uuid, uuid, integer, numeric, text, boolean, text, uuid, uuid);
+drop function if exists public.online_join_table(uuid, uuid, integer, numeric, text, boolean, text, uuid, text);
 
 create or replace function public.online_join_table(
   p_table_id uuid,
