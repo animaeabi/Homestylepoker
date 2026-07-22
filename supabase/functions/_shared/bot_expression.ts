@@ -184,6 +184,14 @@ export function decideBotExpressions({
       reaction = pick([R.ok, R.gg]);
     }
 
+    // Folded players occasionally flash the hand they let go once the pot is in
+    // the books -- the classic live-poker "look what I folded" move. Rare and
+    // flavor-only (never mid-hand; this runs at settle). Needs the cards to
+    // actually be present in the settled state.
+    if (!showCards && p.folded && Array.isArray(p.holeCards) && p.holeCards.length >= 2 && chance(0.06 * expr)) {
+      showCards = true;
+    }
+
     const doReact = reaction != null && chance(reactP);
     if (doReact || showCards) {
       out.push({
