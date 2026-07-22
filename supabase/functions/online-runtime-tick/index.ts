@@ -6,6 +6,7 @@ import { monteCarloEquity } from "../_shared/equity.ts";
 import { resolveCharacterStyle } from "../_shared/characters.ts";
 import { hasBanter, pickBanterLine, pickComebackLine } from "../_shared/bot_banter.ts";
 import { AMBIENT_BEATS, cannedReply, generateAmbientLine, generateGeminiReply, generateHandBanter, generateLlmReply, pickResponder } from "../_shared/bot_chat_reply.ts";
+import { generateSpeechWav } from "../_shared/bot_tts.ts";
 
 const STREET_STATES = new Set(["preflop", "flop", "turn", "river"]);
 const ACTIVE_RUNTIME_STATES = new Set(["preflop", "flop", "turn", "river", "showdown"]);
@@ -396,12 +397,16 @@ function createOnlineRpcClient() {
       tableId,
       groupPlayerId,
       message,
-      name
+      name,
+      voice,
+      character
     }: {
       tableId: string;
       groupPlayerId: string;
       message: string;
       name?: string | null;
+      voice?: boolean;        // "punchy" line the client may read aloud
+      character?: string | null;
     }) {
       const trimmed = String(message || "").trim().slice(0, 178);
       if (!trimmed) return;
@@ -458,6 +463,8 @@ function createOnlineRpcClient() {
                 playerId: groupPlayerId,
                 name: senderName,
                 text: trimmed,
+                voice: Boolean(voice),
+                character: character || null,
                 at: inserted?.created_at || new Date().toISOString()
               }
             }]
@@ -666,7 +673,7 @@ async function runBotExpressions({
           canned: () => pickBanterLine({ characterId: speaker.characterId, context: speaker.context, targetName: null, avoid }),
         });
         if (line) {
-          await onlineClient.postBotChat({ tableId, groupPlayerId: speaker.groupPlayerId, message: line });
+          await onlineClient.postBotChat({ tableId, groupPlayerId: speaker.groupPlayerId, message: line, voice: true, character: speaker.characterId });
 
           // Bot-to-bot cross-talk: a rival character occasionally claps back at
           // the one who just spoke, so the table banters with itself between
@@ -1196,6 +1203,8 @@ async function processBotAction({
               tableId,
               groupPlayerId: actingSeat.group_player_id,
               message: line,
+              voice: true,
+              character: String(actingSeat.bot_character),
             });
             // Clap-back from another seated character about the loudmouth.
             if (Math.random() < 0.45) {
@@ -1815,7 +1824,7 @@ async function handleChatReply({
   const first = await produceReply(responder, playerName, message, chatHistory);
   if (!first.text) return json({ ok: true, replied: false, reason: "no_line" });
   await pause(first.usedLlm);
-  await onlineClient.postBotChat({ tableId, groupPlayerId: responder.groupPlayerId, message: first.text });
+  await onlineClient.postBotChat({ tableId, groupPlayerId: responder.groupPlayerId, message: first.text, voice: true, character: responder.characterId });
 
   // 2) Bot-to-bot: another seated character may fire back at the one who just
   // spoke, and a third may pile on — so the table argues with itself, not just
@@ -1960,6 +1969,58 @@ async function handleTableTalk({
   return json({ ok: true, talked: true, by: opener.name });
 }
 
+// On-demand character voice. The client calls this (seat-token authed) for the
+// occasional "punchy" line it decides to read aloud; we render it in the
+// character's Gemini voice and hand back a base64 WAV. Rate-limited by the
+// client (Gemini free TTS is ~3/min), so this stays a lightweight per-line call.
+async function handleTts({
+  onlineClient,
+  payload
+}: {
+  onlineClient: ReturnType<typeof createOnlineRpcClient>;
+  payload: Record<string, unknown>;
+}) {
+  const tableId = asText(payload?.table_id);
+  const groupPlayerId = asText(payload?.group_player_id);
+  const seatToken = asText(payload?.seat_token);
+  const text = String(payload?.text || "").trim().slice(0, 240);
+  const character = asText(payload?.character) || "";
+  if (!tableId || !groupPlayerId || !seatToken || !text) {
+    return json({ ok: false, error: "tts_requires_table_player_token_text" }, 400);
+  }
+
+  // Prove the caller is a seated player at this table (protects our API key).
+  const { data: senderSeat, error: seatErr } = await onlineClient.client
+    .from("online_table_seats")
+    .select("seat_no, is_bot")
+    .eq("table_id", tableId)
+    .eq("group_player_id", groupPlayerId)
+    .eq("seat_token", seatToken)
+    .is("left_at", null)
+    .maybeSingle();
+  if (seatErr || !senderSeat || senderSeat.is_bot) {
+    return json({ ok: false, error: "tts_seat_not_found" }, 403);
+  }
+
+  const apiKey = asText(Deno.env.get("GEMINI_API_KEY"));
+  if (!apiKey) return json({ ok: true, audio: null, reason: "no_key" });
+
+  try {
+    const audio = await generateSpeechWav({
+      apiKey,
+      characterId: character,
+      text,
+      model: asText(Deno.env.get("TTS_MODEL")),
+    });
+    return json({ ok: true, audio: audio || null, mime: "audio/wav" });
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error("[tts] failed", msg);
+    // Surface a 429 so the client can back off; otherwise just no audio.
+    return json({ ok: true, audio: null, error: msg }, /429/.test(msg) ? 429 : 200);
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return json({ ok: true }, 200);
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
@@ -1982,6 +2043,12 @@ Deno.serve(async (req) => {
     if (mode === "table_talk") {
       const onlineClient = createOnlineRpcClient();
       return await handleTableTalk({ onlineClient, payload });
+    }
+
+    // Character voice: client-initiated per-line TTS, seat-token authed.
+    if (mode === "tts") {
+      const onlineClient = createOnlineRpcClient();
+      return await handleTts({ onlineClient, payload });
     }
 
     if (!hasValidRuntimeDispatchSecret(req)) {
