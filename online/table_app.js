@@ -295,6 +295,7 @@ const state = {
   viewportFreezeHeight: 0,
   chatOpen: false,
   chatUnread: 0,
+  chatForceScroll: false,
   chatMessages: [],
   chatMessageIds: new Set(),
   chatChannel: null,
@@ -1191,7 +1192,8 @@ function renderChatUi() {
   el.chatFab?.classList.toggle("hidden", !visible || state.chatOpen);
   if (el.chatFab) el.chatFab.setAttribute("aria-expanded", state.chatOpen ? "true" : "false");
   el.chatPanel?.classList.toggle("hidden", !visible || !state.chatOpen);
-  if (visible && state.chatOpen) applyChatPanelPosition();
+  // While typing, the keyboard dock owns the panel geometry -- don't stomp it.
+  if (visible && state.chatOpen && !state.chatInputFocused) applyChatPanelPosition();
 
   const unread = Number(state.chatUnread || 0);
   if (el.chatFabBadge) {
@@ -1205,6 +1207,16 @@ function renderChatUi() {
   }
 
   if (!el.chatList || !el.chatEmpty) return;
+  // Preserve the reader's scroll position across re-renders. The poll rebuilds
+  // this list every couple seconds; snapping to the bottom each time made it
+  // impossible to scroll up and read history. Only auto-stick to the bottom
+  // when the reader is already near it (or a send just forced it).
+  const nearBottom =
+    el.chatList.scrollHeight - el.chatList.scrollTop - el.chatList.clientHeight < 48;
+  const priorScrollTop = el.chatList.scrollTop;
+  const stick = nearBottom || state.chatForceScroll;
+  state.chatForceScroll = false;
+
   el.chatList.innerHTML = "";
   const messages = state.chatMessages.slice(-40);
   if (!messages.length) {
@@ -1233,7 +1245,13 @@ function renderChatUi() {
     el.chatList.appendChild(item);
   }
 
-  el.chatList.scrollTop = el.chatList.scrollHeight;
+  if (stick) {
+    el.chatList.scrollTop = el.chatList.scrollHeight;
+  } else {
+    // New lines only ever append at the bottom, so the reader's prior offset
+    // still points at the same message -- restore it so the view holds steady.
+    el.chatList.scrollTop = priorScrollTop;
+  }
 }
 
 function normalizeChatMessage(message) {
@@ -1290,7 +1308,10 @@ function applyServerChatHistory(messages) {
 
 function toggleChat(forceOpen = !state.chatOpen) {
   state.chatOpen = Boolean(forceOpen);
-  if (state.chatOpen) state.chatUnread = 0;
+  if (state.chatOpen) {
+    state.chatUnread = 0;
+    state.chatForceScroll = true;
+  }
   renderChatUi();
   if (state.chatOpen) {
     requestAnimationFrame(() => {
@@ -1354,6 +1375,7 @@ async function sendChatMessage(rawText) {
     });
     const nextMessage = normalizeChatMessage(persisted) || normalizeChatMessage(payload) || payload;
 
+    state.chatForceScroll = true;
     addChatMessage(nextMessage, { self: true });
     if (state.chatChannel && state.chatHealthy) {
       const status = await state.chatChannel.send({
@@ -3187,10 +3209,12 @@ function lockViewportHeightForChatInput() {
   state.chatInputFocused = true;
   state.viewportFreezeHeight = Math.max(state.viewportFreezeHeight || 0, currentHeight);
   syncViewportMetrics();
+  applyChatKeyboardDock();
 }
 
 function unlockViewportHeightForChatInput() {
   state.chatInputFocused = false;
+  applyChatKeyboardDock();
   window.setTimeout(() => {
     if (document.activeElement === el.chatInput) return;
     state.viewportFreezeHeight = 0;
@@ -3199,6 +3223,33 @@ function unlockViewportHeightForChatInput() {
     syncLandscapeTopBar();
     if (state.tableState) renderAll();
   }, 240);
+}
+
+// While the keyboard is up, pin the chat panel just above it as a full-width
+// compose bar. The keyboard's height in layout coordinates is the gap between
+// the visual viewport's visible bottom and the full layout height.
+function applyChatKeyboardDock() {
+  if (!el.chatPanel) return;
+  const focused = Boolean(state.chatInputFocused && state.chatOpen);
+  if (!focused) {
+    el.chatPanel.classList.remove("chat-panel--typing");
+    el.chatPanel.style.removeProperty("--kb-bottom");
+    // Restore the normal (or previously dragged) resting position.
+    applyChatPanelPosition();
+    return;
+  }
+  // Let the .chat-panel--typing rules own geometry: clear any dragged inline
+  // left/top so the !important class wins.
+  el.chatPanel.style.left = "";
+  el.chatPanel.style.top = "";
+  el.chatPanel.style.right = "";
+  el.chatPanel.style.bottom = "";
+  const vv = window.visualViewport;
+  const layoutH = window.innerHeight || document.documentElement?.clientHeight || 0;
+  const visibleBottom = vv ? vv.height + vv.offsetTop : layoutH;
+  const kbBottom = Math.max(10, Math.round(layoutH - visibleBottom) + 10);
+  el.chatPanel.style.setProperty("--kb-bottom", `${kbBottom}px`);
+  el.chatPanel.classList.add("chat-panel--typing");
 }
 
 function setTableBooting(enabled, label = "Loading Table...") {
@@ -7247,10 +7298,13 @@ function bindEvents() {
         if (state.streetRevealAnimation) clearStreetRevealFx();
       } catch { /* ignore */ }
     }
+    // Keep the compose bar glued to the keyboard as it animates in/out. This
+    // runs immediately (not debounced) so the panel tracks the keyboard smoothly.
+    if (state.chatInputFocused) applyChatKeyboardDock();
     if (resizeTimer) clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => {
       syncViewportMetrics();
-      if (state.chatOpen) applyChatPanelPosition();
+      if (state.chatOpen && !state.chatInputFocused) applyChatPanelPosition();
       syncLandscapeTopBar();
       if (state.tableState) renderAll();
     }, 200);

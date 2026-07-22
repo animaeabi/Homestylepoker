@@ -89,6 +89,8 @@ const BANKS: Record<string, LineBank> = {
     lose: [
       "yeah that's probably fair",
       "eh. variance is just weather",
+      "ok. rebuy i guess",
+      "that happens. probably my fault. whatever",
     ],
     bigCall: ["that's probably a bad call. calling"],
     bigFold: ["fine. keeping two chips for later"],
@@ -148,11 +150,11 @@ const BANKS: Record<string, LineBank> = {
       "Raise. Take your time, {name}. I have all of it.",
       "{name}. You already know.",
     ],
-    win: ["Yeah.", "As expected."],
-    lose: ["Noted."],
+    win: ["Yeah.", "As expected.", "Mm.", "That's the one."],
+    lose: ["Noted.", "Okay.", "Fair."],
     bigCall: ["Show me."],
     bigFold: ["No."],
-    comeback: ["{name} talks. I collect.", "..."],
+    comeback: ["{name} talks. I collect.", "...", "{name}. Play the hand."],
   },
   hellsmouth: {
     bully: [
@@ -187,7 +189,7 @@ const BANKS: Record<string, LineBank> = {
       "The cards cooperated. They do that occasionally.",
       "I've had some okay results with that line.",
     ],
-    lose: ["Nice hand.", "Well played. Probably."],
+    lose: ["Nice hand.", "Well played. Probably.", "That's poker. Onward.", "You earned that one."],
     bigCall: ["The kids study charts. I studied you."],
     bigFold: ["I still get plenty wrong. Not this one, though."],
     comeback: ["{name}, stillness would serve you.", "We used to talk like {name} in 1988. We grew out of it."],
@@ -266,33 +268,57 @@ function fill(line: string, targetName?: string | null) {
   return line.replaceAll("{name}", String(targetName || "friend")).slice(0, 178);
 }
 
+// Pick a filled line the caller hasn't seen recently. `avoid` holds the exact
+// text of lines already on screen for this speaker; we re-roll a few times to
+// dodge them so a bot never posts the same words twice in a row. If the bank is
+// so small that every option is in `avoid`, return null so the caller stays
+// silent rather than repeat itself.
+function pickFresh(lines: string[], targetName: string | null | undefined, avoid?: string[] | null): string | null {
+  if (!lines.length) return null;
+  const blocked = new Set((avoid || []).map((s) => String(s || "").trim()));
+  let last: string | null = null;
+  for (let i = 0; i < 8; i += 1) {
+    const candidate = fill(pick(lines), targetName);
+    last = candidate;
+    if (!blocked.has(candidate.trim())) return candidate;
+  }
+  // Every roll landed on a recently-used line. If the bank has an unused line we
+  // just got unlucky finding it; scan directly before giving up.
+  const fresh = lines.map((l) => fill(l, targetName)).find((l) => !blocked.has(l.trim()));
+  return fresh ?? (blocked.size ? null : last);
+}
+
 // A context line for a character, or null if it has none for that context.
 export function pickBanterLine({
   characterId,
   context,
   targetName,
+  avoid,
 }: {
   characterId: string;
   context: BanterContext;
   targetName?: string | null;
+  avoid?: string[] | null;
 }): string | null {
   const bank = BANKS[characterId];
   const lines = bank?.[context];
   if (!lines || !lines.length) return null;
-  return fill(pick(lines), targetName);
+  return pickFresh(lines, targetName, avoid);
 }
 
 // A comeback from `characterId` about another speaker (bot OR human) by name.
 export function pickComebackLine({
   characterId,
   aboutName,
+  avoid,
 }: {
   characterId: string;
   aboutName: string;
+  avoid?: string[] | null;
 }): string | null {
   const bank = BANKS[characterId];
   if (!bank?.comeback || !bank.comeback.length) return null;
-  return fill(pick(bank.comeback), aboutName);
+  return pickFresh(bank.comeback, aboutName, avoid);
 }
 
 export function hasBanter(characterId?: string | null): boolean {

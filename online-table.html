@@ -3107,6 +3107,34 @@
         color: rgba(255,255,255,0.34);
       }
 
+      /* Kill the browser's default blue focus ring / tap flash and use the gold
+         theme so the compose box reads as part of the table, not an OS widget. */
+      .chat-input {
+        -webkit-tap-highlight-color: transparent;
+        outline: none;
+      }
+      .chat-input:focus,
+      .chat-input:focus-visible {
+        outline: none;
+        border-color: rgba(228,205,146,0.55);
+        box-shadow: 0 0 0 2px rgba(228,205,146,0.16);
+      }
+
+      /* While the on-screen keyboard is up, dock the panel as a clean, full-width
+         compose bar sitting just above the keyboard (--kb-bottom is set from the
+         visual viewport in JS). Fixes the tiny box floating mid-table on iOS. */
+      .chat-panel.chat-panel--typing {
+        left: max(10px, calc(env(safe-area-inset-left) + 10px)) !important;
+        right: max(10px, calc(env(safe-area-inset-right) + 10px)) !important;
+        width: auto !important;
+        top: auto !important;
+        bottom: var(--kb-bottom, 14px) !important;
+        height: min(300px, 46vh) !important;
+        border-color: rgba(228,205,146,0.2) !important;
+        box-shadow: 0 -6px 26px rgba(0,0,0,0.4) !important;
+      }
+      .chat-panel.chat-panel--typing .chat-header { cursor: default; }
+
       .chat-send {
         position: absolute;
         top: 50%;
@@ -5521,7 +5549,7 @@
       </div>
       <form class="chat-compose" id="chatForm">
         <div class="chat-input-wrap">
-          <textarea class="chat-input" id="chatInput" placeholder="Type a message..." maxlength="180" rows="2"></textarea>
+          <textarea class="chat-input" id="chatInput" placeholder="Message…" maxlength="180" rows="1"></textarea>
           <button class="chat-send" id="chatSend" type="submit" aria-label="Send message"><span aria-hidden="true">→</span></button>
         </div>
       </form>
@@ -5532,6 +5560,6 @@
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
     <script src="./online/table_fx_geometry.js?v=203"></script>
-    <script type="module" src="./online/table_app.js?v=217"></script>
+    <script type="module" src="./online/table_app.js?v=218"></script>
   </body>
 </html>

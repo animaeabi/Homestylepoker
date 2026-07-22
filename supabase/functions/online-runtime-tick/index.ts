@@ -355,10 +355,43 @@ function createOnlineRpcClient() {
     }) {
       const trimmed = String(message || "").trim().slice(0, 178);
       if (!trimmed) return;
+      // Dedup safety net: no character should post text it (or the table) just
+      // said. Catches every banter path in one place, on top of the per-pick
+      // `avoid` re-roll. Compares against the last dozen table lines.
+      const { data: recent } = await client
+        .from("online_table_chat_messages")
+        .select("group_player_id, message")
+        .eq("table_id", tableId)
+        .order("created_at", { ascending: false })
+        .limit(12);
+      if (Array.isArray(recent)) {
+        const mine = String(groupPlayerId);
+        const dup = recent.some((r: any) =>
+          String(r.message || "").trim() === trimmed &&
+          (String(r.group_player_id) === mine || recent.indexOf(r) < 3)
+        );
+        if (dup) return;
+      }
       const { error } = await client
         .from("online_table_chat_messages")
         .insert({ table_id: tableId, group_player_id: groupPlayerId, message: trimmed });
       if (error) throw normalizeSupabaseError("[postBotChat]", error);
+    },
+
+    // The recent chat lines for a table, newest first -- used to build per-bot
+    // `avoid` sets so pickers dodge lines already on screen.
+    async listRecentChatLines({ tableId, limit = 12 }: { tableId: string; limit?: number }) {
+      const { data, error } = await client
+        .from("online_table_chat_messages")
+        .select("group_player_id, message")
+        .eq("table_id", tableId)
+        .order("created_at", { ascending: false })
+        .limit(limit);
+      if (error) return [] as { groupPlayerId: string; message: string }[];
+      return (data || []).map((r: any) => ({
+        groupPlayerId: String(r.group_player_id),
+        message: String(r.message || ""),
+      }));
     },
 
     // Names + humanity of everyone currently seated -- used to pick banter
@@ -521,7 +554,11 @@ async function runBotExpressions({
       candidates.sort((a, b) => b.weight - a.weight);
       const speaker = candidates[0];
       if (speaker && Math.random() < speaker.weight) {
-        const line = pickBanterLine({ characterId: speaker.characterId, context: speaker.context, targetName: null });
+        const recent = await onlineClient.listRecentChatLines({ tableId, limit: 12 });
+        const avoid = recent
+          .filter((r) => r.groupPlayerId === String(speaker.groupPlayerId))
+          .map((r) => r.message);
+        const line = pickBanterLine({ characterId: speaker.characterId, context: speaker.context, targetName: null, avoid });
         if (line) {
           await onlineClient.postBotChat({ tableId, groupPlayerId: speaker.groupPlayerId, message: line });
         }
@@ -984,6 +1021,10 @@ async function processBotAction({
       const chatP = 0.45 * Math.min(1.5, Number(character.expressiveness || 1));
       if (Math.random() < chatP) {
         const identities = await onlineClient.listSeatIdentities({ tableId });
+        const recentLines = await onlineClient.listRecentChatLines({ tableId, limit: 12 });
+        const avoidFor = (gpid: string) => recentLines
+          .filter((r) => r.groupPlayerId === String(gpid))
+          .map((r) => r.message);
         const liveGpids = new Set(
           players.filter((p: any) => !p.folded && p.group_player_id
             && String(p.group_player_id) !== String(actingSeat.group_player_id))
@@ -1000,6 +1041,7 @@ async function processBotAction({
             characterId: String(actingSeat.bot_character),
             context: "bully",
             targetName: target.name,
+            avoid: avoidFor(actingSeat.group_player_id),
           });
           if (line) {
             await onlineClient.postBotChat({
@@ -1019,6 +1061,7 @@ async function processBotAction({
                 const comeback = pickComebackLine({
                   characterId: String(responder.botCharacter),
                   aboutName: String(speakerName),
+                  avoid: avoidFor(responder.groupPlayerId),
                 });
                 if (comeback) {
                   await onlineClient.postBotChat({
