@@ -4,6 +4,7 @@ import { botThinkTimeMs, classifyOpponentProfile, combineOpponentProfiles, decid
 import { decideBotExpressions, decideMidHandExpression } from "../_shared/bot_expression.ts";
 import { monteCarloEquity } from "../_shared/equity.ts";
 import { resolveCharacterStyle } from "../_shared/characters.ts";
+import { hasBanter, pickBanterLine, pickComebackLine } from "../_shared/bot_banter.ts";
 
 const STREET_STATES = new Set(["preflop", "flop", "turn", "river"]);
 const ACTIVE_RUNTIME_STATES = new Set(["preflop", "flop", "turn", "river", "showdown"]);
@@ -338,6 +339,46 @@ function createOnlineRpcClient() {
       }
     },
 
+    // Post a chat message AS a bot into the persistent table chat. Direct
+    // insert (service role): bots hold real seats/identities, and the client
+    // renders the sender name from group_players, so nothing else is needed.
+    // Cosmetic -- callers swallow failures.
+    async postBotChat({
+      tableId,
+      groupPlayerId,
+      message
+    }: {
+      tableId: string;
+      groupPlayerId: string;
+      message: string;
+    }) {
+      const trimmed = String(message || "").trim().slice(0, 178);
+      if (!trimmed) return;
+      const { error } = await client
+        .from("online_table_chat_messages")
+        .insert({ table_id: tableId, group_player_id: groupPlayerId, message: trimmed });
+      if (error) throw normalizeSupabaseError("[postBotChat]", error);
+    },
+
+    // Names + humanity of everyone currently seated -- used to pick banter
+    // targets (prefer bullying a human by name) and to name comeback victims.
+    async listSeatIdentities({ tableId }: { tableId: string }) {
+      const { data, error } = await client
+        .from("online_table_seats")
+        .select("seat_no, group_player_id, is_bot, bot_character, group_players(name)")
+        .eq("table_id", tableId)
+        .is("left_at", null)
+        .not("group_player_id", "is", null);
+      if (error) throw normalizeSupabaseError("[listSeatIdentities]", error);
+      return (data || []).map((s: any) => ({
+        seatNo: Number(s.seat_no),
+        groupPlayerId: String(s.group_player_id),
+        isBot: !!s.is_bot,
+        botCharacter: s.bot_character || null,
+        name: s.group_players?.name || null
+      }));
+    },
+
     // Flip a bot's cards face-up for the table (a voluntary show). Mirrors what
     // online_reveal_hand_cards does for humans, but the runtime writes directly
     // since that RPC refuses bot seats.
@@ -411,6 +452,7 @@ async function runBotExpressions({
       seatNo: Number(s.seat_no),
       groupPlayerId: String(s.group_player_id),
       personality: ch ? ch.base : (s.bot_personality || "TAG"),
+      botCharacter: (s.bot_character || null) as string | null,
       name: null as string | null,
       expressiveness: ch && typeof ch.expressiveness === "number" ? ch.expressiveness : undefined
     };
@@ -452,6 +494,40 @@ async function runBotExpressions({
         console.error("[runBotExpressions] show cards failed", error instanceof Error ? error.message : String(error));
       }
     }
+  }
+
+  // Settle chat: after a meaningful pot, at most ONE character gloats or
+  // grumbles in the real table chat. Kept to a single line per hand so the
+  // chat stays banter, not noise.
+  try {
+    const bb = Math.max(1, Number(table?.big_blind || 2));
+    const potBb = Number(hand?.pot_total || 0) / bb;
+    if (potBb >= 12) {
+      const byGpid = new Map(botSeats.map((b) => [b.groupPlayerId, b]));
+      const candidates: { characterId: string; groupPlayerId: string; context: "win" | "lose"; weight: number }[] = [];
+      for (const p of players) {
+        if (!p.groupPlayerId) continue;
+        const bot = byGpid.get(String(p.groupPlayerId));
+        if (!bot || !bot.botCharacter || !hasBanter(bot.botCharacter)) continue;
+        const expr = typeof bot.expressiveness === "number" ? bot.expressiveness : 1;
+        if (p.resultAmount > 0) {
+          candidates.push({ characterId: bot.botCharacter, groupPlayerId: bot.groupPlayerId, context: "win", weight: 0.22 * expr });
+        } else if (p.resultAmount <= -(bb * 12)) {
+          candidates.push({ characterId: bot.botCharacter, groupPlayerId: bot.groupPlayerId, context: "lose", weight: 0.26 * expr });
+        }
+      }
+      // One roll, weighted toward the chattiest candidate.
+      candidates.sort((a, b) => b.weight - a.weight);
+      const speaker = candidates[0];
+      if (speaker && Math.random() < speaker.weight) {
+        const line = pickBanterLine({ characterId: speaker.characterId, context: speaker.context, targetName: null });
+        if (line) {
+          await onlineClient.postBotChat({ tableId, groupPlayerId: speaker.groupPlayerId, message: line });
+        }
+      }
+    }
+  } catch (error) {
+    console.error("[runBotExpressions] settle chat failed", error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -893,6 +969,66 @@ async function processBotAction({
         emoji: talk.emoji,
         text: talk.text,
       });
+    }
+
+    // Chat bullying: after a genuinely big aggro action, sometimes call out a
+    // live opponent BY NAME in the table chat -- and sometimes another
+    // character claps back, so the table argues with itself.
+    const raiseToBbForChat = decision.amount != null ? Number(decision.amount) / bbForTalk : 0;
+    const isBigAggro = decision.actionType === "all_in"
+      || ((decision.actionType === "bet" || decision.actionType === "raise") && raiseToBbForChat >= 8);
+    if (isBigAggro && character && hasBanter(actingSeat.bot_character)) {
+      const chatP = 0.3 * Math.min(1.5, Number(character.expressiveness || 1));
+      if (Math.random() < chatP) {
+        const identities = await onlineClient.listSeatIdentities({ tableId });
+        const liveGpids = new Set(
+          players.filter((p: any) => !p.folded && p.group_player_id
+            && String(p.group_player_id) !== String(actingSeat.group_player_id))
+            .map((p: any) => String(p.group_player_id))
+        );
+        const liveOpponents = identities.filter((s: any) => liveGpids.has(s.groupPlayerId));
+        // Bully a human when one is in the pot; otherwise needle a bot rival.
+        const humans = liveOpponents.filter((s: any) => !s.isBot);
+        const target = humans.length
+          ? humans[Math.floor(Math.random() * humans.length)]
+          : (liveOpponents.length ? liveOpponents[Math.floor(Math.random() * liveOpponents.length)] : null);
+        if (target?.name) {
+          const line = pickBanterLine({
+            characterId: String(actingSeat.bot_character),
+            context: "bully",
+            targetName: target.name,
+          });
+          if (line) {
+            await onlineClient.postBotChat({
+              tableId,
+              groupPlayerId: actingSeat.group_player_id,
+              message: line,
+            });
+            // Clap-back from another seated character about the loudmouth.
+            if (Math.random() < 0.45) {
+              const speakerName = identities.find((s: any) =>
+                s.groupPlayerId === String(actingSeat.group_player_id))?.name || "that guy";
+              const responders = identities.filter((s: any) =>
+                s.isBot && s.botCharacter && hasBanter(s.botCharacter)
+                && s.groupPlayerId !== String(actingSeat.group_player_id));
+              if (responders.length) {
+                const responder = responders[Math.floor(Math.random() * responders.length)];
+                const comeback = pickComebackLine({
+                  characterId: String(responder.botCharacter),
+                  aboutName: String(speakerName),
+                });
+                if (comeback) {
+                  await onlineClient.postBotChat({
+                    tableId,
+                    groupPlayerId: responder.groupPlayerId,
+                    message: comeback,
+                  });
+                }
+              }
+            }
+          }
+        }
+      }
     }
   } catch (_error) {
     // table talk is cosmetic
