@@ -1960,6 +1960,14 @@ function getSeatContributionAnchor(pos, { hero = false } = {}) {
   if (hero) return "seat-bet--hero";
   const px = Number.parseFloat(pos?.x);
   const py = Number.parseFloat(pos?.y);
+  // Dense tables (8/9/10-max): the side seats sit at board level, so anchoring
+  // their bet labels INWARD (the default) piles them onto the center banner and
+  // each other. Glue every label to its own seat column instead -- below the
+  // avatar, or above it for the bottom row (where "below" runs off-screen).
+  if (el.tableView?.classList.contains("board-dense")) {
+    if (Number.isFinite(py) && py >= 78) return "seat-bet--top-chin";
+    return "seat-bet--bottom-chin";
+  }
   if (Number.isFinite(py) && py <= 12) return "seat-bet--bottom-chin";
   if (Number.isFinite(px) && px < 50) return "seat-bet--right-chin";
   return "seat-bet--left-chin";
