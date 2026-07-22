@@ -123,7 +123,7 @@ function createOnlineRpcClient() {
     async listActiveBotSeats({ tableId }: { tableId: string }) {
       const { data, error } = await client
         .from("online_table_seats")
-        .select("id, seat_no, group_player_id, seat_token, bot_personality, bot_character, bot_rebuy_count, chip_stack")
+        .select("id, seat_no, group_player_id, seat_token, bot_personality, bot_character, bot_rebuy_count, chip_stack, group_players(name)")
         .eq("table_id", tableId)
         .eq("is_bot", true)
         .is("left_at", null)
@@ -487,7 +487,7 @@ async function runBotExpressions({
       groupPlayerId: String(s.group_player_id),
       personality: ch ? ch.base : (s.bot_personality || "TAG"),
       botCharacter: (s.bot_character || null) as string | null,
-      name: null as string | null,
+      name: (s.group_players?.name || null) as string | null,
       expressiveness: ch && typeof ch.expressiveness === "number" ? ch.expressiveness : undefined
     };
   });
@@ -561,6 +561,30 @@ async function runBotExpressions({
         const line = pickBanterLine({ characterId: speaker.characterId, context: speaker.context, targetName: null, avoid });
         if (line) {
           await onlineClient.postBotChat({ tableId, groupPlayerId: speaker.groupPlayerId, message: line });
+
+          // Ambient bot-to-bot cross-talk: even with no human chatting, a rival
+          // character occasionally claps back at the one who just spoke, so the
+          // table banters with itself between hands. Canned (cheap) so it can
+          // fire every qualifying hand without an LLM round trip.
+          const speakerName = botSeats.find((b) => String(b.groupPlayerId) === String(speaker.groupPlayerId))?.name || "them";
+          const rivals = botSeats.filter((b) =>
+            String(b.groupPlayerId) !== String(speaker.groupPlayerId)
+            && b.botCharacter && hasBanter(b.botCharacter));
+          if (rivals.length && Math.random() < 0.4) {
+            const rival = rivals[Math.floor(Math.random() * rivals.length)];
+            const rivalAvoid = recent
+              .filter((r) => r.groupPlayerId === String(rival.groupPlayerId))
+              .map((r) => r.message);
+            const comeback = pickComebackLine({
+              characterId: String(rival.botCharacter),
+              aboutName: String(speakerName),
+              avoid: rivalAvoid,
+            });
+            if (comeback) {
+              await new Promise((resolve) => setTimeout(resolve, 600 + Math.floor(Math.random() * 900)));
+              await onlineClient.postBotChat({ tableId, groupPlayerId: rival.groupPlayerId, message: comeback });
+            }
+          }
         }
       }
     }
@@ -1573,7 +1597,7 @@ async function handleChatReply({
   }
 
   // Occasionally stay silent so it never feels like an auto-responder.
-  if (Math.random() < 0.12) {
+  if (Math.random() < 0.08) {
     return json({ ok: true, replied: false, reason: "chose_silence" });
   }
 
@@ -1610,60 +1634,79 @@ async function handleChatReply({
     .reverse()
     .map((m: any) => ({ name: String(nameByGpid.get(m.group_player_id) || "Player"), text: String(m.message || "") }));
 
-  let reply: string | null = null;
-  let usedLlm = false;
   const geminiKey = asText(Deno.env.get("GEMINI_API_KEY"));
   const anthropicKey = asText(Deno.env.get("ANTHROPIC_API_KEY"));
-  const llmArgs = {
-    responder,
-    playerName,
-    message,
-    chatHistory,
-    otherSeated: bots.filter((b) => b.groupPlayerId !== responder.groupPlayerId).map((b) => b.name),
+  const chatModel = asText(Deno.env.get("CHAT_REPLY_MODEL"));
+
+  // One place to produce an in-character line for `speaker` reacting to what
+  // `fromName` just said: Gemini -> Anthropic -> canned banks. Returns the text
+  // and whether a live model wrote it (so we can size the "typing" pause).
+  const produceReply = async (
+    speaker: typeof responder,
+    fromName: string,
+    said: string,
+    history: { name: string; text: string }[],
+  ): Promise<{ text: string | null; usedLlm: boolean }> => {
+    const args = {
+      responder: speaker,
+      playerName: fromName,
+      message: said,
+      chatHistory: history,
+      otherSeated: bots.filter((b) => b.groupPlayerId !== speaker.groupPlayerId).map((b) => b.name),
+    };
+    if (geminiKey) {
+      try {
+        const t = await generateGeminiReply({ apiKey: geminiKey, model: chatModel, ...args });
+        if (t) return { text: t, usedLlm: true };
+      } catch (error) {
+        console.error("[chat_reply] gemini failed", error instanceof Error ? error.message : String(error));
+      }
+    }
+    if (anthropicKey) {
+      try {
+        const t = await generateLlmReply({ apiKey: anthropicKey, model: chatModel, ...args });
+        if (t) return { text: t, usedLlm: true };
+      } catch (error) {
+        console.error("[chat_reply] anthropic failed, falling back to canned", error instanceof Error ? error.message : String(error));
+      }
+    }
+    return { text: cannedReply({ characterId: speaker.characterId, playerName: fromName, message: said }), usedLlm: false };
   };
-  // Prefer Gemini (AI Studio) when its key is set; fall back to Anthropic; then
-  // to the canned banks. Any backend error drops through to the next option so a
-  // provider hiccup never silences the table.
-  if (geminiKey) {
-    try {
-      reply = await generateGeminiReply({
-        apiKey: geminiKey,
-        model: asText(Deno.env.get("CHAT_REPLY_MODEL")),
-        ...llmArgs,
-      });
-      if (reply) usedLlm = true;
-    } catch (error) {
-      console.error("[chat_reply] gemini failed", error instanceof Error ? error.message : String(error));
-    }
-  }
-  if (!reply && anthropicKey) {
-    try {
-      reply = await generateLlmReply({
-        apiKey: anthropicKey,
-        model: asText(Deno.env.get("CHAT_REPLY_MODEL")),
-        ...llmArgs,
-      });
-      if (reply) usedLlm = true;
-    } catch (error) {
-      console.error("[chat_reply] anthropic failed, falling back to canned", error instanceof Error ? error.message : String(error));
-    }
-  }
-  if (!reply) {
-    reply = cannedReply({ characterId: responder.characterId, playerName, message });
-  }
-  if (!reply) return json({ ok: true, replied: false, reason: "no_line" });
 
-  // A beat of "typing" so the reply doesn't land inhumanly fast. The LLM call
-  // already took ~1s of real latency, so only a small extra beat is needed
-  // there; canned replies are instant and need the full delay.
-  const typingMs = usedLlm ? 200 + Math.floor(Math.random() * 400) : 700 + Math.floor(Math.random() * 1100);
-  await new Promise((resolve) => setTimeout(resolve, typingMs));
+  const pause = async (usedLlm: boolean) => {
+    // The LLM call already took ~1s of real latency, so only a small extra beat
+    // is needed there; canned replies are instant and need the full delay.
+    const ms = usedLlm ? 200 + Math.floor(Math.random() * 400) : 700 + Math.floor(Math.random() * 1100);
+    await new Promise((resolve) => setTimeout(resolve, ms));
+  };
 
-  await onlineClient.postBotChat({
-    tableId,
-    groupPlayerId: responder.groupPlayerId,
-    message: reply
-  });
+  // 1) The character answers the human.
+  const first = await produceReply(responder, playerName, message, chatHistory);
+  if (!first.text) return json({ ok: true, replied: false, reason: "no_line" });
+  await pause(first.usedLlm);
+  await onlineClient.postBotChat({ tableId, groupPlayerId: responder.groupPlayerId, message: first.text });
+
+  // 2) Bot-to-bot: another seated character may fire back at the one who just
+  // spoke, and a third may pile on — so the table argues with itself, not just
+  // with the player. Each hop is less likely than the last; capped at two.
+  const running = [...chatHistory, { name: responder.name, text: first.text }];
+  let lastSpeaker = responder;
+  let lastLine = first.text;
+  let hopProb = 0.45;
+  for (let hop = 0; hop < 2; hop++) {
+    if (Math.random() >= hopProb) break;
+    const others = bots.filter((b) => b.groupPlayerId !== lastSpeaker.groupPlayerId);
+    if (!others.length) break;
+    const next = others[Math.floor(Math.random() * others.length)];
+    const chain = await produceReply(next, lastSpeaker.name, lastLine, running);
+    if (!chain.text) break;
+    await pause(chain.usedLlm);
+    await onlineClient.postBotChat({ tableId, groupPlayerId: next.groupPlayerId, message: chain.text });
+    running.push({ name: next.name, text: chain.text });
+    lastSpeaker = next;
+    lastLine = chain.text;
+    hopProb *= 0.5;
+  }
 
   return json({ ok: true, replied: true, by: responder.name });
 }
