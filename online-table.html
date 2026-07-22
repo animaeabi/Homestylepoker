@@ -1330,6 +1330,25 @@
         gap: 6px;
       }
 
+      /* Dense tables (8/9/10-max): the middle side seats sit level with the
+         community board, so the full-size 5-card row runs under the left/right
+         nameplates. Shrink the board to fit in the clear zone between the side
+         seats, and lift the whole center above the seat nodes (z-index) so a
+         card is never hidden behind a plate. !important + the #id/class
+         specificity beat the portrait `.card { 50px !important }` override. */
+      #tableView.board-dense .board-cards { gap: 4px !important; }
+      #tableView.board-dense .board-cards .card {
+        width: 35px !important;
+        height: 50px !important;
+        font-size: 13px !important;
+        border-radius: 6px !important;
+      }
+      /* Lift the whole center (pot + board) above the seat nodes so, even if a
+         card's edge reaches a side plate, the CARD wins and the board is never
+         hidden behind a nameplate. */
+      #tableView.board-dense .table-center { z-index: 12; }
+      #tableView.board-dense .board-cards .card { position: relative; z-index: 13; }
+
       /* Cards */
       .card {
         width: 54px;
@@ -5722,6 +5741,6 @@
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
     <script src="./online/table_fx_geometry.js?v=203"></script>
-    <script type="module" src="./online/table_app.js?v=233"></script>
+    <script type="module" src="./online/table_app.js?v=234"></script>
   </body>
 </html>

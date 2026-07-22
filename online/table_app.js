@@ -6120,6 +6120,13 @@ function renderSeats() {
   const tableTotal = tableSeats.length;
   const compactVisualOrder = compactMobile && mySeat ? compactSlotOrder(tableTotal) : null;
 
+  // On dense tables (8/9/10-max) the side seats sit level with the community
+  // board, so its outer cards collide with the left/right nameplates. Flag the
+  // layout so CSS can shrink the board to fit cleanly between them. Keyed off
+  // max_seats (the seat POSITIONS collide regardless of how many are occupied).
+  const denseTable = compactMobile && Number(getTable()?.max_seats || total) >= 8;
+  el.tableView?.classList.toggle("board-dense", denseTable);
+
   const bottomIdx = Math.floor(total / 2);
   let rotateOffset = 0;
   if (!compactMobile && mySeat) {
