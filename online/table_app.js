@@ -1956,6 +1956,20 @@ function shouldShowBlindPositionLabel(hand, handPlayer, seatNo) {
   return hand.small_blind_seat === seatNo || hand.big_blind_seat === seatNo;
 }
 
+// On dense tables, hug the board-level side seats (mid-height, on the left/right
+// rail) further out so the full-size community board fits between them with real
+// clearance. Top/bottom seats and near-center seats are left where they are.
+function denseSeatShift(pos) {
+  const px = Number.parseFloat(pos?.x);
+  const py = Number.parseFloat(pos?.y);
+  if (!Number.isFinite(px) || !Number.isFinite(py)) return pos;
+  if (py > 28 && py < 72) {
+    if (px < 40) return { x: `${Math.max(3, px - 6)}%`, y: pos.y };
+    if (px > 60) return { x: `${Math.min(97, px + 6)}%`, y: pos.y };
+  }
+  return pos;
+}
+
 function getSeatContributionAnchor(pos, { hero = false } = {}) {
   if (hero) return "seat-bet--hero";
   const px = Number.parseFloat(pos?.x);
@@ -6149,7 +6163,11 @@ function renderSeats() {
         ? idx
         : ((seats.indexOf(seat) + rotateOffset) % total + total) % total;
     const posTotal = compactMobile ? tableTotal : total;
-    const pos = seatPosition(posIdx + 1, posTotal);
+    let pos = seatPosition(posIdx + 1, posTotal);
+    // Dense tables: the side seats that sit at the community board's height are
+    // what crowd the cards. Nudge those (and only those) out toward the rail so
+    // the board keeps real clearance instead of just layering on top.
+    if (denseTable) pos = denseSeatShift(pos);
     const hp = hpBySeat.get(seat.seat_no);
     const occupied = seat.group_player_id && !seat.left_at;
     const pid = occupied ? seat.group_player_id : null;
