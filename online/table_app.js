@@ -1868,20 +1868,54 @@ function buildOptimisticSeatAction(payload, hand = getLatestHand(), hp = getMyHa
   };
 }
 
+// Sum a seat's total contribution on a given street straight from the action
+// events. Used during the street-transition hold: when a street closes, the
+// server sweeps every player's street_contribution into the pot and resets it to
+// 0, so the closing bet/call would vanish the instant it happened -- it was never
+// shown. Reconstructing from the events keeps those chips on the felt for the
+// breath. Board streets only (no blinds to fold in there), which is exactly where
+// the closing bet/call needs to stay visible.
+function getStreetContributionFromEvents(seatNo, street, hand = getLatestHand()) {
+  if (!seatNo || !street || !hand) return 0;
+  const events = getHandEvents();
+  let total = 0;
+  for (const ev of events) {
+    if (ev?.event_type !== "action_taken") continue;
+    if ((ev?.payload?.street || "") !== street) continue;
+    const evSeat = Number(ev?.payload?.seat_no || ev?.payload?.actor_seat_no || ev?.seat_no || 0);
+    if (evSeat !== Number(seatNo)) continue;
+    total += Number(ev?.payload?.amount || 0);
+  }
+  return normalizeMoney(total);
+}
+
 function getSeatContributionLabel({
   seat,
   handPlayer,
   hand = getLatestHand(),
 }) {
-  if (["showdown", "settled"].includes(String(hand?.state || ""))) return "";
+  const displayStreet = getDisplayedActionStreet(hand);
+  const handState = String(hand?.state || "");
+  // A street-transition hold keeps the just-closed street's labels up for a
+  // breath, so displayStreet is the OLD (board) street while hand.state has
+  // already advanced. Allow labels through during that hold; otherwise suppress
+  // at showdown/settled as before.
+  const inStreetHold = Boolean(displayStreet && displayStreet !== handState);
+  if (["showdown", "settled"].includes(handState) && !(inStreetHold && isBoardStreet(displayStreet))) return "";
   const optimisticLabel = getOptimisticSeatActionLabel(seat?.seat_no, hand);
   if (optimisticLabel) return optimisticLabel;
-  const street = getDisplayedActionStreet(hand);
+  const street = displayStreet;
   const latestAction = findLatestSeatActionForStreet(seat?.seat_no, street, hand);
   const actionType = latestAction?.payload?.action_type || "";
   if (actionType === "check") return "Check";
 
-  const contribution = normalizeMoney(handPlayer?.street_contribution || 0);
+  let contribution = normalizeMoney(handPlayer?.street_contribution || 0);
+  // During the hold the live contribution has already been swept to the pot (0),
+  // so reconstruct the closing street's total from events -- otherwise the
+  // closing bet/call is invisible and the chips just seem to jump to the pot.
+  if (inStreetHold && isBoardStreet(street) && !(contribution > 0)) {
+    contribution = getStreetContributionFromEvents(seat?.seat_no, street, hand);
+  }
   if (!(contribution > 0)) return "";
   const contributionText = fmtShort(contribution);
 
@@ -3652,7 +3686,8 @@ function getStreetRevealDelayForTransition(oldHand, hand, { deferred = false } =
   // getStreetRevealTotalMs fall back to legacy global constants, which no
   // longer match the per-street profiles — the winner banner could land while
   // the river was still mid-flip.
-  const scheduled = buildStreetRevealTimings(indices, deferred ? STREET_REVEAL_DEFER_MS : 0);
+  const runout = ["showdown", "settled"].includes(String(hand?.state || ""));
+  const scheduled = buildStreetRevealTimings(indices, deferred ? STREET_REVEAL_DEFER_MS : 0, runout);
   return getStreetRevealTotalMs({ indices, timings: scheduled.timings });
 }
 
@@ -3676,7 +3711,23 @@ function clearStreetRevealFx({ keepState = false } = {}) {
 // durations (via --flight-ms / --flip-ms); gapMs is the suspense beat between a
 // card landing and starting its flip; breathMs is the pause after the flip. The
 // `tone` drives per-street CSS flourishes (see [data-reveal-tone] rules).
-function getBoardRevealProfile(street) {
+function getBoardRevealProfile(street, runout = false) {
+  if (runout) {
+    // All-in runout: there's no betting between streets, so the cards themselves
+    // have to carry the drama. Slow every reveal down and HOLD the finished card
+    // -- above all the river, the deciding card -- so nothing flashes by. (The
+    // normal river below is deliberately punchy, which felt rushed as the climax
+    // of a runout; here it gets room to breathe instead.)
+    switch (street) {
+      case "turn":
+        return { tone: "turn", landDurMs: 600, gapMs: 340, flipDurMs: 560, breathMs: 560 };
+      case "river":
+        return { tone: "river", landDurMs: 560, gapMs: 340, flipDurMs: 500, breathMs: 820 };
+      case "flop":
+      default:
+        return { tone: "flop", landDurMs: 440, gapMs: 90, flipDurMs: 340, breathMs: 340 };
+    }
+  }
   switch (street) {
     case "turn":
       // Drama: a slow, deliberate glide in, a long held beat, then a luxuriant
@@ -3704,12 +3755,12 @@ function getBoardRevealStreetForIndex(index) {
   return "river";
 }
 
-function buildStreetRevealTimings(indices, baseStartMs) {
+function buildStreetRevealTimings(indices, baseStartMs, runout = false) {
   const sorted = [...new Set(indices)].sort((a, b) => a - b);
   const timings = {};
   let cursorMs = baseStartMs;
   for (const idx of sorted) {
-    const profile = getBoardRevealProfile(getBoardRevealStreetForIndex(idx));
+    const profile = getBoardRevealProfile(getBoardRevealStreetForIndex(idx), runout);
     timings[idx] = {
       // Offsets from anim.startedAt for when this card begins its land / flip.
       landMs: cursorMs,
@@ -3765,7 +3816,7 @@ function maybeStartStreetRevealAnimation(oldHand, hand, hadPriorTableState = fal
       elapsed + BOARD_REVEAL_CARD_BREATH_MS,
       totalMs + BOARD_REVEAL_CARD_BREATH_MS
     );
-    const appended = buildStreetRevealTimings(additions, appendStartMs);
+    const appended = buildStreetRevealTimings(additions, appendStartMs, ["showdown", "settled"].includes(String(hand?.state || "")));
     existing.timings = { ...(existing.timings || {}), ...appended.timings };
     existing.indices = [...new Set([...(existing.indices || []), ...additions])].sort((a, b) => a - b);
     existing.pendingIndices = [...new Set([...(existing.pendingIndices || []), ...additions])].sort((a, b) => a - b);
@@ -3794,7 +3845,8 @@ function maybeStartStreetRevealAnimation(oldHand, hand, hadPriorTableState = fal
   }
 
   const normalizedStartDelayMs = Math.max(0, Number(startDelayMs || 0));
-  const scheduled = buildStreetRevealTimings(sortedIndices, normalizedStartDelayMs);
+  const runout = ["showdown", "settled"].includes(String(hand.state || ""));
+  const scheduled = buildStreetRevealTimings(sortedIndices, normalizedStartDelayMs, runout);
 
   clearStreetRevealFx();
   state.streetRevealAnimation = {
