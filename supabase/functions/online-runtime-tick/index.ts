@@ -122,6 +122,18 @@ function createOnlineRpcClient() {
 
   return {
     client,
+    // Server-side per-table, per-minute cap on AI/TTS work. Returns true if this
+    // call is within the limit, false if the table has blown past it this minute.
+    // Never throws -- a rate-limit hiccup must not take down chat/voice entirely.
+    async aiRateHit({ tableId, kind, limit }: { tableId: string; kind: string; limit: number }): Promise<boolean> {
+      try {
+        const allowed = await callRpc("online_ai_rate_hit", { p_table_id: tableId, p_kind: kind, p_limit: limit });
+        return allowed !== false;
+      } catch (error) {
+        console.error("[aiRateHit] failed (allowing)", error instanceof Error ? error.message : String(error));
+        return true;
+      }
+    },
     async listProcessableHands({
       tableId,
       limit
@@ -1708,6 +1720,13 @@ async function runRuntimeTick({
   return report;
 }
 
+// Per-table, per-minute ceilings on AI/TTS work, enforced server-side (the
+// client also throttles, but a modified client could ignore that). Generous
+// enough that real play never trips them; low enough to stop a script from
+// draining the shared Gemini quota. Voiced TTS is the scarcest resource.
+const AI_TTS_PER_MIN = 12;
+const AI_CHAT_PER_MIN = 24;
+
 // A human posted in table chat -> pick a seated character and talk back.
 // Auth: the sender's own seat token. Engine: LLM when ANTHROPIC_API_KEY is a
 // configured secret, canned in-character banks otherwise. Best-effort by
@@ -1761,6 +1780,9 @@ async function handleChatReply({
     });
   if (!bots.length) {
     return json({ ok: true, replied: false, reason: "no_characters_seated" });
+  }
+  if (!(await onlineClient.aiRateHit({ tableId, kind: "chat", limit: AI_CHAT_PER_MIN }))) {
+    return json({ ok: true, replied: false, reason: "rate_limited" });
   }
 
   const responder = pickResponder(message, bots);
@@ -1909,6 +1931,9 @@ async function handleTableTalk({
       };
     });
   if (!bots.length) return json({ ok: true, talked: false, reason: "no_characters" });
+  if (!(await onlineClient.aiRateHit({ tableId, kind: "chat", limit: AI_CHAT_PER_MIN }))) {
+    return json({ ok: true, talked: false, reason: "rate_limited" });
+  }
 
   const roster = identities.map((s: any) => String(s.name || "Player")).filter(Boolean);
   const { data: recent } = await onlineClient.client
@@ -2009,6 +2034,9 @@ async function handleTts({
 
   const apiKey = asText(Deno.env.get("GEMINI_API_KEY"));
   if (!apiKey) return json({ ok: true, audio: null, reason: "no_key" });
+  if (!(await onlineClient.aiRateHit({ tableId, kind: "tts", limit: AI_TTS_PER_MIN }))) {
+    return json({ ok: true, audio: null, reason: "rate_limited" });
+  }
 
   try {
     const audio = await generateSpeechWav({
@@ -2085,6 +2113,9 @@ async function handleReactionReply({
   const ctx = await authSeatAndListCharacters(onlineClient, { tableId, groupPlayerId, seatToken });
   if (!ctx) return json({ ok: false, error: "reaction_reply_seat_not_found" }, 403);
   if (!ctx.bots.length) return json({ ok: true, replied: false, reason: "no_characters_seated" });
+  if (!(await onlineClient.aiRateHit({ tableId, kind: "chat", limit: AI_CHAT_PER_MIN }))) {
+    return json({ ok: true, replied: false, reason: "rate_limited" });
+  }
 
   const playerName = ctx.sender?.name || "friend";
   // Weight the pick toward the chattier characters.
@@ -2142,6 +2173,9 @@ async function handleCardsShown({
   const ctx = await authSeatAndListCharacters(onlineClient, { tableId, groupPlayerId, seatToken });
   if (!ctx) return json({ ok: false, error: "cards_shown_seat_not_found" }, 403);
   if (!ctx.bots.length) return json({ ok: true, replied: false, reason: "no_characters_seated" });
+  if (!(await onlineClient.aiRateHit({ tableId, kind: "chat", limit: AI_CHAT_PER_MIN }))) {
+    return json({ ok: true, replied: false, reason: "rate_limited" });
+  }
 
   const playerName = ctx.sender?.name || "friend";
 
