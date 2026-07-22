@@ -1398,6 +1398,7 @@ function addChatMessage(message, { self = false } = {}) {
       text,
       voice: message?.voice,
       character: message?.character || null,
+      mood: message?.mood || null,
     });
   }
   renderChatUi();
@@ -2638,6 +2639,19 @@ async function setHeroShowCards(show) {
     });
     await loadTableState();
     toast(show ? "Cards shown" : "Cards hidden", "success");
+    // When the human VOLUNTARILY reveals, poke the runtime so a character reacts
+    // to what was shown (a good laydown, a busted bluff, a winning hand).
+    if (show) {
+      supabase.functions.invoke("online-runtime-tick", {
+        body: {
+          mode: "cards_shown",
+          table_id: state.tableId,
+          group_player_id: state.identity.groupPlayerId,
+          seat_token: seatToken,
+          hand_id: handId,
+        },
+      }).catch(() => { /* best-effort banter */ });
+    }
   } catch (err) {
     state.heroShowCardsOverride = { handId, shown: priorShown };
     renderAll();
@@ -3030,7 +3044,7 @@ function addChatSpeechOverlay(message) {
 // TTS is ~3 requests/min, so the client only voices flagged lines (all-in
 // taunts, pot-win gloats, bullying you by name) and throttles to ~1 per 20s.
 // Off by default; the first tap on the toggle is the gesture that unlocks audio.
-const VOICE_MIN_GAP_MS = 20000;        // ~3/min, safely under the free TTS cap
+const VOICE_MIN_GAP_MS = 15000;        // ~4/min -- uses more of the free TTS budget; 429s trigger backoff
 const VOICE_SILENT_WAV = "data:audio/wav;base64,UklGRuQDAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YcADAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
 const chatVoice = {
@@ -3067,7 +3081,7 @@ const chatVoice = {
 
   // Voice a line. Only `priority` (server-flagged punchy) lines are spoken, and
   // no more than one per VOICE_MIN_GAP_MS to stay under the free TTS rate cap.
-  async speak(characterId, text, { priority = false } = {}) {
+  async speak(characterId, text, { priority = false, mood = null } = {}) {
     if (!this.enabled || !this.supported() || !priority) return;
     const now = Date.now();
     if (now < this._backoffUntil) return;
@@ -3088,6 +3102,7 @@ const chatVoice = {
           seat_token: seatToken,
           text: String(text || "").slice(0, 240),
           character: characterId || "",
+          mood: mood || "",
         },
       });
       if (error) {
@@ -3117,7 +3132,7 @@ function speakChatLine(message) {
   const text = String(message?.text || "").trim();
   if (!text) return;
   const characterId = message?.character || characterIdForPlayer(message?.playerId || null);
-  chatVoice.speak(characterId, text, { priority: Boolean(message?.voice) });
+  chatVoice.speak(characterId, text, { priority: Boolean(message?.voice), mood: message?.mood || null });
 }
 
 function updateVoiceToggleUi() {
@@ -3206,6 +3221,22 @@ async function sendReaction(reactionKey) {
     toast(err.message || "Could not send reaction.", "error");
   } finally {
     setTimeout(() => renderReactionTray(), REACTION_SEND_COOLDOWN_MS + 40);
+  }
+
+  // Poke the runtime so a seated character can react to the emoji -- in chat and
+  // (throttled) TTS. Fire-and-forget; the reply arrives over the chat channel.
+  const seatToken = getSeatToken();
+  if (seatToken && state.tableId && state.identity) {
+    supabase.functions.invoke("online-runtime-tick", {
+      body: {
+        mode: "reaction_reply",
+        table_id: state.tableId,
+        group_player_id: state.identity.groupPlayerId,
+        seat_token: seatToken,
+        emoji: reaction.emoji,
+        text: reaction.text,
+      },
+    }).catch(() => { /* best-effort banter */ });
   }
 }
 

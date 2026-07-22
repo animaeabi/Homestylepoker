@@ -19,18 +19,33 @@ const CHAR_VOICE: Record<string, string> = {
 };
 const DEFAULT_VOICE = "Kore";
 
-// Delivery-style preamble (interpreted by the model, not spoken aloud).
+// Delivery-style preamble (interpreted by the model, not spoken aloud). Each one
+// leads with "quick" / "natural" cues on purpose: with a flat prompt Gemini TTS
+// tends to read slowly and robotically, so every persona is framed as a fast,
+// conversational, in-character delivery -- like a real player talking trash at a
+// table, not a narrator reading a line.
 const CHAR_STYLE: Record<string, string> = {
-  negranope: "Say it warmly and playfully, like a chatty mind-reader:",
-  donk:      "Say it in a flat, mumbly, deadpan monotone:",
-  holes:     "Say it in a calm, serene, life-coach tone:",
-  haxxon:    "Say it dryly and precisely, like a calm analyst:",
-  eyev:      "Say it flatly and icily, with cold, minimal energy:",
-  hellsmouth:"Say it like an outraged, theatrical poker brat -- indignant and loud:",
-  sydell:    "Say it softly and modestly, like a quiet old veteran:",
-  hunger:    "Say it fast, brash, and hyper-caffeinated:",
-  grease:    "Say it dry, weary, and grumbling:",
-  pony:      "Say it LOUD, aggressive, and steamrolling:",
+  negranope: "Read this fast and natural, warm and playful with a sly grin, like a chatty mind-reader who's onto you:",
+  donk:      "Read this in a quick, dry, mumbly deadpan -- unbothered and a little cocky:",
+  holes:     "Read this smoothly and confidently, calm and a touch smug, like a zen assassin:",
+  haxxon:    "Read this crisply and precisely, dry and clever, like a smirking analyst landing a point:",
+  eyev:      "Read this coolly and evenly, ice-cold and unbothered, with quiet menace:",
+  hellsmouth:"Read this fast and theatrical, indignant and worked-up, like an outraged poker brat mid-rant:",
+  sydell:    "Read this softly and wryly, understated and modest, like a quiet old veteran who's seen it all:",
+  hunger:    "Read this fast, brash and hyper, restless and full of gamble:",
+  grease:    "Read this dry, weary and grumbling, like a tight old nit who hates spending a chip:",
+  pony:      "Read this LOUD and aggressive, brash and steamrolling, right in their face:",
+};
+
+// A second preamble layered on top of the character style: the MOMENT. This is
+// what makes the same voice sound cocky on a win, bitter on a loss, or sarcastic
+// when needling -- the emotional colour the user asked for.
+const MOOD_STYLE: Record<string, string> = {
+  win:    "You just WON the pot -- sound cocky, gloating, delighted with yourself.",
+  lose:   "You just LOST a rough one -- sound bitter, deflated, a little salty and stung.",
+  needle: "You're needling and trash-talking -- sound sarcastic, teasing, and cocky.",
+  banter: "You're bantering with the table -- sound loose, playful, and quick.",
+  regret: "Sound rueful and grudgingly impressed, like it stings to admit it.",
 };
 
 function stripForSpeech(text: string): string {
@@ -84,20 +99,25 @@ function rateFromMime(mime: string): number {
   return m ? Number(m[1]) : 24000;
 }
 
-// Render `text` in `characterId`'s voice; returns base64 WAV or null.
+// Render `text` in `characterId`'s voice; returns base64 WAV or null. `mood`
+// (win/lose/needle/banter/regret) layers the emotional delivery of the moment on
+// top of the character's baseline voice.
 export async function generateSpeechWav({
-  apiKey, characterId, text, model,
+  apiKey, characterId, text, model, mood,
 }: {
   apiKey: string;
   characterId: string;
   text: string;
   model?: string | null;
+  mood?: string | null;
 }): Promise<string | null> {
   const clean = stripForSpeech(text);
   if (!clean) return null;
   const voice = CHAR_VOICE[characterId] || DEFAULT_VOICE;
   const style = CHAR_STYLE[characterId];
-  const prompt = style ? `${style} ${clean}` : clean;
+  const moodStyle = mood ? MOOD_STYLE[String(mood)] : "";
+  const preamble = [style, moodStyle].filter(Boolean).join(" ");
+  const prompt = preamble ? `${preamble} ${clean}` : clean;
   const modelName = model || "gemini-2.5-flash-preview-tts";
 
   const resp = await fetch(

@@ -399,7 +399,8 @@ function createOnlineRpcClient() {
       message,
       name,
       voice,
-      character
+      character,
+      mood
     }: {
       tableId: string;
       groupPlayerId: string;
@@ -407,6 +408,7 @@ function createOnlineRpcClient() {
       name?: string | null;
       voice?: boolean;        // "punchy" line the client may read aloud
       character?: string | null;
+      mood?: string | null;   // emotional delivery hint for TTS (win/lose/needle/...)
     }) {
       const trimmed = String(message || "").trim().slice(0, 178);
       if (!trimmed) return;
@@ -465,6 +467,7 @@ function createOnlineRpcClient() {
                 text: trimmed,
                 voice: Boolean(voice),
                 character: character || null,
+                mood: mood || null,
                 at: inserted?.created_at || new Date().toISOString()
               }
             }]
@@ -673,7 +676,7 @@ async function runBotExpressions({
           canned: () => pickBanterLine({ characterId: speaker.characterId, context: speaker.context, targetName: null, avoid }),
         });
         if (line) {
-          await onlineClient.postBotChat({ tableId, groupPlayerId: speaker.groupPlayerId, message: line, voice: true, character: speaker.characterId });
+          await onlineClient.postBotChat({ tableId, groupPlayerId: speaker.groupPlayerId, message: line, voice: true, character: speaker.characterId, mood: speaker.context === "win" ? "win" : "lose" });
 
           // Bot-to-bot cross-talk: a rival character occasionally claps back at
           // the one who just spoke, so the table banters with itself between
@@ -1205,6 +1208,7 @@ async function processBotAction({
               message: line,
               voice: true,
               character: String(actingSeat.bot_character),
+              mood: "needle",
             });
             // Clap-back from another seated character about the loudmouth.
             if (Math.random() < 0.45) {
@@ -1824,7 +1828,7 @@ async function handleChatReply({
   const first = await produceReply(responder, playerName, message, chatHistory);
   if (!first.text) return json({ ok: true, replied: false, reason: "no_line" });
   await pause(first.usedLlm);
-  await onlineClient.postBotChat({ tableId, groupPlayerId: responder.groupPlayerId, message: first.text, voice: true, character: responder.characterId });
+  await onlineClient.postBotChat({ tableId, groupPlayerId: responder.groupPlayerId, message: first.text, voice: true, character: responder.characterId, mood: "banter" });
 
   // 2) Bot-to-bot: another seated character may fire back at the one who just
   // spoke, and a third may pile on — so the table argues with itself, not just
@@ -1985,6 +1989,7 @@ async function handleTts({
   const seatToken = asText(payload?.seat_token);
   const text = String(payload?.text || "").trim().slice(0, 240);
   const character = asText(payload?.character) || "";
+  const mood = asText(payload?.mood) || "";
   if (!tableId || !groupPlayerId || !seatToken || !text) {
     return json({ ok: false, error: "tts_requires_table_player_token_text" }, 400);
   }
@@ -2010,6 +2015,7 @@ async function handleTts({
       apiKey,
       characterId: character,
       text,
+      mood,
       model: asText(Deno.env.get("TTS_MODEL")),
     });
     return json({ ok: true, audio: audio || null, mime: "audio/wav" });
@@ -2019,6 +2025,173 @@ async function handleTts({
     // Surface a 429 so the client can back off; otherwise just no audio.
     return json({ ok: true, audio: null, error: msg }, /429/.test(msg) ? 429 : 200);
   }
+}
+
+// Shared: verify the caller is a seated HUMAN at this table and return the roster
+// of seated characters (bots with a persona). Returns null on any auth failure.
+async function authSeatAndListCharacters(
+  onlineClient: ReturnType<typeof createOnlineRpcClient>,
+  { tableId, groupPlayerId, seatToken }: { tableId: string; groupPlayerId: string; seatToken: string },
+) {
+  const { data: senderSeat, error: seatErr } = await onlineClient.client
+    .from("online_table_seats")
+    .select("seat_no, is_bot")
+    .eq("table_id", tableId)
+    .eq("group_player_id", groupPlayerId)
+    .eq("seat_token", seatToken)
+    .is("left_at", null)
+    .maybeSingle();
+  if (seatErr || !senderSeat || senderSeat.is_bot) return null;
+
+  const identities = await onlineClient.listSeatIdentities({ tableId });
+  const sender = identities.find((s: any) => s.groupPlayerId === groupPlayerId);
+  const bots = identities
+    .filter((s: any) => s.isBot && s.botCharacter && hasBanter(s.botCharacter))
+    .map((s: any) => {
+      const ch = resolveCharacterStyle(s.botCharacter);
+      return {
+        characterId: String(s.botCharacter),
+        groupPlayerId: s.groupPlayerId,
+        name: String(s.name || "Bot"),
+        expressiveness: ch && typeof ch.expressiveness === "number" ? ch.expressiveness : 1,
+      };
+    });
+  return { identities, sender, bots };
+}
+
+// The client fires this when the HUMAN taps a quick-chat emoji reaction. A seated
+// character may fire back in chat (and TTS) so reactions aren't a one-way street.
+// Seat-token authed like chat_reply. Best-effort; silent most of the time so it
+// doesn't answer every single tap.
+async function handleReactionReply({
+  onlineClient,
+  payload,
+}: {
+  onlineClient: ReturnType<typeof createOnlineRpcClient>;
+  payload: Record<string, unknown>;
+}) {
+  const tableId = asText(payload?.table_id);
+  const groupPlayerId = asText(payload?.group_player_id);
+  const seatToken = asText(payload?.seat_token);
+  const reactionText = String(payload?.text || "").trim().slice(0, 40);
+  const emoji = String(payload?.emoji || "").trim().slice(0, 8);
+  if (!tableId || !groupPlayerId || !seatToken) {
+    return json({ ok: false, error: "reaction_reply_requires_table_player_token" }, 400);
+  }
+
+  // Answer only sometimes -- a reaction shouldn't always summon a speech.
+  if (Math.random() < 0.55) return json({ ok: true, replied: false, reason: "chose_silence" });
+
+  const ctx = await authSeatAndListCharacters(onlineClient, { tableId, groupPlayerId, seatToken });
+  if (!ctx) return json({ ok: false, error: "reaction_reply_seat_not_found" }, 403);
+  if (!ctx.bots.length) return json({ ok: true, replied: false, reason: "no_characters_seated" });
+
+  const playerName = ctx.sender?.name || "friend";
+  // Weight the pick toward the chattier characters.
+  const responder = ctx.bots
+    .map((b) => ({ b, r: Math.random() / Math.max(0.2, b.expressiveness) }))
+    .sort((a, z) => a.r - z.r)[0].b;
+
+  const roster = ctx.identities.map((s: any) => String(s.name || "Player")).filter(Boolean);
+  const recent = await onlineClient.listRecentChatLines({ tableId, limit: 10 });
+  const nameByGpid = new Map(ctx.identities.map((s: any) => [s.groupPlayerId, s.name || "Player"]));
+  const history = recent.slice().reverse().map((r) => ({ name: String(nameByGpid.get(r.groupPlayerId) || "Player"), text: r.message }));
+  const avoid = recent.filter((r) => r.groupPlayerId === String(responder.groupPlayerId)).map((r) => r.message);
+
+  const moodByReaction: Record<string, string> = {
+    Laugh: "needle", Angry: "needle", "Nice bluff": "needle", "Ha!": "needle",
+    "Well played": "banter", "Good game": "banter", "Good fold": "banter",
+  };
+  const mood = moodByReaction[reactionText] || "banter";
+  const situation = `${playerName} just fired a "${emoji} ${reactionText}" emoji reaction at the table -- no words, just the reaction. React to ${playerName} in character: tease them, fire back, gloat, or play along. Do not describe the emoji; just respond to it.`;
+
+  const line = await mixedHandBanter({
+    speaker: { characterId: responder.characterId, name: responder.name },
+    situation,
+    targetName: playerName,
+    roster,
+    chatHistory: history,
+    canned: () => pickBanterLine({ characterId: responder.characterId, context: "bully", targetName: playerName, avoid }),
+  });
+  if (!line) return json({ ok: true, replied: false, reason: "no_line" });
+  await new Promise((resolve) => setTimeout(resolve, 500 + Math.floor(Math.random() * 700)));
+  await onlineClient.postBotChat({ tableId, groupPlayerId: responder.groupPlayerId, message: line, voice: true, character: responder.characterId, mood });
+  return json({ ok: true, replied: true, by: responder.name });
+}
+
+// The client fires this when the HUMAN voluntarily shows their cards (after a win
+// or a fold). A seated character reacts to what was revealed -- respect a good
+// laydown, rib a bad bluff, react to the winner's holding. Seat-token authed.
+async function handleCardsShown({
+  onlineClient,
+  payload,
+}: {
+  onlineClient: ReturnType<typeof createOnlineRpcClient>;
+  payload: Record<string, unknown>;
+}) {
+  const tableId = asText(payload?.table_id);
+  const groupPlayerId = asText(payload?.group_player_id);
+  const seatToken = asText(payload?.seat_token);
+  const handId = asText(payload?.hand_id);
+  if (!tableId || !groupPlayerId || !seatToken) {
+    return json({ ok: false, error: "cards_shown_requires_table_player_token" }, 400);
+  }
+
+  if (Math.random() < 0.45) return json({ ok: true, replied: false, reason: "chose_silence" });
+
+  const ctx = await authSeatAndListCharacters(onlineClient, { tableId, groupPlayerId, seatToken });
+  if (!ctx) return json({ ok: false, error: "cards_shown_seat_not_found" }, 403);
+  if (!ctx.bots.length) return json({ ok: true, replied: false, reason: "no_characters_seated" });
+
+  const playerName = ctx.sender?.name || "friend";
+
+  // Pull what they actually showed (folded? won? which cards) so the reaction is
+  // specific, not generic.
+  let folded = false;
+  let won = false;
+  let cardStr = "";
+  if (handId) {
+    try {
+      const hs = await onlineClient.getHandState({ handId, sinceSeq: null });
+      const me = (hs?.players || []).find((p: any) => String(p.group_player_id) === groupPlayerId);
+      if (me) {
+        folded = !!me.folded;
+        won = Number(me.result_amount || 0) > 0;
+        const cards = Array.isArray(me.hole_cards) ? me.hole_cards : [];
+        cardStr = cards.map((c: any) => String(c)).join(" ");
+      }
+    } catch { /* best-effort; fall back to a generic reaction */ }
+  }
+
+  const responder = ctx.bots
+    .map((b) => ({ b, r: Math.random() / Math.max(0.2, b.expressiveness) }))
+    .sort((a, z) => a.r - z.r)[0].b;
+  const roster = ctx.identities.map((s: any) => String(s.name || "Player")).filter(Boolean);
+  const recent = await onlineClient.listRecentChatLines({ tableId, limit: 10 });
+  const nameByGpid = new Map(ctx.identities.map((s: any) => [s.groupPlayerId, s.name || "Player"]));
+  const history = recent.slice().reverse().map((r) => ({ name: String(nameByGpid.get(r.groupPlayerId) || "Player"), text: r.message }));
+  const avoid = recent.filter((r) => r.groupPlayerId === String(responder.groupPlayerId)).map((r) => r.message);
+
+  const shown = cardStr ? `their ${cardStr}` : "their cards";
+  const situation = folded
+    ? `${playerName} just voluntarily SHOWED the hand they FOLDED (${shown}). React in character: was it a great laydown, a nit fold, or were they bluffing? Rib them or respect it.`
+    : won
+      ? `${playerName} just SHOWED their winning hand (${shown}) after taking the pot. React in character to what they were holding.`
+      : `${playerName} just voluntarily SHOWED their cards (${shown}). React in character to what they chose to reveal.`;
+  const mood = folded ? "needle" : "banter";
+
+  const line = await mixedHandBanter({
+    speaker: { characterId: responder.characterId, name: responder.name },
+    situation,
+    targetName: playerName,
+    roster,
+    chatHistory: history,
+    canned: () => pickBanterLine({ characterId: responder.characterId, context: "bully", targetName: playerName, avoid }),
+  });
+  if (!line) return json({ ok: true, replied: false, reason: "no_line" });
+  await new Promise((resolve) => setTimeout(resolve, 500 + Math.floor(Math.random() * 700)));
+  await onlineClient.postBotChat({ tableId, groupPlayerId: responder.groupPlayerId, message: line, voice: true, character: responder.characterId, mood });
+  return json({ ok: true, replied: true, by: responder.name });
 }
 
 Deno.serve(async (req) => {
@@ -2049,6 +2222,18 @@ Deno.serve(async (req) => {
     if (mode === "tts") {
       const onlineClient = createOnlineRpcClient();
       return await handleTts({ onlineClient, payload });
+    }
+
+    // A character reacts to the human's emoji quick-reaction. Seat-token authed.
+    if (mode === "reaction_reply") {
+      const onlineClient = createOnlineRpcClient();
+      return await handleReactionReply({ onlineClient, payload });
+    }
+
+    // A character reacts to the human voluntarily showing their cards. Seat-token authed.
+    if (mode === "cards_shown") {
+      const onlineClient = createOnlineRpcClient();
+      return await handleCardsShown({ onlineClient, payload });
     }
 
     if (!hasValidRuntimeDispatchSecret(req)) {
