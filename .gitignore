@@ -5,3 +5,6 @@ supabase/.temp/
 
 # Local build/deploy scratch (bundled edge fns, test harnesses)
 scratchpad/
+
+# Per-machine Claude Code permission overrides (never shared)
+.claude/settings.local.json
