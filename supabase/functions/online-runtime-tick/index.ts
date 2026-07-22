@@ -536,7 +536,7 @@ async function runBotExpressions({
   try {
     const bb = Math.max(1, Number(table?.big_blind || 2));
     const potBb = Number(hand?.pot_total || 0) / bb;
-    if (potBb >= 8) {
+    if (potBb >= 3) {
       const byGpid = new Map(botSeats.map((b) => [b.groupPlayerId, b]));
       const candidates: { characterId: string; groupPlayerId: string; context: "win" | "lose"; weight: number }[] = [];
       for (const p of players) {
@@ -545,9 +545,9 @@ async function runBotExpressions({
         if (!bot || !bot.botCharacter || !hasBanter(bot.botCharacter)) continue;
         const expr = typeof bot.expressiveness === "number" ? bot.expressiveness : 1;
         if (p.resultAmount > 0) {
-          candidates.push({ characterId: bot.botCharacter, groupPlayerId: bot.groupPlayerId, context: "win", weight: 0.3 * expr });
-        } else if (p.resultAmount <= -(bb * 12)) {
-          candidates.push({ characterId: bot.botCharacter, groupPlayerId: bot.groupPlayerId, context: "lose", weight: 0.34 * expr });
+          candidates.push({ characterId: bot.botCharacter, groupPlayerId: bot.groupPlayerId, context: "win", weight: 0.6 * expr });
+        } else if (p.resultAmount <= -(bb * 6)) {
+          candidates.push({ characterId: bot.botCharacter, groupPlayerId: bot.groupPlayerId, context: "lose", weight: 0.62 * expr });
         }
       }
       // One roll, weighted toward the chattiest candidate.
@@ -570,7 +570,7 @@ async function runBotExpressions({
           const rivals = botSeats.filter((b) =>
             String(b.groupPlayerId) !== String(speaker.groupPlayerId)
             && b.botCharacter && hasBanter(b.botCharacter));
-          if (rivals.length && Math.random() < 0.4) {
+          if (rivals.length && Math.random() < 0.55) {
             const rival = rivals[Math.floor(Math.random() * rivals.length)];
             const rivalAvoid = recent
               .filter((r) => r.groupPlayerId === String(rival.groupPlayerId))
@@ -1038,11 +1038,16 @@ async function processBotAction({
     // character claps back, so the table argues with itself.
     const raiseToBbForChat = decision.amount != null ? Number(decision.amount) / bbForTalk : 0;
     const potBbForChat = Number(liveHand?.pot_total || 0) / bbForTalk;
+    const isAggro = decision.actionType === "all_in"
+      || decision.actionType === "bet" || decision.actionType === "raise";
     const isBigAggro = decision.actionType === "all_in"
       || ((decision.actionType === "bet" || decision.actionType === "raise")
         && (raiseToBbForChat >= 5 || potBbForChat >= 10));
-    if (isBigAggro && character && hasBanter(actingSeat.bot_character)) {
-      const chatP = 0.45 * Math.min(1.5, Number(character.expressiveness || 1));
+    // Needle on ANY bet/raise so the table stays chatty on small pots too; big
+    // aggression just fires more often.
+    if (isAggro && character && hasBanter(actingSeat.bot_character)) {
+      const exprMul = Math.min(1.5, Number(character.expressiveness || 1));
+      const chatP = (isBigAggro ? 0.6 : 0.34) * exprMul;
       if (Math.random() < chatP) {
         const identities = await onlineClient.listSeatIdentities({ tableId });
         const recentLines = await onlineClient.listRecentChatLines({ tableId, limit: 12 });
