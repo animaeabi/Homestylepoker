@@ -192,6 +192,7 @@ const el = {
   chatForm: document.getElementById("chatForm"),
   chatInput: document.getElementById("chatInput"),
   chatSend: document.getElementById("chatSend"),
+  chatVoiceToggle: document.getElementById("chatVoiceToggle"),
   toastContainer: document.getElementById("toastContainer"),
 };
 
@@ -1355,6 +1356,9 @@ function addChatMessage(message, { self = false } = {}) {
   if (!self && !state.chatOpen) state.chatUnread += 1;
   if (!self) {
     addChatSpeechOverlay({ playerId: message?.playerId || null, text });
+    // Read live incoming lines aloud (no-op unless the user enabled voices).
+    // Only fires here, on the live path -- never for the backlog on reload.
+    speakChatLine({ playerId: message?.playerId || null, text });
   }
   renderChatUi();
 }
@@ -2972,6 +2976,154 @@ function addChatSpeechOverlay(message) {
   scheduleReactionCleanup();
   renderSeats();
   renderMyHand();
+}
+
+// ============ CHARACTER VOICES (text-to-speech) ============
+// Reads incoming chat aloud so the characters "talk". Pluggable by design: the
+// current engine is the browser's built-in speech synthesis (free, unlimited,
+// on-device). A future server engine (e.g. Google WaveNet) can replace
+// chatVoice.speak() without touching any call site. Off by default -- the first
+// tap on the toggle is the user gesture browsers require to start audio.
+const TTS_VOICE_PROFILES = {
+  negranope: { rate: 1.05, pitch: 1.06 },
+  donk:      { rate: 0.92, pitch: 0.86 },
+  holes:     { rate: 0.97, pitch: 1.0 },
+  haxxon:    { rate: 1.0,  pitch: 0.93 },
+  eyev:      { rate: 0.85, pitch: 0.78 },
+  hellsmouth:{ rate: 1.14, pitch: 1.2 },
+  sydell:    { rate: 0.9,  pitch: 0.96 },
+  hunger:    { rate: 1.24, pitch: 1.12 },
+  grease:    { rate: 0.85, pitch: 0.82 },
+  pony:      { rate: 1.18, pitch: 1.15 },
+};
+const TTS_DEFAULT_PROFILE = { rate: 1.0, pitch: 1.0 };
+
+const chatVoice = {
+  provider: "webspeech",
+  enabled: false,
+  ready: false,
+  _unlocked: false,
+  _queued: 0,
+  voices: [],
+  byCharacter: new Map(),
+
+  supported() {
+    return typeof window !== "undefined" && "speechSynthesis" in window && "SpeechSynthesisUtterance" in window;
+  },
+
+  loadVoices() {
+    if (!this.supported()) return;
+    const all = window.speechSynthesis.getVoices() || [];
+    const en = all.filter((v) => /^en([-_]|$)/i.test(v.lang || ""));
+    this.voices = en.length ? en : all;
+    this.ready = this.voices.length > 0;
+    // Spread the characters across the available voices so they sound distinct
+    // where the device has several; pitch/rate differentiate the rest.
+    this.byCharacter.clear();
+    if (this.voices.length) {
+      Object.keys(TTS_VOICE_PROFILES).forEach((id, i) => {
+        this.byCharacter.set(id, this.voices[(i * 3) % this.voices.length]);
+      });
+    }
+  },
+
+  stripForSpeech(text) {
+    return String(text || "")
+      .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}\u{FE0F}\u{1F900}-\u{1F9FF}]/gu, "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 220);
+  },
+
+  // Speak a near-silent utterance inside a user gesture to unlock audio on iOS.
+  unlock() {
+    if (this._unlocked || !this.supported()) return;
+    try {
+      const u = new SpeechSynthesisUtterance(" ");
+      u.volume = 0;
+      window.speechSynthesis.speak(u);
+      this._unlocked = true;
+    } catch { /* ignore */ }
+  },
+
+  setEnabled(on) {
+    this.enabled = Boolean(on);
+    try { localStorage.setItem("hsp_tts_enabled", this.enabled ? "1" : "0"); } catch { /* ignore */ }
+    if (!this.supported()) return;
+    if (this.enabled) {
+      this.loadVoices();
+      try { window.speechSynthesis.resume(); } catch { /* ignore */ }
+    } else {
+      try { window.speechSynthesis.cancel(); } catch { /* ignore */ }
+    }
+  },
+
+  speak(characterId, text) {
+    if (!this.enabled || !this.supported()) return;
+    const clean = this.stripForSpeech(text);
+    if (!clean) return;
+    if (!this.ready) this.loadVoices();
+    // Don't fall behind during rapid ambient bursts -- cap the queue depth so
+    // speech stays roughly current with the table instead of lagging.
+    if (this._queued >= 3) return;
+    try {
+      const u = new SpeechSynthesisUtterance(clean);
+      const profile = TTS_VOICE_PROFILES[characterId] || TTS_DEFAULT_PROFILE;
+      u.rate = profile.rate;
+      u.pitch = profile.pitch;
+      u.volume = 1.0;
+      const v = this.byCharacter.get(characterId);
+      if (v) u.voice = v;
+      this._queued += 1;
+      const done = () => { this._queued = Math.max(0, this._queued - 1); };
+      u.onend = done;
+      u.onerror = done;
+      window.speechSynthesis.speak(u);
+    } catch { /* ignore */ }
+  },
+};
+
+function characterIdForPlayer(playerId) {
+  if (!playerId) return null;
+  const seat = getSeats().find((s) => s.group_player_id === playerId && !s.left_at);
+  return seat?.bot_character || null;
+}
+
+function speakChatLine(message) {
+  const text = String(message?.text || "").trim();
+  if (!text) return;
+  chatVoice.speak(characterIdForPlayer(message?.playerId || null), text);
+}
+
+function updateVoiceToggleUi() {
+  if (!el.chatVoiceToggle) return;
+  const on = Boolean(chatVoice.enabled);
+  el.chatVoiceToggle.classList.toggle("active", on);
+  el.chatVoiceToggle.setAttribute("aria-pressed", on ? "true" : "false");
+  const icon = el.chatVoiceToggle.querySelector(".chat-voice-icon");
+  if (icon) icon.textContent = on ? "🔊" : "🔈";
+  el.chatVoiceToggle.title = on ? "Character voices on" : "Read chat aloud";
+}
+
+function initChatVoice() {
+  if (el.chatVoiceToggle && !chatVoice.supported()) {
+    el.chatVoiceToggle.classList.add("hidden");
+    return;
+  }
+  if (chatVoice.supported()) {
+    chatVoice.loadVoices();
+    try { window.speechSynthesis.onvoiceschanged = () => chatVoice.loadVoices(); } catch { /* ignore */ }
+  }
+  let stored = "0";
+  try { stored = localStorage.getItem("hsp_tts_enabled") || "0"; } catch { /* ignore */ }
+  chatVoice.enabled = stored === "1";
+  updateVoiceToggleUi();
+  // If it was left on, unlock audio on the player's first interaction this load
+  // (browsers reset the gesture requirement each page load).
+  if (chatVoice.enabled) {
+    const onFirstGesture = () => { chatVoice.unlock(); document.removeEventListener("pointerdown", onFirstGesture); };
+    document.addEventListener("pointerdown", onFirstGesture, { once: true });
+  }
 }
 
 function addReactionOverlay(payload, { self = false } = {}) {
@@ -7258,6 +7410,19 @@ function bindEvents() {
   el.chatClose?.addEventListener("click", () => {
     toggleChat(false);
   });
+
+  // Voice toggle lives in the draggable header, so stop its pointerdown from
+  // starting a drag; the click flips character voices on/off.
+  el.chatVoiceToggle?.addEventListener("pointerdown", (e) => e.stopPropagation());
+  el.chatVoiceToggle?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const next = !chatVoice.enabled;
+    chatVoice.setEnabled(next);
+    if (next) chatVoice.unlock();           // this tap is the gesture that unlocks audio
+    updateVoiceToggleUi();
+    toast(next ? "Character voices on 🔊" : "Character voices off", next ? "success" : "");
+  });
+  initChatVoice();
 
   el.chatInput?.addEventListener("input", () => {
     renderChatUi();
