@@ -502,7 +502,7 @@ async function runBotExpressions({
   try {
     const bb = Math.max(1, Number(table?.big_blind || 2));
     const potBb = Number(hand?.pot_total || 0) / bb;
-    if (potBb >= 12) {
+    if (potBb >= 8) {
       const byGpid = new Map(botSeats.map((b) => [b.groupPlayerId, b]));
       const candidates: { characterId: string; groupPlayerId: string; context: "win" | "lose"; weight: number }[] = [];
       for (const p of players) {
@@ -511,9 +511,9 @@ async function runBotExpressions({
         if (!bot || !bot.botCharacter || !hasBanter(bot.botCharacter)) continue;
         const expr = typeof bot.expressiveness === "number" ? bot.expressiveness : 1;
         if (p.resultAmount > 0) {
-          candidates.push({ characterId: bot.botCharacter, groupPlayerId: bot.groupPlayerId, context: "win", weight: 0.22 * expr });
+          candidates.push({ characterId: bot.botCharacter, groupPlayerId: bot.groupPlayerId, context: "win", weight: 0.3 * expr });
         } else if (p.resultAmount <= -(bb * 12)) {
-          candidates.push({ characterId: bot.botCharacter, groupPlayerId: bot.groupPlayerId, context: "lose", weight: 0.26 * expr });
+          candidates.push({ characterId: bot.botCharacter, groupPlayerId: bot.groupPlayerId, context: "lose", weight: 0.34 * expr });
         }
       }
       // One roll, weighted toward the chattiest candidate.
@@ -975,10 +975,12 @@ async function processBotAction({
     // live opponent BY NAME in the table chat -- and sometimes another
     // character claps back, so the table argues with itself.
     const raiseToBbForChat = decision.amount != null ? Number(decision.amount) / bbForTalk : 0;
+    const potBbForChat = Number(liveHand?.pot_total || 0) / bbForTalk;
     const isBigAggro = decision.actionType === "all_in"
-      || ((decision.actionType === "bet" || decision.actionType === "raise") && raiseToBbForChat >= 8);
+      || ((decision.actionType === "bet" || decision.actionType === "raise")
+        && (raiseToBbForChat >= 5 || potBbForChat >= 10));
     if (isBigAggro && character && hasBanter(actingSeat.bot_character)) {
-      const chatP = 0.3 * Math.min(1.5, Number(character.expressiveness || 1));
+      const chatP = 0.45 * Math.min(1.5, Number(character.expressiveness || 1));
       if (Math.random() < chatP) {
         const identities = await onlineClient.listSeatIdentities({ tableId });
         const liveGpids = new Set(

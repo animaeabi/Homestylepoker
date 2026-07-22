@@ -1268,9 +1268,17 @@ function applyServerChatHistory(messages) {
   }
 
   const trimmed = normalized.slice(-40);
-  if (priorCount > 0 && !state.chatOpen) {
+  if (priorCount > 0) {
+    let bubbled = 0;
     for (const msg of trimmed) {
-      if (!priorIds.has(msg.id) && !msg.self) unseenCount += 1;
+      if (priorIds.has(msg.id) || msg.self) continue;
+      if (!state.chatOpen) unseenCount += 1;
+      // Surface fresh lines as seat speech bubbles (cap per refresh so a
+      // reconnect burst can't blanket the table).
+      if (bubbled < 3) {
+        addChatSpeechOverlay(msg);
+        bubbled += 1;
+      }
     }
   }
 
@@ -1310,6 +1318,9 @@ function addChatMessage(message, { self = false } = {}) {
     if (removed?.id) state.chatMessageIds.delete(removed.id);
   }
   if (!self && !state.chatOpen) state.chatUnread += 1;
+  if (!self) {
+    addChatSpeechOverlay({ playerId: message?.playerId || null, text });
+  }
   renderChatUi();
 }
 
@@ -2801,10 +2812,13 @@ function buildReactionPopup(reaction, { hero = false, anchor = "above" } = {}) {
   popup.className = hero
     ? "seat-reaction-popup hero-reaction-popup"
     : `seat-reaction-popup seat-reaction-popup--${anchor}`;
-  const emoji = document.createElement("span");
-  emoji.className = "reaction-emoji";
-  emoji.textContent = reaction?.emoji || "";
-  popup.appendChild(emoji);
+  if (reaction?.speech) popup.classList.add("seat-reaction-popup--speech");
+  if (reaction?.emoji) {
+    const emoji = document.createElement("span");
+    emoji.className = "reaction-emoji";
+    emoji.textContent = reaction.emoji;
+    popup.appendChild(emoji);
+  }
   if (reaction?.text) {
     const text = document.createElement("span");
     text.className = "reaction-text";
@@ -2852,7 +2866,7 @@ function pruneReactionOverlays(hand = getLatestHand()) {
   const currentHandId = hand?.id || null;
   const now = Date.now();
   for (const [seatNo, overlay] of state.reactionOverlays.entries()) {
-    if (!overlay || now >= Number(overlay.until || 0) || (currentHandId && overlay.handId !== currentHandId)) {
+    if (!overlay || now >= Number(overlay.until || 0) || (currentHandId && overlay.handId && overlay.handId !== currentHandId)) {
       state.reactionOverlays.delete(seatNo);
     }
   }
@@ -2876,6 +2890,30 @@ function scheduleReactionCleanup() {
     renderMyHand();
     renderReactionTray();
   }, Math.max(30, nextExpiry - Date.now() + 24));
+}
+
+// Chat lines double as speech bubbles over the speaker's seat, so character
+// banter (and human trash talk) is visible even with the chat panel closed.
+function addChatSpeechOverlay(message) {
+  const playerId = message?.playerId || null;
+  const text = String(message?.text || "").trim();
+  if (!playerId || !text) return;
+  const seat = getSeats().find((s) => s.group_player_id === playerId && !s.left_at);
+  if (!seat) return;
+  const hand = getLatestHand();
+  state.reactionOverlays.set(Number(seat.seat_no), {
+    handId: hand?.id || null,
+    seatNo: Number(seat.seat_no),
+    playerId,
+    emoji: "",
+    text: text.slice(0, 120),
+    speech: true,
+    self: false,
+    until: Date.now() + Math.min(7000, 3200 + text.length * 35),
+  });
+  scheduleReactionCleanup();
+  renderSeats();
+  renderMyHand();
 }
 
 function addReactionOverlay(payload, { self = false } = {}) {
@@ -5832,7 +5870,7 @@ function renderSeats() {
       }
 
       const reactionData = state.reactionOverlays.get(seat.seat_no);
-      if (reactionData && Date.now() < reactionData.until && (!hand?.id || reactionData.handId === hand.id)) {
+      if (reactionData && Date.now() < reactionData.until && (!hand?.id || !reactionData.handId || reactionData.handId === hand.id)) {
         const reactionBubble = buildReactionPopup(reactionData, {
           anchor: getReactionPopupAnchor(pos),
         });
@@ -6010,7 +6048,7 @@ function renderMyHand() {
   }
 
   const heroReactionData = state.reactionOverlays.get(mySeat.seat_no);
-  if (heroReactionData && Date.now() < heroReactionData.until && (!hand?.id || heroReactionData.handId === hand.id)) {
+  if (heroReactionData && Date.now() < heroReactionData.until && (!hand?.id || !heroReactionData.handId || heroReactionData.handId === hand.id)) {
     const heroReaction = buildReactionPopup(heroReactionData, { hero: true });
     if (heroReaction) el.myHandArea?.appendChild(heroReaction);
   }

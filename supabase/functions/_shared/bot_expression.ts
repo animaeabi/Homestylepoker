@@ -108,13 +108,13 @@ export function decideMidHandExpression({
   if (actionType === "all_in") {
     p = 0.5 * expr;
     line = pickTaunt(taunts?.aggro) || pick([R.fire, R.smirk]);
-  } else if ((actionType === "bet" || actionType === "raise") && (bigPrice >= 8 || potBb >= 18)) {
+  } else if ((actionType === "bet" || actionType === "raise") && (bigPrice >= 6 || potBb >= 14)) {
     p = 0.24 * expr;
     line = pickTaunt(taunts?.aggro) || pick([R.smirk, R.fire]);
-  } else if (actionType === "call" && (toCallBb >= 8 || potBb >= 22)) {
+  } else if (actionType === "call" && (toCallBb >= 6 || potBb >= 16)) {
     p = 0.2 * expr;
     line = pickTaunt(taunts?.call) || pick([R.think, R.sweat, R.wow]);
-  } else if (actionType === "fold" && toCallBb >= 8) {
+  } else if (actionType === "fold" && toCallBb >= 6) {
     p = 0.12 * expr;
     line = pickTaunt(taunts?.fold) || pick([R.ok, R.think]);
   } else if ((actionType === "bet" || actionType === "raise") && street !== "preflop") {
