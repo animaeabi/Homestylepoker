@@ -3057,7 +3057,7 @@ function scheduleReactionCleanup() {
 // Chat lines double as speech bubbles over the speaker's seat, so character
 // banter (and human trash talk) is visible even with the chat panel closed.
 // Tempo knobs for the speech-bubble presentation.
-const SPEECH_TYPE_CPS = 48;          // typewriter speed (chars/sec) -- quick, snappy
+const SPEECH_WORD_MS = 130;          // reveal cadence: one word "pop" every N ms (deliberate, not rushed)
 const SPEECH_MIN_HOLD_MS = 1500;     // floor dwell after a line finishes typing
 const SPEECH_READ_MS_PER_CHAR = 42;  // extra dwell scaled to length (reading time)
 const SPEECH_MAX_HOLD_MS = 4200;     // cap dwell so a long line never camps
@@ -3145,24 +3145,35 @@ async function presentSpeechBubble(item) {
   renderSeats();
   renderMyHand();
 
-  // Typewriter.
+  // Reveal WORD BY WORD (a quick pop), not letter by letter: the whole short
+  // line lands fast and stays fully readable. Boundaries are the char index at
+  // the end of each word (incl. its trailing space) so slices never split a word.
+  const wordBounds = [];
+  {
+    const re = /\S+\s*/g;
+    let m;
+    while ((m = re.exec(full))) wordBounds.push(m.index + m[0].length);
+  }
+  if (!wordBounds.length) wordBounds.push(full.length);
+  if (wordBounds[wordBounds.length - 1] < full.length) wordBounds.push(full.length);
+
   await new Promise((resolve) => {
-    const stepMs = Math.max(12, Math.round(1000 / SPEECH_TYPE_CPS));
-    let i = 0;
+    let k = 0;
     const tick = () => {
       const overlay = state.reactionOverlays.get(seatNo);
       if (!overlay || !overlay.speech || overlay.playerId !== item.playerId) { resolve(); return; }
-      i = Math.min(full.length, i + 1);
-      overlay.revealChars = i;
-      paintSpeechBubbleText(seatNo, full.slice(0, i));
-      if (i >= full.length) {
+      const chars = wordBounds[k];
+      overlay.revealChars = chars;
+      paintSpeechBubbleText(seatNo, full.slice(0, chars));
+      k += 1;
+      if (chars >= full.length || k >= wordBounds.length) {
         overlay.typing = false;
         // Drop the caret on the live node without a full re-render.
         el.seatsLayer?.querySelector(`.seat-node[data-seat-no="${seatNo}"] .seat-reaction-popup--speech`)?.classList.remove("speech-typing");
         resolve();
         return;
       }
-      state.speechTypeTimer = setTimeout(tick, stepMs);
+      state.speechTypeTimer = setTimeout(tick, SPEECH_WORD_MS);
     };
     tick();
   });
