@@ -1324,8 +1324,11 @@ function toggleChat(forceOpen = !state.chatOpen) {
   }
   renderChatUi();
   if (state.chatOpen) {
+    // Open in READ mode: show the compact card and scroll to the latest, but do
+    // NOT auto-focus the input. Popping the keyboard the instant you open chat
+    // is jarring and covers the table -- the user taps the field when they
+    // actually want to type, which is what lifts the card above the keyboard.
     requestAnimationFrame(() => {
-      el.chatInput?.focus();
       if (el.chatList) el.chatList.scrollTop = el.chatList.scrollHeight;
     });
   }
@@ -3236,30 +3239,33 @@ function unlockViewportHeightForChatInput() {
   }, 240);
 }
 
-// While the keyboard is up, pin the chat panel just above it as a full-width
-// compose bar. The keyboard's height in layout coordinates is the gap between
-// the visual viewport's visible bottom and the full layout height.
+// When the on-screen keyboard is up, lift the compact chat card to sit just
+// above it (same size, just moved). Crucially, only do this when a REAL keyboard
+// is actually occupying space -- if the input is focused with no keyboard
+// (desktop, or a stuck-focus state), we leave the card in its normal resting
+// spot above the FAB row instead of dropping it to the bottom edge.
+const KEYBOARD_MIN_PX = 120; // below this, no meaningful keyboard is present
 function applyChatKeyboardDock() {
   if (!el.chatPanel) return;
-  const focused = Boolean(state.chatInputFocused && state.chatOpen);
-  if (!focused) {
+  const vv = window.visualViewport;
+  const layoutH = window.innerHeight || document.documentElement?.clientHeight || 0;
+  const visibleBottom = vv ? vv.height + vv.offsetTop : layoutH;
+  const keyboardPx = Math.round(layoutH - visibleBottom);
+  const keyboardUp = Boolean(state.chatInputFocused && state.chatOpen && keyboardPx >= KEYBOARD_MIN_PX);
+
+  if (!keyboardUp) {
     el.chatPanel.classList.remove("chat-panel--typing");
     el.chatPanel.style.removeProperty("--kb-bottom");
-    // Restore the normal (or previously dragged) resting position.
+    // Rest in the normal (or previously dragged) position above the FAB row.
     applyChatPanelPosition();
     return;
   }
-  // Let the .chat-panel--typing rules own geometry: clear any dragged inline
-  // left/top so the !important class wins.
+  // Keyboard is genuinely up: let the .chat-panel--typing rules own geometry.
   el.chatPanel.style.left = "";
   el.chatPanel.style.top = "";
   el.chatPanel.style.right = "";
   el.chatPanel.style.bottom = "";
-  const vv = window.visualViewport;
-  const layoutH = window.innerHeight || document.documentElement?.clientHeight || 0;
-  const visibleBottom = vv ? vv.height + vv.offsetTop : layoutH;
-  const kbBottom = Math.max(10, Math.round(layoutH - visibleBottom) + 10);
-  el.chatPanel.style.setProperty("--kb-bottom", `${kbBottom}px`);
+  el.chatPanel.style.setProperty("--kb-bottom", `${keyboardPx + 10}px`);
   el.chatPanel.classList.add("chat-panel--typing");
 }
 
