@@ -2950,12 +2950,16 @@
         box-shadow: 0 5px 12px rgba(0,0,0,0.35);
       }
 
+      /* A compact floating card, pinned bottom-right but ALWAYS sitting clear
+         above the voice/chat FAB row (fab row top ~= safe+90px) so the composer
+         and its send button are never covered. One consistent size in every
+         state; typing only lifts it (see .chat-panel--typing), never resizes. */
       .chat-panel {
         position: fixed;
         right: max(14px, calc(env(safe-area-inset-right) + 14px));
-        bottom: calc(env(safe-area-inset-bottom) + 80px);
-        width: min(184px, calc(36vw + 18px));
-        height: min(220px, calc(100vh - 372px));
+        bottom: calc(env(safe-area-inset-bottom) + 108px);
+        width: min(200px, calc(38vw + 18px));
+        height: min(230px, calc(100vh - 372px));
         display: flex;
         flex-direction: column;
         overflow: hidden;
@@ -3120,18 +3124,16 @@
         box-shadow: 0 0 0 2px rgba(228,205,146,0.16);
       }
 
-      /* While the on-screen keyboard is up, dock the panel as a clean, full-width
-         compose bar sitting just above the keyboard (--kb-bottom is set from the
-         visual viewport in JS). Fixes the tiny box floating mid-table on iOS. */
+      /* Typing: keep the SAME compact card, just lift it to sit just above the
+         on-screen keyboard (--kb-bottom is measured from the visual viewport in
+         JS). No ballooning to full width -- the window looks identical open vs.
+         typing, which is what makes it feel consistent. */
       .chat-panel.chat-panel--typing {
-        left: max(10px, calc(env(safe-area-inset-left) + 10px)) !important;
-        right: max(10px, calc(env(safe-area-inset-right) + 10px)) !important;
-        width: auto !important;
         top: auto !important;
-        bottom: var(--kb-bottom, 14px) !important;
-        height: min(300px, 46vh) !important;
+        bottom: calc(var(--kb-bottom, 14px) + 10px) !important;
+        height: min(230px, 40vh) !important;
         border-color: rgba(228,205,146,0.2) !important;
-        box-shadow: 0 -6px 26px rgba(0,0,0,0.4) !important;
+        box-shadow: 0 10px 28px rgba(0,0,0,0.42) !important;
       }
       .chat-panel.chat-panel--typing .chat-header { cursor: default; }
 
@@ -3187,11 +3189,14 @@
           bottom: calc(env(safe-area-inset-bottom) + 62px);
         }
 
+        /* Compact card sitting a clear gap ABOVE the FAB row (fab top ~=
+           safe+112px) so the composer + send button never sit under the voice
+           button. Same card when typing -- it only lifts above the keyboard. */
         .chat-panel {
-          width: min(172px, calc(40vw));
-          height: min(206px, calc(100vh - 412px));
+          width: min(232px, calc(64vw));
+          height: min(214px, calc(100dvh - 430px));
           right: 8px;
-          bottom: calc(env(safe-area-inset-bottom) + 100px);
+          bottom: calc(env(safe-area-inset-bottom) + 124px);
         }
       }
 
@@ -3234,10 +3239,10 @@
         }
 
         .chat-panel {
-          width: min(166px, calc(22vw));
-          height: min(180px, calc(100vh - 142px));
+          width: min(200px, calc(30vw));
+          height: min(170px, calc(100vh - 150px));
           right: 10px;
-          bottom: 64px;
+          bottom: 84px;
         }
 
         .voice-fab,
@@ -5560,6 +5565,6 @@
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
     <script src="./online/table_fx_geometry.js?v=203"></script>
-    <script type="module" src="./online/table_app.js?v=219"></script>
+    <script type="module" src="./online/table_app.js?v=220"></script>
   </body>
 </html>
