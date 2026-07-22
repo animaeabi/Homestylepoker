@@ -3041,14 +3041,30 @@
         color: rgba(255,255,255,0.42);
       }
 
-      .chat-close {
+      .chat-header-actions {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-shrink: 0;
+      }
+
+      .chat-close,
+      .chat-expand {
         width: 22px;
         height: 22px;
         border: 1px solid rgba(255,255,255,0.06);
         border-radius: 8px;
         background: rgba(255,255,255,0.02);
         color: rgba(255,255,255,0.6);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+        line-height: 1;
+        cursor: pointer;
+        padding: 0;
       }
+      .chat-expand { color: rgba(236,178,86,0.72); }
 
       /* Standalone voice toggle, pinned to the TOP-LEFT of the whole UI so you
          can turn character voices on/off without opening chat. It sits just
@@ -3213,6 +3229,31 @@
         box-shadow: 0 10px 28px rgba(0,0,0,0.42) !important;
       }
       .chat-panel.chat-panel--typing .chat-header { cursor: default; }
+
+      /* Snap-expanded: a bottom sheet covering the lower ~42% of the screen so
+         you can read a run of messages, then snap back to the compact card. Uses
+         !important because dragging sets inline left/top/right/bottom that would
+         otherwise win over these rules. Dragging is disabled while expanded. */
+      .chat-panel.chat-panel--expanded {
+        left: 0 !important;
+        right: 0 !important;
+        top: auto !important;
+        bottom: 0 !important;
+        width: 100vw !important;
+        height: 42vh !important;
+        max-height: 42vh !important;
+        border-radius: 18px 18px 0 0 !important;
+        border-bottom: none !important;
+        box-shadow: 0 -10px 30px rgba(0,0,0,0.4) !important;
+      }
+      .chat-panel.chat-panel--expanded .chat-header { cursor: default; }
+      /* Expanded AND typing: keep the full-width sheet, just lift it above the
+         keyboard and cap its height so it never runs off the top of the screen. */
+      .chat-panel.chat-panel--expanded.chat-panel--typing {
+        bottom: calc(var(--kb-bottom, 0px)) !important;
+        height: 42vh !important;
+        max-height: calc(100vh - var(--kb-bottom, 0px) - 24px) !important;
+      }
 
       .chat-send {
         position: absolute;
@@ -4066,6 +4107,12 @@
           top: calc(env(safe-area-inset-top) + 46px);
         }
 
+        /* When the top bar is expanded the ▼ chip drops to sit under it; push the
+           voice FAB below the chip so the two never overlap. */
+        #tableView.portrait-topbar-expanded .voice-toggle-fab {
+          top: calc(env(safe-area-inset-top) + 74px);
+        }
+
         .top-bar-meta { display: none !important; }
         .top-bar-title { font-size: 13px !important; max-width: 40vw; }
         .top-btn { padding: 6px 9px; font-size: 10px; }
@@ -4669,6 +4716,10 @@
 
         #tableView.landscape-topbar-expanded .landscape-bar-toggle {
           top: calc(env(safe-area-inset-top) + 52px);
+        }
+
+        #tableView.landscape-topbar-expanded .voice-toggle-fab {
+          top: calc(env(safe-area-inset-top) + 80px);
         }
 
         .top-bar-left { min-width: 0; flex: 1; }
@@ -5631,7 +5682,10 @@
           <div class="chat-title">Table Chat</div>
           <div class="chat-subtitle">Recent table chat</div>
         </div>
-        <button class="chat-close" id="chatClose" type="button" aria-label="Close chat">✕</button>
+        <div class="chat-header-actions">
+          <button class="chat-expand" id="chatExpand" type="button" aria-label="Expand chat" aria-pressed="false">⤢</button>
+          <button class="chat-close" id="chatClose" type="button" aria-label="Close chat">✕</button>
+        </div>
       </div>
       <div class="chat-list" id="chatList">
         <div class="chat-empty" id="chatEmpty">Say hello to the table. Recent messages stay with this table so late joiners can catch up.</div>
@@ -5649,6 +5703,6 @@
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
     <script src="./online/table_fx_geometry.js?v=203"></script>
-    <script type="module" src="./online/table_app.js?v=227"></script>
+    <script type="module" src="./online/table_app.js?v=228"></script>
   </body>
 </html>

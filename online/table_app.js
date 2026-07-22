@@ -187,6 +187,7 @@ const el = {
   chatPanel: document.getElementById("chatPanel"),
   chatHeader: document.getElementById("chatHeader"),
   chatClose: document.getElementById("chatClose"),
+  chatExpand: document.getElementById("chatExpand"),
   chatList: document.getElementById("chatList"),
   chatEmpty: document.getElementById("chatEmpty"),
   chatForm: document.getElementById("chatForm"),
@@ -305,6 +306,7 @@ const state = {
   chatChannel: null,
   chatHealthy: false,
   chatPanelPosition: null,
+  chatExpanded: false,
   chatDrag: {
     active: false,
     pointerId: null,
@@ -476,6 +478,7 @@ function resetChatState() {
   state.lastChatActivityAt = Date.now();
   state.lastAmbientFireAt = Date.now();
   state.chatPanelPosition = null;
+  state.chatExpanded = false;
   state.chatDrag.active = false;
   state.chatDrag.pointerId = null;
   if (el.chatInput) el.chatInput.value = "";
@@ -484,7 +487,7 @@ function resetChatState() {
     el.chatPanel.style.top = "";
     el.chatPanel.style.right = "";
     el.chatPanel.style.bottom = "";
-    el.chatPanel.classList.remove("dragging");
+    el.chatPanel.classList.remove("dragging", "chat-panel--expanded");
   }
 }
 
@@ -1158,7 +1161,9 @@ function applyChatPanelPosition() {
 
 function startChatDrag(event) {
   if (!state.chatOpen || !el.chatPanel || !el.chatHeader) return;
-  if (event.target?.closest?.(".chat-close")) return;
+  // Expanded is a fixed bottom sheet -- no dragging it around.
+  if (state.chatExpanded) return;
+  if (event.target?.closest?.(".chat-close, .chat-expand")) return;
   event.preventDefault();
   event.stopPropagation();
   const rect = el.chatPanel.getBoundingClientRect();
@@ -1200,8 +1205,15 @@ function renderChatUi() {
   el.chatFab?.classList.toggle("hidden", !visible || state.chatOpen);
   if (el.chatFab) el.chatFab.setAttribute("aria-expanded", state.chatOpen ? "true" : "false");
   el.chatPanel?.classList.toggle("hidden", !visible || !state.chatOpen);
+  el.chatPanel?.classList.toggle("chat-panel--expanded", state.chatOpen && state.chatExpanded);
+  if (el.chatExpand) {
+    el.chatExpand.textContent = state.chatExpanded ? "⤡" : "⤢";
+    el.chatExpand.setAttribute("aria-pressed", state.chatExpanded ? "true" : "false");
+    el.chatExpand.setAttribute("aria-label", state.chatExpanded ? "Collapse chat" : "Expand chat");
+  }
   // While typing, the keyboard dock owns the panel geometry -- don't stomp it.
-  if (visible && state.chatOpen && !state.chatInputFocused) applyChatPanelPosition();
+  // Expanded is a fixed CSS bottom sheet, so skip the drag-position pass for it.
+  if (visible && state.chatOpen && !state.chatInputFocused && !state.chatExpanded) applyChatPanelPosition();
 
   const unread = Number(state.chatUnread || 0);
   if (el.chatFabBadge) {
@@ -1322,6 +1334,9 @@ function toggleChat(forceOpen = !state.chatOpen) {
   if (state.chatOpen) {
     state.chatUnread = 0;
     state.chatForceScroll = true;
+  } else {
+    // Reset back to the compact card whenever chat closes.
+    state.chatExpanded = false;
   }
   renderChatUi();
   if (state.chatOpen) {
@@ -1333,6 +1348,26 @@ function toggleChat(forceOpen = !state.chatOpen) {
       if (el.chatList) el.chatList.scrollTop = el.chatList.scrollHeight;
     });
   }
+}
+
+// Snap the chat between the compact floating card and a bottom sheet that covers
+// the lower ~42% of the screen. Expanding clears any dragged position so a later
+// collapse returns cleanly to the default bottom-right card.
+function toggleChatExpanded(force = !state.chatExpanded) {
+  state.chatExpanded = Boolean(force);
+  if (state.chatExpanded) {
+    state.chatPanelPosition = null;
+    state.chatDrag.active = false;
+    el.chatPanel?.classList.remove("dragging");
+    el.chatPanel?.style.removeProperty("left");
+    el.chatPanel?.style.removeProperty("top");
+    el.chatPanel?.style.removeProperty("right");
+    el.chatPanel?.style.removeProperty("bottom");
+  }
+  renderChatUi();
+  requestAnimationFrame(() => {
+    if (el.chatList) el.chatList.scrollTop = el.chatList.scrollHeight;
+  });
 }
 
 function addChatMessage(message, { self = false } = {}) {
@@ -7441,6 +7476,15 @@ function bindEvents() {
 
   el.chatClose?.addEventListener("click", () => {
     toggleChat(false);
+  });
+
+  // Expand/collapse button lives in the draggable header; stop its pointerdown
+  // from starting a drag, and flip the bottom-sheet on click.
+  el.chatExpand?.addEventListener("pointerdown", (e) => e.stopPropagation());
+  el.chatExpand?.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    toggleChatExpanded();
   });
 
   // Voice toggle lives in the draggable header, so stop its pointerdown from
