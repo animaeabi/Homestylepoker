@@ -2844,18 +2844,15 @@ function getActionPopupAnchor(pos = {}) {
 }
 
 function getReactionPopupAnchor(pos = {}, { speech = false } = {}) {
-  // Top seats bubble BELOW (under their cards); everyone else ABOVE. The hero's
-  // bubble is separately positioned above their cards.
-  const px = Number.parseFloat(pos.x);
+  // Chat speech bubbles ALWAYS sit above the speaker (a thought bubble over the
+  // head) and point away from the board -- top players' bubbles go up into the
+  // rim instead of dropping onto the pot; side/bottom players' stay on their
+  // side. A viewport clamp (in renderSeats) nudges edge bubbles back on-screen.
+  if (speech) return "above";
+  // Emoji reactions: top seats bubble BELOW (clear of their flipped cards),
+  // everyone else ABOVE.
   const py = Number.parseFloat(pos.y);
   if (Number.isFinite(py) && py <= 20) return "below-cards";
-  // Chat bubbles are wider than emoji reactions, so a centered bubble over an
-  // edge seat clips off the phone frame. Open those toward the table center
-  // (like the action popups) instead of stamping across the screen.
-  if (speech) {
-    if (Number.isFinite(px) && px <= 26) return "right";
-    if (Number.isFinite(px) && px >= 74) return "left";
-  }
   return "above";
 }
 
@@ -2967,10 +2964,18 @@ function addChatSpeechOverlay(message) {
   if (!playerId || !text) return;
   const seat = getSeats().find((s) => s.group_player_id === playerId && !s.left_at);
   if (!seat) return;
+  const seatNo = Number(seat.seat_no);
+  // Show ONE speech bubble at a time so a 2-3 way ambient burst can never stack
+  // into an unreadable pile -- the newest line replaces the previous speaker's
+  // bubble (lines arrive ~1-2s apart, so the conversation still reads, and the
+  // full history lives in the chat panel). Emoji reactions are untouched.
+  for (const [sn, o] of [...state.reactionOverlays.entries()]) {
+    if (o && o.speech && sn !== seatNo) state.reactionOverlays.delete(sn);
+  }
   const hand = getLatestHand();
-  state.reactionOverlays.set(Number(seat.seat_no), {
+  state.reactionOverlays.set(seatNo, {
     handId: hand?.id || null,
-    seatNo: Number(seat.seat_no),
+    seatNo,
     playerId,
     emoji: "",
     text: text.slice(0, 120),
@@ -6193,6 +6198,24 @@ function renderSeats() {
     if (Date.now() >= data.until) state.winOverlays.delete(seatNo);
   }
 
+  // Keep speech bubbles on-screen: an "above" bubble centered over an edge seat
+  // would clip off the phone frame, so nudge it back inside after layout.
+  if (state.reactionOverlays.size) requestAnimationFrame(clampSpeechBubbles);
+}
+
+// Shift any speech bubble that overflows the viewport horizontally back inside.
+function clampSpeechBubbles() {
+  const vw = window.innerWidth || document.documentElement?.clientWidth || 0;
+  if (!vw) return;
+  const margin = 6;
+  document.querySelectorAll(".seat-reaction-popup--speech").forEach((b) => {
+    b.style.transform = "translateX(-50%)";
+    const r = b.getBoundingClientRect();
+    let nudge = 0;
+    if (r.left < margin) nudge = margin - r.left;
+    else if (r.right > vw - margin) nudge = (vw - margin) - r.right;
+    if (nudge) b.style.transform = `translateX(calc(-50% + ${Math.round(nudge)}px))`;
+  });
 }
 
 function renderMyHand() {
