@@ -1819,8 +1819,13 @@ function getSeatContributionAnchor(pos, { hero = false } = {}) {
   return "seat-bet--left-chin";
 }
 
+// After the winner presentation, the host gets a manual "Deal Next Hand"
+// window; if they don't click, a short 3-2-1 countdown runs and the server
+// auto-deals. Mirrors online_runtime_due_tables (presentation + 15s total).
+const AUTO_DEAL_FINAL_COUNTDOWN_MS = 3000;
+
 function getAutoDealCountdownMs() {
-  return 2000;
+  return 15000;
 }
 
 function getHandResultPresentationLeadMs(hand = getLatestHand()) {
@@ -1843,7 +1848,10 @@ function getWinnerPresentationEndsAtMs(hand = getLatestHand()) {
 
 function getNextHandEligibleAtMs(hand = getLatestHand()) {
   if (!hand || !["settled", "canceled"].includes(hand.state)) return 0;
-  return getWinnerPresentationEndsAtMs(hand) + getAutoDealCountdownMs();
+  // With auto-deal off there is no countdown to wait out -- the host can deal
+  // as soon as the winner presentation has finished.
+  const autoDealing = state.config.autoDeal !== false;
+  return getWinnerPresentationEndsAtMs(hand) + (autoDealing ? getAutoDealCountdownMs() : 0);
 }
 
 function getAutoDealCountdownMeta(hand = getLatestHand()) {
@@ -2332,10 +2340,24 @@ function renderDealButton({
 
   if (countdown) {
     el.startHandBtn.classList.remove("hidden");
+    const inFinalCountdown = countdown.remainingMs <= AUTO_DEAL_FINAL_COUNTDOWN_MS;
+    if (!inFinalCountdown && isHost) {
+      // Manual window: let the host deal whenever they're ready.
+      el.startHandBtn.disabled = false;
+      el.startHandBtn.textContent = "Deal Next Hand";
+      return;
+    }
     el.startHandBtn.disabled = true;
     el.startHandBtn.classList.add("countdown");
-    el.startHandBtn.style.setProperty("--deal-progress", `${(countdown.progress * 100).toFixed(1)}%`);
-    el.startHandBtn.textContent = countdown.remainingMs > 0 ? `Dealing in ${countdown.remainingSecs}` : "Dealing...";
+    if (inFinalCountdown) {
+      const finalProgress = Math.max(0, Math.min(1, 1 - countdown.remainingMs / AUTO_DEAL_FINAL_COUNTDOWN_MS));
+      el.startHandBtn.style.setProperty("--deal-progress", `${(finalProgress * 100).toFixed(1)}%`);
+      el.startHandBtn.textContent = countdown.remainingMs > 0 ? `Dealing in ${countdown.remainingSecs}` : "Dealing...";
+    } else {
+      // Spectators just see the full window ticking down quietly.
+      el.startHandBtn.style.setProperty("--deal-progress", `${(countdown.progress * 100).toFixed(1)}%`);
+      el.startHandBtn.textContent = `Next hand in ${countdown.remainingSecs}s`;
+    }
     return;
   }
 
@@ -2750,12 +2772,12 @@ function getActionPopupAnchor(pos = {}) {
 }
 
 function getReactionPopupAnchor(pos = {}) {
-  const px = Number.parseFloat(pos.x);
+  // Side-anchored bubbles clip outside the phone frame (left/right seats sit
+  // at the table edge), so: top seats bubble BELOW (under their cards),
+  // everyone else bubbles ABOVE. The hero's bubble is separately positioned
+  // above their cards.
   const py = Number.parseFloat(pos.y);
-  if (Number.isFinite(py) && py <= 20) return "above";
-  if (Number.isFinite(py) && py >= 70) return "below";
-  if (Number.isFinite(px) && px <= 32) return "left";
-  if (Number.isFinite(px) && px >= 68) return "right";
+  if (Number.isFinite(py) && py <= 20) return "below-cards";
   return "above";
 }
 
@@ -6876,7 +6898,10 @@ function bindEvents() {
       toast("Waiting for the hand to finish...", "error");
       return;
     }
-    if (Date.now() < getNextHandEligibleAtMs(hand)) {
+    // Manual deals are allowed as soon as the winner presentation ends -- the
+    // 15s auto-deal countdown is a deadline, not a lock.
+    if (hand && ["settled", "canceled"].includes(hand.state)
+      && Date.now() < getWinnerPresentationEndsAtMs(hand)) {
       toast("Showdown still settling...", "error");
       return;
     }
