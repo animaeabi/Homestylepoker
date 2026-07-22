@@ -316,6 +316,13 @@ const state = {
   reactionOverlays: new Map(),
   reactionCleanupTimer: null,
   reactionCooldownUntil: 0,
+  // Speech bubbles are presented ONE AT A TIME through this queue: a line waits
+  // its turn, (optionally) its voice plays first, then it types out, holds long
+  // enough to read, and fades -- the next line never cuts it off.
+  speechQueue: [],
+  speechActive: false,
+  speechTypeTimer: null,
+  speechHoldTimer: null,
   turnGrace: {
     pending: false,
     lastRequestedAt: 0,
@@ -477,6 +484,11 @@ function resetChatState() {
   // real lull instead of firing the instant the table loads.
   state.lastChatActivityAt = Date.now();
   state.lastAmbientFireAt = Date.now();
+  // Drop any in-flight / queued speech bubbles so nothing carries across tables.
+  state.speechQueue = [];
+  state.speechActive = false;
+  if (state.speechTypeTimer) { clearTimeout(state.speechTypeTimer); state.speechTypeTimer = null; }
+  if (state.speechHoldTimer) { clearTimeout(state.speechHoldTimer); state.speechHoldTimer = null; }
   state.chatPanelPosition = null;
   state.chatExpanded = false;
   state.chatDrag.active = false;
@@ -1307,20 +1319,18 @@ function applyServerChatHistory(messages) {
 
   const trimmed = normalized.slice(-40);
   if (priorCount > 0) {
-    let bubbled = 0;
+    let lastFresh = null;
     for (const msg of trimmed) {
       if (priorIds.has(msg.id) || msg.self) continue;
       // Any fresh line (from anyone) resets the "quiet" clock the ambient
       // table-talk ticker watches, so it only fills genuine lulls.
       state.lastChatActivityAt = Date.now();
       if (!state.chatOpen) unseenCount += 1;
-      // Surface fresh lines as seat speech bubbles (cap per refresh so a
-      // reconnect burst can't blanket the table).
-      if (bubbled < 3) {
-        addChatSpeechOverlay(msg);
-        bubbled += 1;
-      }
+      lastFresh = msg;
     }
+    // On a reconnect/backlog refresh, only bubble the single most recent line
+    // (no voice) -- the queue would otherwise parade several stale lines.
+    if (lastFresh) enqueueSpeechBubble({ playerId: lastFresh.playerId, text: lastFresh.text, voice: false });
   }
 
   state.chatMessages = trimmed;
@@ -1390,10 +1400,9 @@ function addChatMessage(message, { self = false } = {}) {
   }
   if (!self && !state.chatOpen) state.chatUnread += 1;
   if (!self) {
-    addChatSpeechOverlay({ playerId: message?.playerId || null, text });
-    // Read live incoming lines aloud (no-op unless voices are on AND the line is
-    // a server-flagged "punchy" one). Only on the live path -- never the backlog.
-    speakChatLine({
+    // One queued bubble: (optional) voice first, then the line types out over the
+    // speaker's seat, holds long enough to read, and fades before the next.
+    enqueueSpeechBubble({
       playerId: message?.playerId || null,
       text,
       voice: message?.voice,
@@ -2960,6 +2969,8 @@ function buildReactionPopup(reaction, { hero = false, anchor = "above" } = {}) {
     ? "seat-reaction-popup hero-reaction-popup"
     : `seat-reaction-popup seat-reaction-popup--${anchor}`;
   if (reaction?.speech) popup.classList.add("seat-reaction-popup--speech");
+  if (reaction?.speech && reaction?.fading) popup.classList.add("speech-fading");
+  if (reaction?.speech && reaction?.typing) popup.classList.add("speech-typing");
   if (reaction?.emoji) {
     const emoji = document.createElement("span");
     emoji.className = "reaction-emoji";
@@ -2969,7 +2980,11 @@ function buildReactionPopup(reaction, { hero = false, anchor = "above" } = {}) {
   if (reaction?.text) {
     const text = document.createElement("span");
     text.className = "reaction-text";
-    text.textContent = reaction.text;
+    // Speech bubbles type out: honour the current reveal length so a re-render
+    // mid-typewriter shows the right slice instead of the full line.
+    text.textContent = (reaction?.speech && typeof reaction.revealChars === "number")
+      ? String(reaction.text).slice(0, reaction.revealChars)
+      : reaction.text;
     popup.appendChild(text);
   }
   return popup;
@@ -3041,34 +3056,138 @@ function scheduleReactionCleanup() {
 
 // Chat lines double as speech bubbles over the speaker's seat, so character
 // banter (and human trash talk) is visible even with the chat panel closed.
-function addChatSpeechOverlay(message) {
+// Tempo knobs for the speech-bubble presentation.
+const SPEECH_TYPE_CPS = 48;          // typewriter speed (chars/sec) -- quick, snappy
+const SPEECH_MIN_HOLD_MS = 1500;     // floor dwell after a line finishes typing
+const SPEECH_READ_MS_PER_CHAR = 42;  // extra dwell scaled to length (reading time)
+const SPEECH_MAX_HOLD_MS = 4200;     // cap dwell so a long line never camps
+const SPEECH_FADE_MS = 260;          // fade-out before the next line
+const SPEECH_QUEUE_MAX = 4;          // backlog cap; older pending bubbles are dropped
+
+// Enqueue a line to be shown as an over-seat speech bubble. `voice`/`character`/
+// `mood` drive the TTS-first behaviour (voice plays, THEN the bubble types out).
+function enqueueSpeechBubble(message) {
   const playerId = message?.playerId || null;
   const text = String(message?.text || "").trim();
   if (!playerId || !text) return;
-  const seat = getSeats().find((s) => s.group_player_id === playerId && !s.left_at);
-  if (!seat) return;
-  const seatNo = Number(seat.seat_no);
-  // Show ONE speech bubble at a time so a 2-3 way ambient burst can never stack
-  // into an unreadable pile -- the newest line replaces the previous speaker's
-  // bubble (lines arrive ~1-2s apart, so the conversation still reads, and the
-  // full history lives in the chat panel). Emoji reactions are untouched.
-  for (const [sn, o] of [...state.reactionOverlays.entries()]) {
-    if (o && o.speech && sn !== seatNo) state.reactionOverlays.delete(sn);
+  state.speechQueue.push({
+    playerId,
+    text: text.slice(0, 160),
+    voice: Boolean(message?.voice),
+    character: message?.character || null,
+    mood: message?.mood || null,
+  });
+  // Keep the queue short: if lines arrive faster than they can be read, drop the
+  // oldest PENDING bubbles (the full text still lives in the chat panel).
+  if (state.speechQueue.length > SPEECH_QUEUE_MAX) {
+    state.speechQueue.splice(0, state.speechQueue.length - SPEECH_QUEUE_MAX);
   }
+  pumpSpeechQueue();
+}
+
+function pumpSpeechQueue() {
+  if (state.speechActive) return;
+  const item = state.speechQueue.shift();
+  if (!item) return;
+  state.speechActive = true;
+  presentSpeechBubble(item).finally(() => {
+    state.speechActive = false;
+    pumpSpeechQueue();
+  });
+}
+
+function currentSpeechSeatNo(playerId) {
+  const seat = getSeats().find((s) => s.group_player_id === playerId && !s.left_at);
+  return seat ? Number(seat.seat_no) : null;
+}
+
+// Live-update the on-screen bubble's visible text without a full re-render (used
+// by the typewriter). Falls back silently if the node was rebuilt -- renderSeats
+// reads overlay.revealChars, so a rebuild still shows the right slice.
+function paintSpeechBubbleText(seatNo, str) {
+  const node = el.seatsLayer?.querySelector(`.seat-node[data-seat-no="${seatNo}"] .seat-reaction-popup--speech .reaction-text`);
+  if (node) node.textContent = str;
+}
+
+async function presentSpeechBubble(item) {
+  const wait = (ms) => new Promise((r) => { state.speechHoldTimer = setTimeout(r, ms); });
+  const seatNo = currentSpeechSeatNo(item.playerId);
+  if (!seatNo) return;
+
+  // Voice FIRST: if this line will actually be spoken, start the audio and wait
+  // until it begins (or a short cap) before revealing any text.
+  const characterId = item.character || characterIdForPlayer(item.playerId);
+  if (chatVoice.wouldSpeak(item.voice)) {
+    try { await chatVoice.speakGated(characterId, item.text, { mood: item.mood, maxWaitMs: 2500 }); }
+    catch { /* fall through to showing text */ }
+  }
+
+  // Reveal the bubble (empty), then type it out.
   const hand = getLatestHand();
+  // Clear any other lingering speech bubble so only this one is ever on screen.
+  for (const [sn, o] of [...state.reactionOverlays.entries()]) {
+    if (o && o.speech) state.reactionOverlays.delete(sn);
+  }
+  const full = item.text;
   state.reactionOverlays.set(seatNo, {
     handId: hand?.id || null,
     seatNo,
-    playerId,
+    playerId: item.playerId,
     emoji: "",
-    text: text.slice(0, 120),
+    text: full,
+    revealChars: 0,
     speech: true,
+    typing: true,
     self: false,
-    until: Date.now() + Math.min(7000, 3200 + text.length * 35),
+    until: Date.now() + 60000, // lifecycle is driven here, not by the sweep
   });
   scheduleReactionCleanup();
   renderSeats();
   renderMyHand();
+
+  // Typewriter.
+  await new Promise((resolve) => {
+    const stepMs = Math.max(12, Math.round(1000 / SPEECH_TYPE_CPS));
+    let i = 0;
+    const tick = () => {
+      const overlay = state.reactionOverlays.get(seatNo);
+      if (!overlay || !overlay.speech || overlay.playerId !== item.playerId) { resolve(); return; }
+      i = Math.min(full.length, i + 1);
+      overlay.revealChars = i;
+      paintSpeechBubbleText(seatNo, full.slice(0, i));
+      if (i >= full.length) {
+        overlay.typing = false;
+        // Drop the caret on the live node without a full re-render.
+        el.seatsLayer?.querySelector(`.seat-node[data-seat-no="${seatNo}"] .seat-reaction-popup--speech`)?.classList.remove("speech-typing");
+        resolve();
+        return;
+      }
+      state.speechTypeTimer = setTimeout(tick, stepMs);
+    };
+    tick();
+  });
+
+  // Re-clamp once fully typed (final size), then hold long enough to read.
+  clampSpeechBubbles();
+  const holdMs = Math.min(SPEECH_MAX_HOLD_MS, Math.max(SPEECH_MIN_HOLD_MS, full.length * SPEECH_READ_MS_PER_CHAR));
+  await wait(holdMs);
+
+  // Fade + remove, then a short gap so bubbles never visually collide. The
+  // fade is driven by an overlay flag (not a raw DOM class) so a re-render
+  // mid-fade doesn't snap the bubble back to full opacity.
+  const fadingOverlay = state.reactionOverlays.get(seatNo);
+  if (fadingOverlay && fadingOverlay.speech && fadingOverlay.playerId === item.playerId) {
+    fadingOverlay.fading = true;
+    renderSeats();
+    renderMyHand();
+  }
+  await wait(SPEECH_FADE_MS);
+  const overlay = state.reactionOverlays.get(seatNo);
+  if (overlay && overlay.speech && overlay.playerId === item.playerId) {
+    state.reactionOverlays.delete(seatNo);
+    renderSeats();
+    renderMyHand();
+  }
 }
 
 // ============ CHARACTER VOICES (text-to-speech) ============
@@ -3113,42 +3232,57 @@ const chatVoice = {
     if (!this.enabled && this._audio) { try { this._audio.pause(); } catch { /* ignore */ } }
   },
 
-  // Voice a line. Only `priority` (server-flagged punchy) lines are spoken, and
-  // no more than one per VOICE_MIN_GAP_MS to stay under the free TTS rate cap.
-  async speak(characterId, text, { priority = false, mood = null } = {}) {
-    if (!this.enabled || !this.supported() || !priority) return;
+  // Would this (server-flagged `priority`) line actually be voiced right now?
+  // Used by the speech queue to decide whether to wait for audio before showing
+  // the text. Same gates as speakGated, minus the state mutation.
+  wouldSpeak(priority) {
+    if (!this.enabled || !this.supported() || !priority) return false;
     const now = Date.now();
-    if (now < this._backoffUntil) return;
-    if (now - this._lastAt < VOICE_MIN_GAP_MS) return;
-    if (this._inflight) return;
-    if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-    const seatToken = getSeatToken();
-    if (!seatToken || !state.tableId || !state.identity) return;
+    if (now < this._backoffUntil) return false;
+    if (now - this._lastAt < VOICE_MIN_GAP_MS) return false;
+    if (this._inflight) return false;
+    if (typeof document !== "undefined" && document.visibilityState === "hidden") return false;
+    if (!getSeatToken() || !state.tableId || !state.identity) return false;
+    return true;
+  },
 
+  // Render + play a line, resolving as soon as the audio STARTS (so the caller can
+  // reveal the text right as the voice begins) -- or after `maxWaitMs`, or on any
+  // failure, so a slow/failed TTS never stalls the bubble. Assumes wouldSpeak was
+  // true; still guards internally.
+  async speakGated(characterId, text, { mood = null, maxWaitMs = 2500 } = {}) {
+    const seatToken = getSeatToken();
+    if (!this.enabled || !this.supported() || !seatToken || !state.tableId || !state.identity) return;
     this._inflight = true;
-    this._lastAt = now;   // reserve the slot up front to keep spacing even on error
+    this._lastAt = Date.now();   // reserve the slot up front to keep spacing even on error
     try {
-      const { data, error } = await supabase.functions.invoke("online-runtime-tick", {
-        body: {
-          mode: "tts",
-          table_id: state.tableId,
-          group_player_id: state.identity.groupPlayerId,
-          seat_token: seatToken,
-          text: String(text || "").slice(0, 240),
-          character: characterId || "",
-          mood: mood || "",
-        },
+      await new Promise((resolve) => {
+        let done = false;
+        const finish = () => { if (!done) { done = true; resolve(); } };
+        const timer = setTimeout(finish, maxWaitMs);
+        supabase.functions.invoke("online-runtime-tick", {
+          body: {
+            mode: "tts",
+            table_id: state.tableId,
+            group_player_id: state.identity.groupPlayerId,
+            seat_token: seatToken,
+            text: String(text || "").slice(0, 240),
+            character: characterId || "",
+            mood: mood || "",
+          },
+        }).then(({ data, error }) => {
+          if (error) {
+            if (/429/.test(String(error.message || ""))) this._backoffUntil = Date.now() + 30000;
+            clearTimeout(timer); finish(); return;
+          }
+          if (!data || !data.audio) { clearTimeout(timer); finish(); return; }
+          const a = this.ensureAudio();
+          a.onplaying = () => { clearTimeout(timer); finish(); };
+          a.src = "data:audio/wav;base64," + data.audio;
+          Promise.resolve(a.play()).catch(() => { clearTimeout(timer); finish(); });
+        }).catch(() => { clearTimeout(timer); finish(); });
       });
-      if (error) {
-        // Rate-limited: back off so we don't hammer the free quota.
-        if (/429/.test(String(error.message || ""))) this._backoffUntil = Date.now() + 30000;
-        return;
-      }
-      if (!data || !data.audio) return;
-      const a = this.ensureAudio();
-      a.src = "data:audio/wav;base64," + data.audio;
-      a.play().catch(() => { /* autoplay/gesture -- ignore */ });
-    } catch { /* best-effort */ } finally {
+    } finally {
       this._inflight = false;
     }
   },
@@ -3158,15 +3292,6 @@ function characterIdForPlayer(playerId) {
   if (!playerId) return null;
   const seat = getSeats().find((s) => s.group_player_id === playerId && !s.left_at);
   return seat?.bot_character || null;
-}
-
-// message.voice (set server-side) marks a "punchy" line worth reading aloud;
-// message.character carries the speaker's character id when known.
-function speakChatLine(message) {
-  const text = String(message?.text || "").trim();
-  if (!text) return;
-  const characterId = message?.character || characterIdForPlayer(message?.playerId || null);
-  chatVoice.speak(characterId, text, { priority: Boolean(message?.voice), mood: message?.mood || null });
 }
 
 function updateVoiceToggleUi() {

@@ -1227,7 +1227,26 @@
         width: max-content;        /* grow to fit the text... */
         max-width: 190px;          /* ...but cap it, then wrap (mobile caps tighter) */
         text-align: left;
+        min-width: 34px;           /* keep a bubble shape while the first chars type in */
+        transition: opacity 0.24s ease;
+        animation: speechBubbleIn 0.16s ease-out;
       }
+      @keyframes speechBubbleIn { from { opacity: 0; } to { opacity: 1; } }
+      /* Fade-out just before the next queued line takes the stage. */
+      .seat-reaction-popup--speech.speech-fading { opacity: 0; }
+      /* Blinking caret ONLY while the line is actively typing out. */
+      .seat-reaction-popup--speech.speech-typing .reaction-text::after {
+        content: "";
+        display: inline-block;
+        width: 2px;
+        height: 0.95em;
+        margin-left: 1px;
+        vertical-align: -1px;
+        background: currentColor;
+        opacity: 0.55;
+        animation: speechCaret 0.8s steps(1) infinite;
+      }
+      @keyframes speechCaret { 0%, 50% { opacity: 0.55; } 50.01%, 100% { opacity: 0; } }
       .seat-reaction-popup--speech .reaction-text,
       .hero-reaction-popup.seat-reaction-popup--speech .reaction-text {
         white-space: normal !important;
@@ -5703,6 +5722,6 @@
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
     <script src="./online/table_fx_geometry.js?v=203"></script>
-    <script type="module" src="./online/table_app.js?v=230"></script>
+    <script type="module" src="./online/table_app.js?v=231"></script>
   </body>
 </html>

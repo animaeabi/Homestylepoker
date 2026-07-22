@@ -710,7 +710,7 @@ async function runBotExpressions({
               canned: () => pickComebackLine({ characterId: String(rival.botCharacter), aboutName: speakerName, avoid: rivalAvoid }),
             });
             if (comeback) {
-              await new Promise((resolve) => setTimeout(resolve, 600 + Math.floor(Math.random() * 900)));
+              await new Promise((resolve) => setTimeout(resolve, 300 + Math.floor(Math.random() * 400)));
               await onlineClient.postBotChat({ tableId, groupPlayerId: rival.groupPlayerId, message: comeback });
             }
           }
@@ -1840,9 +1840,10 @@ async function handleChatReply({
   };
 
   const pause = async (usedLlm: boolean) => {
-    // The LLM call already took ~1s of real latency, so only a small extra beat
-    // is needed there; canned replies are instant and need the full delay.
-    const ms = usedLlm ? 200 + Math.floor(Math.random() * 400) : 700 + Math.floor(Math.random() * 1100);
+    // Snappy comeback timing: the LLM call already spent ~1s of real latency, so
+    // it barely needs a beat; canned replies are instant so they need a little
+    // more to feel human -- but keep it sharp, not dragged.
+    const ms = usedLlm ? 90 + Math.floor(Math.random() * 200) : 260 + Math.floor(Math.random() * 400);
     await new Promise((resolve) => setTimeout(resolve, ms));
   };
 
@@ -1966,7 +1967,7 @@ async function handleTableTalk({
     console.error("[table_talk] opener failed", error instanceof Error ? error.message : String(error));
   }
   if (!line) return json({ ok: true, talked: false, reason: "no_line" });
-  await new Promise((resolve) => setTimeout(resolve, 200 + Math.floor(Math.random() * 500)));
+  await new Promise((resolve) => setTimeout(resolve, 140 + Math.floor(Math.random() * 260)));
   await onlineClient.postBotChat({ tableId, groupPlayerId: opener.groupPlayerId, message: line });
 
   // Thread: one or two other characters respond, so it reads as a conversation.
@@ -1987,7 +1988,7 @@ async function handleTableTalk({
       break;
     }
     if (!reply) break;
-    await new Promise((resolve) => setTimeout(resolve, 500 + Math.floor(Math.random() * 900)));
+    await new Promise((resolve) => setTimeout(resolve, 260 + Math.floor(Math.random() * 400)));
     await onlineClient.postBotChat({ tableId, groupPlayerId: next.groupPlayerId, message: reply });
     running.push({ name: next.name, text: reply });
     lastSpeaker = next;
@@ -2145,7 +2146,7 @@ async function handleReactionReply({
     canned: () => pickBanterLine({ characterId: responder.characterId, context: "bully", targetName: playerName, avoid }),
   });
   if (!line) return json({ ok: true, replied: false, reason: "no_line" });
-  await new Promise((resolve) => setTimeout(resolve, 500 + Math.floor(Math.random() * 700)));
+  await new Promise((resolve) => setTimeout(resolve, 220 + Math.floor(Math.random() * 360)));
   await onlineClient.postBotChat({ tableId, groupPlayerId: responder.groupPlayerId, message: line, voice: true, character: responder.characterId, mood });
   return json({ ok: true, replied: true, by: responder.name });
 }
@@ -2223,7 +2224,7 @@ async function handleCardsShown({
     canned: () => pickBanterLine({ characterId: responder.characterId, context: "bully", targetName: playerName, avoid }),
   });
   if (!line) return json({ ok: true, replied: false, reason: "no_line" });
-  await new Promise((resolve) => setTimeout(resolve, 500 + Math.floor(Math.random() * 700)));
+  await new Promise((resolve) => setTimeout(resolve, 220 + Math.floor(Math.random() * 360)));
   await onlineClient.postBotChat({ tableId, groupPlayerId: responder.groupPlayerId, message: line, voice: true, character: responder.characterId, mood });
   return json({ ok: true, replied: true, by: responder.name });
 }
