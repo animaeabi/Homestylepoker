@@ -264,6 +264,49 @@ export async function generateAmbientLine({
 }
 
 // ---------------------------------------------------------------------------
+// Hand-driven banter (LLM): fresh in-character lines tied to the ACTION -- a
+// needle after a big jam, a gloat at showdown, a grumble on a cooler, a clap-
+// back at a loudmouth. Same personas as the canned banks, but written live to
+// the actual moment. The runtime uses this "in the mix" with the canned banks
+// (LLM when available/quota allows, canned as the always-there fallback).
+// ---------------------------------------------------------------------------
+export async function generateHandBanter({
+  provider, apiKey, model, speaker, situation, targetName, roster, chatHistory,
+}: {
+  provider: "gemini" | "anthropic";
+  apiKey: string;
+  model?: string | null;
+  speaker: SeatedCharacter;
+  situation: string;          // what just happened, as a directive
+  targetName?: string | null; // opponent to address, if any
+  roster: string[];
+  chatHistory: { name: string; text: string }[];
+}): Promise<string | null> {
+  const dna = SPEECH_DNA[speaker.characterId];
+  if (!dna) return null;
+
+  const system = [
+    `You are ${speaker.name}, a PARODY poker character at a casual online home-game table. Your persona: ${dna}`,
+    "",
+    "You're reacting to what just happened in the hand. Rules:",
+    "- Say ONE short chat line, under 140 characters. No quotes, no stage directions, at most one emoji.",
+    "- React to the SITUATION below, fully in character. Trash talk, needling, gloating, tilting are the point.",
+    targetName ? `- Address ${targetName} by name; get in their head.` : "- Talk to the table.",
+    "- Playful table-talk only: never slurs, sexual content, real-world threats, or self-harm. Never claim to be a real person.",
+    "- Never state your exact hole cards and never give real strategy advice.",
+  ].join("\n");
+
+  const others = roster.filter((n) => n && n !== speaker.name);
+  const seated = others.length ? `Players at the table: ${others.join(", ")}.\n` : "";
+  const transcript = chatHistory.length
+    ? `Recent table chat:\n${chatHistory.map((m) => `${m.name}: ${m.text}`).join("\n")}\n`
+    : "";
+  const user = `${seated}${transcript}\nSituation: ${situation}\n\nYour line (one, in character):`;
+
+  return complete(provider, system, user, apiKey, model);
+}
+
+// ---------------------------------------------------------------------------
 // Canned fallback: intent classify -> per-character banks.
 // ---------------------------------------------------------------------------
 type Intent = "insult" | "praise" | "greeting" | "laugh" | "challenge" | "question" | "generic";

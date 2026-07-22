@@ -5,7 +5,7 @@ import { decideBotExpressions, decideMidHandExpression } from "../_shared/bot_ex
 import { monteCarloEquity } from "../_shared/equity.ts";
 import { resolveCharacterStyle } from "../_shared/characters.ts";
 import { hasBanter, pickBanterLine, pickComebackLine } from "../_shared/bot_banter.ts";
-import { AMBIENT_BEATS, cannedReply, generateAmbientLine, generateGeminiReply, generateLlmReply, pickResponder } from "../_shared/bot_chat_reply.ts";
+import { AMBIENT_BEATS, cannedReply, generateAmbientLine, generateGeminiReply, generateHandBanter, generateLlmReply, pickResponder } from "../_shared/bot_chat_reply.ts";
 
 const STREET_STATES = new Set(["preflop", "flop", "turn", "river"]);
 const ACTIVE_RUNTIME_STATES = new Set(["preflop", "flop", "turn", "river", "showdown"]);
@@ -36,6 +36,54 @@ function parseNumber(value: unknown, fallback: number, min: number, max: number)
 function asText(value: unknown) {
   const text = String(value || "").trim();
   return text || null;
+}
+
+// Which LLM backend to use for banter, or null if no key is configured.
+function llmBackend(): { provider: "gemini" | "anthropic"; apiKey: string } | null {
+  const gemini = asText(Deno.env.get("GEMINI_API_KEY"));
+  if (gemini) return { provider: "gemini", apiKey: gemini };
+  const anthropic = asText(Deno.env.get("ANTHROPIC_API_KEY"));
+  if (anthropic) return { provider: "anthropic", apiKey: anthropic };
+  return null;
+}
+
+// Fraction of hand-driven banter lines written fresh by the LLM (the rest come
+// from the canned banks). Keeps it "in the mix" -- lively and varied without
+// hammering the free model quota. Tunable via LLM_BANTER_MIX.
+function llmBanterMix(): number {
+  const raw = Number(Deno.env.get("LLM_BANTER_MIX"));
+  return Number.isFinite(raw) && raw >= 0 && raw <= 1 ? raw : 0.6;
+}
+
+// LLM-or-canned banter for a hand event. Rolls the mix; on an LLM miss/error it
+// falls back to the caller's canned line so the table is never silent.
+async function mixedHandBanter(opts: {
+  speaker: { characterId: string; name: string };
+  situation: string;
+  targetName?: string | null;
+  roster: string[];
+  chatHistory: { name: string; text: string }[];
+  canned: () => string | null;
+}): Promise<string | null> {
+  const backend = llmBackend();
+  if (backend && Math.random() < llmBanterMix()) {
+    try {
+      const line = await generateHandBanter({
+        provider: backend.provider,
+        apiKey: backend.apiKey,
+        model: asText(Deno.env.get("CHAT_REPLY_MODEL")),
+        speaker: { characterId: opts.speaker.characterId, groupPlayerId: "", name: opts.speaker.name, expressiveness: 1 },
+        situation: opts.situation,
+        targetName: opts.targetName ?? null,
+        roster: opts.roster,
+        chatHistory: opts.chatHistory,
+      });
+      if (line) return line;
+    } catch (error) {
+      console.error("[banter] llm failed, using canned", error instanceof Error ? error.message : String(error));
+    }
+  }
+  return opts.canned();
 }
 
 function hasValidRuntimeDispatchSecret(req: Request) {
@@ -555,18 +603,32 @@ async function runBotExpressions({
       const speaker = candidates[0];
       if (speaker && Math.random() < speaker.weight) {
         const recent = await onlineClient.listRecentChatLines({ tableId, limit: 12 });
+        const identities = await onlineClient.listSeatIdentities({ tableId });
+        const roster = identities.map((s: any) => String(s.name || "Player")).filter(Boolean);
+        const nameByGpid = new Map(identities.map((s: any) => [s.groupPlayerId, s.name || "Player"]));
+        const history = recent.slice().reverse().map((r) => ({ name: String(nameByGpid.get(r.groupPlayerId) || "Player"), text: r.message }));
         const avoid = recent
           .filter((r) => r.groupPlayerId === String(speaker.groupPlayerId))
           .map((r) => r.message);
-        const line = pickBanterLine({ characterId: speaker.characterId, context: speaker.context, targetName: null, avoid });
+        const speakerName = String(nameByGpid.get(speaker.groupPlayerId) || botSeats.find((b) => String(b.groupPlayerId) === String(speaker.groupPlayerId))?.name || "them");
+        const wentToShowdown = players.filter((p: any) => !p.folded).length >= 2;
+        const situation = speaker.context === "win"
+          ? `You just WON a ${potBb.toFixed(0)}bb pot${wentToShowdown ? " at showdown" : ""}. Gloat / react to the table in character.`
+          : `You just LOST a big pot -- a rough one. React in character (grumble, tilt, or take it on the chin).`;
+        const line = await mixedHandBanter({
+          speaker: { characterId: speaker.characterId, name: speakerName },
+          situation,
+          targetName: null,
+          roster,
+          chatHistory: history,
+          canned: () => pickBanterLine({ characterId: speaker.characterId, context: speaker.context, targetName: null, avoid }),
+        });
         if (line) {
           await onlineClient.postBotChat({ tableId, groupPlayerId: speaker.groupPlayerId, message: line });
 
-          // Ambient bot-to-bot cross-talk: even with no human chatting, a rival
-          // character occasionally claps back at the one who just spoke, so the
-          // table banters with itself between hands. Canned (cheap) so it can
-          // fire every qualifying hand without an LLM round trip.
-          const speakerName = botSeats.find((b) => String(b.groupPlayerId) === String(speaker.groupPlayerId))?.name || "them";
+          // Bot-to-bot cross-talk: a rival character occasionally claps back at
+          // the one who just spoke, so the table banters with itself between
+          // hands -- even when no human is chatting.
           const rivals = botSeats.filter((b) =>
             String(b.groupPlayerId) !== String(speaker.groupPlayerId)
             && b.botCharacter && hasBanter(b.botCharacter));
@@ -575,10 +637,13 @@ async function runBotExpressions({
             const rivalAvoid = recent
               .filter((r) => r.groupPlayerId === String(rival.groupPlayerId))
               .map((r) => r.message);
-            const comeback = pickComebackLine({
-              characterId: String(rival.botCharacter),
-              aboutName: String(speakerName),
-              avoid: rivalAvoid,
+            const comeback = await mixedHandBanter({
+              speaker: { characterId: String(rival.botCharacter), name: String(rival.name || "Bot") },
+              situation: `${speakerName} just said "${line}" after the pot. React to ${speakerName} by name.`,
+              targetName: speakerName,
+              roster,
+              chatHistory: [...history, { name: speakerName, text: line }],
+              canned: () => pickComebackLine({ characterId: String(rival.botCharacter), aboutName: speakerName, avoid: rivalAvoid }),
             });
             if (comeback) {
               await new Promise((resolve) => setTimeout(resolve, 600 + Math.floor(Math.random() * 900)));
@@ -1060,17 +1125,29 @@ async function processBotAction({
             .map((p: any) => String(p.group_player_id))
         );
         const liveOpponents = identities.filter((s: any) => liveGpids.has(s.groupPlayerId));
+        const roster = identities.map((s: any) => String(s.name || "Player")).filter(Boolean);
+        const nameByGpid = new Map(identities.map((s: any) => [s.groupPlayerId, s.name || "Player"]));
+        const history = recentLines.slice().reverse().map((r) => ({ name: String(nameByGpid.get(r.groupPlayerId) || "Player"), text: r.message }));
         // Bully a human when one is in the pot; otherwise needle a bot rival.
         const humans = liveOpponents.filter((s: any) => !s.isBot);
         const target = humans.length
           ? humans[Math.floor(Math.random() * humans.length)]
           : (liveOpponents.length ? liveOpponents[Math.floor(Math.random() * liveOpponents.length)] : null);
         if (target?.name) {
-          const line = pickBanterLine({
-            characterId: String(actingSeat.bot_character),
-            context: "bully",
+          const priceBb = Math.max(raiseToBbForChat, 0);
+          const situation = `You just ${decision.actionType === "all_in" ? "shoved ALL IN" : `made a big ${decision.actionType} to ${priceBb.toFixed(0)}bb`} into a ${potBbForChat.toFixed(0)}bb pot. ${target.name} is still in the hand facing your bet. Pressure ${target.name} to fold.`;
+          const line = await mixedHandBanter({
+            speaker: { characterId: String(actingSeat.bot_character), name: String(character.name || "Bot") },
+            situation,
             targetName: target.name,
-            avoid: avoidFor(actingSeat.group_player_id),
+            roster,
+            chatHistory: history,
+            canned: () => pickBanterLine({
+              characterId: String(actingSeat.bot_character),
+              context: "bully",
+              targetName: target.name,
+              avoid: avoidFor(actingSeat.group_player_id),
+            }),
           });
           if (line) {
             await onlineClient.postBotChat({
@@ -1087,10 +1164,17 @@ async function processBotAction({
                 && s.groupPlayerId !== String(actingSeat.group_player_id));
               if (responders.length) {
                 const responder = responders[Math.floor(Math.random() * responders.length)];
-                const comeback = pickComebackLine({
-                  characterId: String(responder.botCharacter),
-                  aboutName: String(speakerName),
-                  avoid: avoidFor(responder.groupPlayerId),
+                const comeback = await mixedHandBanter({
+                  speaker: { characterId: String(responder.botCharacter), name: String(responder.name || "Bot") },
+                  situation: `${speakerName} just ran their mouth putting pressure on the table ("${line}"). Fire back at ${speakerName} by name.`,
+                  targetName: String(speakerName),
+                  roster,
+                  chatHistory: [...history, { name: String(speakerName), text: line }],
+                  canned: () => pickComebackLine({
+                    characterId: String(responder.botCharacter),
+                    aboutName: String(speakerName),
+                    avoid: avoidFor(responder.groupPlayerId),
+                  }),
                 });
                 if (comeback) {
                   await onlineClient.postBotChat({
