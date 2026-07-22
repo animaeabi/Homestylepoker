@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../config.js";
-import { createOnlinePokerClient } from "./client.js?v=203";
+import { createOnlinePokerClient } from "./client.js?v=212";
 import { computeSidePots, describeSevenCardHand, resolveShowdownPayouts } from "./showdown.js?v=203";
 import { randomPersonality, randomBotName, OpponentTracker } from "./bot_engine.js";
 import { CHARACTERS, getCharacter, pickNextCharacter } from "./characters.js?v=211";
@@ -3065,6 +3065,11 @@ function isPortraitCollapseMode() {
 function setTableViewportLock(enabled) {
   document.documentElement.classList.toggle("table-mode", enabled);
   document.body.classList.toggle("table-mode", enabled);
+  if (enabled) {
+    // If the lobby was scrolled when the table opened, iOS keeps that offset —
+    // the locked page then sits displaced and feels draggable. Pin to origin.
+    window.scrollTo(0, 0);
+  }
 }
 
 function syncViewportMetrics() {

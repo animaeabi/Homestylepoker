@@ -34,7 +34,27 @@ function isMissingRpcFunction(error, fnName) {
 // seconds after the player, having seen the timeout, chose a different action.
 const RPC_TIMEOUT_MS = 15000;
 
-async function callRpc(supabase, fnName, args) {
+// RPCs that are safe to transparently retry after a network-level failure
+// ("TypeError: Load failed" on iOS Safari = the request never completed).
+// Only idempotent calls belong here — a dropped mutation like a bet must NOT
+// be silently re-sent.
+const RETRYABLE_RPCS = new Set([
+  "online_ensure_lobby_player",
+  "online_get_table_state_viewer",
+  "online_get_hand_state_viewer",
+  "online_touch_seat_presence",
+]);
+
+function isNetworkFailure(err) {
+  const msg = String(err?.message || err || "").toLowerCase();
+  return (
+    msg.includes("load failed") ||          // Safari fetch network error
+    msg.includes("failed to fetch") ||      // Chrome fetch network error
+    msg.includes("networkerror")            // Firefox fetch network error
+  );
+}
+
+async function callRpcOnce(supabase, fnName, args) {
   const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
   let rpc = supabase.rpc(fnName, args);
   if (controller && typeof rpc.abortSignal === "function") {
@@ -53,6 +73,24 @@ async function callRpc(supabase, fnName, args) {
     return data;
   } finally {
     clearTimeout(timer);
+  }
+}
+
+async function callRpc(supabase, fnName, args) {
+  try {
+    return await callRpcOnce(supabase, fnName, args);
+  } catch (err) {
+    // One transparent retry for idempotent calls when the request never made
+    // it out (flaky mobile networks) — cheap and safe.
+    if (RETRYABLE_RPCS.has(fnName) && isNetworkFailure(err)) {
+      await new Promise((r) => setTimeout(r, 650));
+      return callRpcOnce(supabase, fnName, args);
+    }
+    // Surface network drops as a human sentence instead of a TypeError.
+    if (isNetworkFailure(err)) {
+      throw new Error(`[${fnName}] connection_dropped — check your signal and try again`);
+    }
+    throw err;
   }
 }
 
