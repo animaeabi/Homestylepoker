@@ -5762,17 +5762,21 @@ $$;
 --
 -- online_settle_showdown: trusts caller-supplied payouts (does not recompute the
 --   winner), so an anon caller could otherwise award itself the pot at showdown.
--- online_claim_table_seat: rotates + returns a seat token from two public UUIDs
---   with no ownership proof.
 -- online_get_hand_state: returns the full deck + every hole card (SECURITY
 --   INVOKER, so RLS already denies anon, but revoke anyway as defense in depth).
 --   The browser uses online_get_hand_state_viewer instead.
+--
+-- NOTE: online_claim_table_seat is intentionally NOT locked down here. The
+-- browser DOES call it -- it's the reconnect/reclaim path (rejoining a table you
+-- already hold a seat at when this device no longer has the seat token). It stays
+-- callable by anon/authenticated. Reclaim-by-name is a known limitation of the
+-- name-based (no-accounts) identity model; the real fix is signed guest identity,
+-- not revoking this grant (which just breaks "join back into a live game").
 -- ===========================================================================
 revoke all on function online_settle_showdown(uuid, jsonb, uuid, text) from public, anon, authenticated;
 grant execute on function online_settle_showdown(uuid, jsonb, uuid, text) to service_role;
 
-revoke all on function online_claim_table_seat(uuid, uuid) from public, anon, authenticated;
-grant execute on function online_claim_table_seat(uuid, uuid) to service_role;
+grant execute on function online_claim_table_seat(uuid, uuid) to anon, authenticated, service_role;
 
 revoke all on function online_get_hand_state(uuid, bigint) from public, anon, authenticated;
 grant execute on function online_get_hand_state(uuid, bigint) to service_role;
