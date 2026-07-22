@@ -298,6 +298,9 @@ const state = {
   chatForceScroll: false,
   chatMessages: [],
   chatMessageIds: new Set(),
+  lastChatActivityAt: 0,
+  lastAmbientFireAt: 0,
+  ambientTimer: null,
   chatChannel: null,
   chatHealthy: false,
   chatPanelPosition: null,
@@ -467,6 +470,10 @@ function resetChatState() {
   state.chatUnread = 0;
   state.chatMessages = [];
   state.chatMessageIds = new Set();
+  // Start the ambient-talk clocks fresh on entry so the first burst waits out a
+  // real lull instead of firing the instant the table loads.
+  state.lastChatActivityAt = Date.now();
+  state.lastAmbientFireAt = Date.now();
   state.chatPanelPosition = null;
   state.chatDrag.active = false;
   state.chatDrag.pointerId = null;
@@ -1290,6 +1297,9 @@ function applyServerChatHistory(messages) {
     let bubbled = 0;
     for (const msg of trimmed) {
       if (priorIds.has(msg.id) || msg.self) continue;
+      // Any fresh line (from anyone) resets the "quiet" clock the ambient
+      // table-talk ticker watches, so it only fills genuine lulls.
+      state.lastChatActivityAt = Date.now();
       if (!state.chatOpen) unseenCount += 1;
       // Surface fresh lines as seat speech bubbles (cap per refresh so a
       // reconnect burst can't blanket the table).
@@ -1326,6 +1336,7 @@ function addChatMessage(message, { self = false } = {}) {
   const id = String(message?.id || "");
   if (!text || !id || state.chatMessageIds.has(id)) return;
   state.chatMessageIds.add(id);
+  state.lastChatActivityAt = Date.now();
   state.chatMessages.push({
     id,
     text: text.slice(0, 180),
@@ -4462,8 +4473,53 @@ function syncBotSeatsWithTable() {
 }
 
 // ============ POLLING ============
+// Ambient "table talk": during quiet lulls (no chat for a while) while the
+// player is actually at the table, ask the runtime to have the seated
+// characters start an off-hand conversation among themselves. Presence-gated
+// (tab visible + seated) and cooldown-limited so it fills genuine gaps without
+// spamming or burning the LLM quota when nobody's watching.
+const AMBIENT_CHECK_MS = 11000;      // how often we consider firing
+const AMBIENT_IDLE_MS = 34000;       // required quiet since the last chat line
+const AMBIENT_COOLDOWN_MS = 48000;   // min gap between ambient bursts
+const AMBIENT_FIRE_CHANCE = 0.7;     // jitter so it isn't clockwork
+
+function seatedBotCount() {
+  return getSeats().filter((s) => s.group_player_id && !s.left_at && seatLooksBot(s)).length;
+}
+
+function maybeFireAmbientTalk() {
+  if (!state.tableId || !state.identity) return;
+  if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+  const seatToken = getSeatToken();
+  if (!seatToken) return;                       // only fire while genuinely seated
+  if (seatedBotCount() < 1) return;             // need characters to do the talking
+  const now = Date.now();
+  if (!state.lastChatActivityAt) state.lastChatActivityAt = now; // seed on first pass
+  if (now - state.lastChatActivityAt < AMBIENT_IDLE_MS) return;  // not quiet yet
+  if (now - state.lastAmbientFireAt < AMBIENT_COOLDOWN_MS) return;
+  if (Math.random() > AMBIENT_FIRE_CHANCE) { state.lastAmbientFireAt = now - AMBIENT_COOLDOWN_MS + 12000; return; }
+
+  state.lastAmbientFireAt = now;
+  // Nudge the quiet clock forward so we don't re-fire before the reply lands.
+  state.lastChatActivityAt = now;
+  supabase.functions.invoke("online-runtime-tick", {
+    body: {
+      mode: "table_talk",
+      table_id: state.tableId,
+      group_player_id: state.identity.groupPlayerId,
+      seat_token: seatToken,
+    },
+  }).catch(() => { /* ambient talk is best-effort */ });
+}
+
+function startAmbientTicker() {
+  if (state.ambientTimer) clearInterval(state.ambientTimer);
+  state.ambientTimer = setInterval(maybeFireAmbientTalk, AMBIENT_CHECK_MS);
+}
+
 function startPolling() {
   if (state.pollTimer) clearInterval(state.pollTimer);
+  startAmbientTicker();
   state.pollTimer = setInterval(() => {
     if (!state.tableId) return;
     if (state.loading) {
@@ -7315,6 +7371,7 @@ function bindEvents() {
 
   window.addEventListener("beforeunload", () => {
     if (state.pollTimer) clearInterval(state.pollTimer);
+    if (state.ambientTimer) clearInterval(state.ambientTimer);
     if (state.turnTimer) clearInterval(state.turnTimer);
     stopSeatHeartbeat();
     if (state.realtimeChannel) supabase.removeChannel(state.realtimeChannel);
