@@ -1,0 +1,15 @@
+-- REGRESSION FIX for 20260722180000_harden_trusted_function_grants.sql.
+--
+-- That migration revoked anon/authenticated on online_claim_table_seat on the
+-- mistaken assumption the browser never calls it. It DOES: app.js uses it as the
+-- reconnect/reclaim path -- rejoining a table you already hold a seat at when
+-- this device no longer has the seat token (online_join_table returns
+-- 'player_already_seated_claim_required', and the client then calls claim). The
+-- revoke broke "join back into a live game" with:
+--   permission denied for function online_claim_table_seat
+--
+-- Restore browser access. Reclaim-by-name is a known limitation of the
+-- name-based (no-accounts) identity model; the proper fix is signed guest
+-- identity, not revoking this grant. The genuinely server-only functions
+-- (online_settle_showdown, online_get_hand_state) stay locked.
+grant execute on function online_claim_table_seat(uuid, uuid) to anon, authenticated, service_role;
