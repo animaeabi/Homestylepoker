@@ -1963,8 +1963,8 @@ function shouldShowBlindPositionLabel(hand, handPlayer, seatNo) {
 // the board-level seats at the oval's widest point and the bottom CORNERS left
 // free for the hero's controls (bottom-left) and voice/chat FABs (bottom-right).
 const DENSE_SEATS = {
-  7: [ {x:50,y:5}, {x:8,y:26},{x:92,y:26}, {x:4,y:54},{x:96,y:54}, {x:13,y:75},{x:87,y:75} ],
-  8: [ {x:30,y:6},{x:70,y:6}, {x:7,y:20},{x:93,y:20}, {x:4,y:54},{x:96,y:54}, {x:6,y:74},{x:94,y:74} ],
+  7: [ {x:50,y:5}, {x:8,y:26},{x:92,y:26}, {x:6,y:40},{x:94,y:40}, {x:13,y:75},{x:87,y:75} ],
+  8: [ {x:30,y:6},{x:70,y:6}, {x:7,y:20},{x:93,y:20}, {x:6,y:40},{x:94,y:40}, {x:6,y:74},{x:94,y:74} ],
   9: [ {x:50,y:5}, {x:8,y:17},{x:92,y:17}, {x:4,y:38},{x:96,y:38}, {x:4,y:58},{x:96,y:58}, {x:13,y:76},{x:87,y:76} ],
 };
 
