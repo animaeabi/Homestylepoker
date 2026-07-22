@@ -1963,9 +1963,26 @@ function denseSeatShift(pos) {
   const px = Number.parseFloat(pos?.x);
   const py = Number.parseFloat(pos?.y);
   if (!Number.isFinite(px) || !Number.isFinite(py)) return pos;
-  if (py > 28 && py < 72) {
-    if (px < 40) return { x: `${Math.max(3, px - 6)}%`, y: pos.y };
-    if (px > 60) return { x: `${Math.min(97, px + 6)}%`, y: pos.y };
+  // Dense tables: run the ring tight against the rail so the whole center stays
+  // clear, and keep the bottom corners free for the hero's controls.
+  //
+  // Bottom-corner seats collide with the action panel (bottom-left) and the
+  // voice/chat FABs (bottom-right) -- lift them up the side rail, above that band.
+  if (py >= 80) {
+    const nx = px < 50 ? Math.max(8, px - 5) : Math.min(92, px + 5);
+    return { x: `${nx}%`, y: "74%" };
+  }
+  // Board-level side seats (the widest part of the oval): hug the rail hard so
+  // the community board clears with real room on both sides.
+  if (py >= 45 && py < 80) {
+    if (px < 40) return { x: `${Math.max(4, px - 6)}%`, y: pos.y };
+    if (px > 60) return { x: `${Math.min(96, px + 6)}%`, y: pos.y };
+  }
+  // Upper side seats: push out a touch too, but less -- the oval narrows up
+  // here, so hugging the rail means a smaller x offset than at the middle.
+  if (py > 14 && py < 45) {
+    if (px < 40) return { x: `${Math.max(6, px - 3)}%`, y: pos.y };
+    if (px > 60) return { x: `${Math.min(94, px + 3)}%`, y: pos.y };
   }
   return pos;
 }
