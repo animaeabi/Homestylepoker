@@ -2984,6 +2984,12 @@ function addChatSpeechOverlay(message) {
 // on-device). A future server engine (e.g. Google WaveNet) can replace
 // chatVoice.speak() without touching any call site. Off by default -- the first
 // tap on the toggle is the user gesture browsers require to start audio.
+//
+// The on-device browser engine is DISABLED: on iOS the web only exposes Apple's
+// old robotic voices, which sound bad. The toggle stays hidden and speak() is a
+// no-op until a natural server engine (Google WaveNet) is wired in -- at which
+// point this flips true and the same toggle drives real voices.
+const DEVICE_TTS_ENABLED = false;
 const TTS_VOICE_PROFILES = {
   negranope: { rate: 1.05, pitch: 1.06 },
   donk:      { rate: 0.92, pitch: 0.86 },
@@ -3059,6 +3065,7 @@ const chatVoice = {
   },
 
   speak(characterId, text) {
+    if (!DEVICE_TTS_ENABLED && this.provider === "webspeech") return;
     if (!this.enabled || !this.supported()) return;
     const clean = this.stripForSpeech(text);
     if (!clean) return;
@@ -3106,6 +3113,16 @@ function updateVoiceToggleUi() {
 }
 
 function initChatVoice() {
+  // Device engine disabled (robotic iOS voices): hide the toggle and make sure
+  // it's off, even for players who'd enabled it before. Re-enable when a natural
+  // server engine is wired in.
+  if (!DEVICE_TTS_ENABLED && chatVoice.provider === "webspeech") {
+    chatVoice.enabled = false;
+    try { localStorage.setItem("hsp_tts_enabled", "0"); } catch { /* ignore */ }
+    try { if (chatVoice.supported()) window.speechSynthesis.cancel(); } catch { /* ignore */ }
+    el.chatVoiceToggle?.classList.add("hidden");
+    return;
+  }
   if (el.chatVoiceToggle && !chatVoice.supported()) {
     el.chatVoiceToggle.classList.add("hidden");
     return;
