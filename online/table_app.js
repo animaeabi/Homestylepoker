@@ -2356,6 +2356,11 @@ function renderDealButton({
 } = {}) {
   if (!el.startHandBtn) return;
 
+  // Corner placement only BETWEEN hands (settled/canceled), where the felt is
+  // busy with revealed cards; at game start the button sits centered as ever.
+  const betweenHands = Boolean(hand && ["settled", "canceled"].includes(hand.state));
+  el.startHandBtn.classList.toggle("corner", betweenHands);
+
   const countdown = noActiveHand ? getAutoDealCountdownMeta(hand) : null;
   el.startHandBtn.classList.remove("countdown");
   el.startHandBtn.style.removeProperty("--deal-progress");
