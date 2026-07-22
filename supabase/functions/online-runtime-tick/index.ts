@@ -395,11 +395,13 @@ function createOnlineRpcClient() {
     async postBotChat({
       tableId,
       groupPlayerId,
-      message
+      message,
+      name
     }: {
       tableId: string;
       groupPlayerId: string;
       message: string;
+      name?: string | null;
     }) {
       const trimmed = String(message || "").trim().slice(0, 178);
       if (!trimmed) return;
@@ -420,10 +422,50 @@ function createOnlineRpcClient() {
         );
         if (dup) return;
       }
-      const { error } = await client
+      const { data: inserted, error } = await client
         .from("online_table_chat_messages")
-        .insert({ table_id: tableId, group_player_id: groupPlayerId, message: trimmed });
+        .insert({ table_id: tableId, group_player_id: groupPlayerId, message: trimmed })
+        .select("id, created_at")
+        .single();
       if (error) throw normalizeSupabaseError("[postBotChat]", error);
+
+      // Push it live so seated clients see it immediately -- the client only
+      // learns of new chat from a `table_chat` broadcast (a bare INSERT is
+      // invisible until a full page reload). Best-effort: a broadcast hiccup
+      // must not fail the post. Resolve the sender name so the bubble is
+      // labeled without waiting for the next full sync.
+      try {
+        let senderName = asText(name);
+        if (!senderName) {
+          const { data: gp } = await client
+            .from("group_players").select("name").eq("id", groupPlayerId).maybeSingle();
+          senderName = gp?.name || "Player";
+        }
+        await fetch(`${supabaseUrl}/realtime/v1/api/broadcast`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "apikey": serviceRoleKey,
+            "Authorization": `Bearer ${serviceRoleKey}`
+          },
+          body: JSON.stringify({
+            messages: [{
+              topic: `table-chat:${tableId}`,
+              event: "table_chat",
+              payload: {
+                id: String(inserted?.id || `botc_${Date.now()}`),
+                tableId,
+                playerId: groupPlayerId,
+                name: senderName,
+                text: trimmed,
+                at: inserted?.created_at || new Date().toISOString()
+              }
+            }]
+          })
+        });
+      } catch (_broadcastErr) {
+        // live delivery is best-effort; the message is already persisted
+      }
     },
 
     // The recent chat lines for a table, newest first -- used to build per-bot
