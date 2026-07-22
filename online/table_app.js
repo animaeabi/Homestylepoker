@@ -5606,6 +5606,9 @@ function renderSeats() {
 
       const botInfo = getBotInfo(seat.seat_no);
       const character = isBot ? getCharacter(seat.bot_character) : null;
+      // Character portraits are taller than the old initials circle; the CSS
+      // uses this to lift the held-cards fan so it stays visible behind them.
+      if (character) node.classList.add("character-seat");
       const displayName = botInfo ? botInfo.name : seatName(pid);
       const color = SEAT_COLORS[(seat.seat_no - 1) % SEAT_COLORS.length];
       const avatarEl = document.createElement("div");

@@ -1796,6 +1796,15 @@
         pointer-events: none;
       }
 
+      /* Character portraits (50px, raised) swallow the default card fan, so
+         lift it clear of the head and scale it up -- the fan should read at a
+         glance like the classic look: two backs peeking well above the seat. */
+      .seat-node.character-seat .seat-cards-row.compact-opponent:not(.showdown) {
+        bottom: calc(100% + 16px);
+      }
+      /* (Card size + fan spread for character seats live in the compact-mobile
+         media block below, where the base card rules are !important.) */
+
       .seat-cards-row.compact-opponent.showdown.compact-opponent--top {
         top: calc(100% - 8px);
         bottom: auto;
@@ -4124,6 +4133,21 @@
           transform: var(--held-transform) !important;
           margin-left: -6px !important;
         }
+        /* Character seats: the 50px portrait swallows the default 28px fan.
+           Bigger backs, wider spread, so the cards read like the classic look. */
+        .seat-node.character-seat .seat-cards-row.compact-opponent:not(.showdown) .card {
+          width: 34px !important;
+          height: 47px !important;
+        }
+        .seat-node.character-seat .seat-cards-row.compact-opponent:not(.showdown) .card:first-child {
+          --held-transform: rotate(-11deg) translate(3px, 4px) !important;
+          transform: var(--held-transform) !important;
+        }
+        .seat-node.character-seat .seat-cards-row.compact-opponent:not(.showdown) .card:last-child {
+          --held-transform: rotate(10deg) translate(-3px, 0px) !important;
+          transform: var(--held-transform) !important;
+          margin-left: -4px !important;
+        }
 
         .my-hand-area {
           display: flex !important;
@@ -5467,6 +5491,6 @@
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
     <script src="./online/table_fx_geometry.js?v=203"></script>
-    <script type="module" src="./online/table_app.js?v=212"></script>
+    <script type="module" src="./online/table_app.js?v=213"></script>
   </body>
 </html>
