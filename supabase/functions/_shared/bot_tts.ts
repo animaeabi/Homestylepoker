@@ -366,6 +366,23 @@ export async function generateSpeech({
   const clean = stripForSpeech(text);
   if (!clean) return null;
   const m = String(mood || "");
+
+  // Nonverbal layer: lines like "*sighs*" / "*groans quietly*" aren't words to
+  // read -- they're sounds. Orpheus renders its emotion tags as REAL vocal
+  // gestures, so map the stage direction to a tag on the character's Groq
+  // voice. No other provider can do this (Chirp/Azure would read the word
+  // aloud), so if Groq is unavailable the bubble stays a silent subtitle.
+  if (m === "nonverbal") {
+    if (!keys.groq) return null;
+    const lower = clean.toLowerCase();
+    const tag = /groan|mutter/.test(lower) ? "<groan>" : "<sigh>";
+    try {
+      return await groqTts(characterId, tag, m, keys.groq);
+    } catch {
+      return null;
+    }
+  }
+
   const tier = tierForMood(m);
 
   const gemini = () => keys.gemini ? geminiTts(characterId, clean, m, keys.gemini, keys.model) : Promise.resolve(null);

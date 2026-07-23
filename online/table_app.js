@@ -1262,13 +1262,13 @@ function renderChatUi() {
 
   for (const msg of messages) {
     const item = document.createElement("div");
-    item.className = `chat-msg${msg.self ? " self" : ""}`;
+    item.className = `chat-msg${msg.self ? " self" : ""}${msg.thought ? " thought" : ""}`;
 
     const meta = document.createElement("div");
     meta.className = "chat-msg-meta";
     const author = document.createElement("span");
     author.className = "chat-msg-author";
-    author.textContent = msg.name || "Player";
+    author.textContent = msg.thought ? `💭 ${msg.name || "Player"}` : (msg.name || "Player");
     const time = document.createElement("span");
     time.className = "chat-msg-time";
     time.textContent = formatChatTime(msg.at);
@@ -1388,6 +1388,9 @@ function addChatMessage(message, { self = false } = {}) {
   const text = String(message?.text || "").trim();
   const id = String(message?.id || "");
   if (!text || !id) return;
+  // Private inner THOUGHT: broadcast-only (never persisted server-side), shown
+  // to humans as a dashed thought-cloud, never voiced. Bots can't hear these.
+  const isThought = String(message?.kind || "") === "thought";
   // A bot line reaches us on two paths: the table_chat BROADCAST (carries the
   // voice/character/mood metadata) and the periodic table-state SYNC (carries
   // none). Whichever lands first registers the id. If the voiceless sync won the
@@ -1395,7 +1398,7 @@ function addChatMessage(message, { self = false } = {}) {
   // never be spoken -- so let a voiced delivery through for an already-seen id,
   // as long as we haven't voiced it yet.
   if (state.chatMessageIds.has(id)) {
-    if (!self && message?.voice && !state.chatVoicedIds.has(id)) {
+    if (!self && !isThought && message?.voice && !state.chatVoicedIds.has(id)) {
       state.chatVoicedIds.add(id);
       enqueueSpeechBubble({
         playerId: message?.playerId || null,
@@ -1417,6 +1420,7 @@ function addChatMessage(message, { self = false } = {}) {
     playerId: message?.playerId || null,
     at: message?.at || new Date().toISOString(),
     self,
+    thought: isThought,
   });
   while (state.chatMessages.length > 40) {
     const removed = state.chatMessages.shift();
@@ -1429,9 +1433,10 @@ function addChatMessage(message, { self = false } = {}) {
     enqueueSpeechBubble({
       playerId: message?.playerId || null,
       text,
-      voice: message?.voice,
+      voice: isThought ? false : message?.voice,
       character: message?.character || null,
       mood: message?.mood || null,
+      thought: isThought,
     });
   }
   renderChatUi();
@@ -3324,6 +3329,7 @@ function buildReactionPopup(reaction, { hero = false, anchor = "above" } = {}) {
     ? "seat-reaction-popup hero-reaction-popup"
     : `seat-reaction-popup seat-reaction-popup--${anchor}`;
   if (reaction?.speech) popup.classList.add("seat-reaction-popup--speech");
+  if (reaction?.speech && reaction?.thought) popup.classList.add("speech-thought");
   if (reaction?.speech && reaction?.fading) popup.classList.add("speech-fading");
   if (reaction?.speech && reaction?.typing) popup.classList.add("speech-typing");
   if (reaction?.emoji) {
@@ -3440,6 +3446,7 @@ function enqueueSpeechBubble(message) {
     voice: Boolean(message?.voice),
     character: message?.character || null,
     mood: message?.mood || null,
+    thought: Boolean(message?.thought),
   });
   // Keep the queue short: if lines arrive faster than they can be read, drop the
   // oldest PENDING bubbles (the full text still lives in the chat panel).
@@ -3504,6 +3511,7 @@ async function presentSpeechBubble(item) {
     text: full,
     revealChars: 0,
     speech: true,
+    thought: Boolean(item.thought),
     typing: true,
     self: false,
     until: Date.now() + 60000, // lifecycle is driven here, not by the sweep

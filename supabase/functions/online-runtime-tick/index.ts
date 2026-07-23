@@ -5,8 +5,21 @@ import { decideBotExpressions, decideMidHandExpression } from "../_shared/bot_ex
 import { monteCarloEquity } from "../_shared/equity.ts";
 import { resolveCharacterStyle } from "../_shared/characters.ts";
 import { hasBanter, pickBanterLine, pickComebackLine } from "../_shared/bot_banter.ts";
-import { AMBIENT_BEATS, cannedReply, generateAmbientLine, generateGeminiReply, generateHandBanter, generateLlmReply, pickResponder } from "../_shared/bot_chat_reply.ts";
+import { AMBIENT_BEATS, cannedReply, generateAmbientLine, generateGeminiReply, generateHandBanter, generateInnerThought, generateLlmReply, pickResponder } from "../_shared/bot_chat_reply.ts";
 import { generateSpeech } from "../_shared/bot_tts.ts";
+import {
+  classifySettle,
+  grudgeWeight,
+  loadTableMemory,
+  memoryPromptBlock,
+  mindLineFor,
+  noteHumanTank,
+  saveTableMemory,
+  updateEmotions,
+  updateHumanReads,
+  updateRelationships,
+  type SettlePlayer,
+} from "../_shared/table_memory.ts";
 
 const STREET_STATES = new Set(["preflop", "flop", "turn", "river"]);
 const ACTIVE_RUNTIME_STATES = new Set(["preflop", "flop", "turn", "river", "showdown"]);
@@ -64,6 +77,8 @@ async function mixedHandBanter(opts: {
   targetName?: string | null;
   roster: string[];
   chatHistory: { name: string; text: string }[];
+  memory?: string | null;
+  mind?: string | null;
   canned: () => string | null;
 }): Promise<string | null> {
   const backend = llmBackend();
@@ -78,6 +93,8 @@ async function mixedHandBanter(opts: {
         targetName: opts.targetName ?? null,
         roster: opts.roster,
         chatHistory: opts.chatHistory,
+        memory: opts.memory ?? null,
+        mind: opts.mind ?? null,
       });
       if (line) return line;
     } catch (error) {
@@ -85,6 +102,46 @@ async function mixedHandBanter(opts: {
     }
   }
   return opts.canned();
+}
+
+// One private thought, broadcast-only (never persisted, never voiced): the
+// second voice layer. Best-effort; rate-limited by the caller.
+async function generateAndPostThought({
+  onlineClient, tableId, speaker, situation, memory, mind,
+}: {
+  onlineClient: ReturnType<typeof createOnlineRpcClient>;
+  tableId: string;
+  speaker: { characterId: string; groupPlayerId: string; name: string };
+  situation: string;
+  memory?: string | null;
+  mind?: string | null;
+}): Promise<boolean> {
+  const backend = llmBackend();
+  if (!backend) return false;
+  if (!(await onlineClient.aiRateHit({ tableId, kind: "thought", limit: 3 }))) return false;
+  try {
+    const text = await generateInnerThought({
+      provider: backend.provider,
+      apiKey: backend.apiKey,
+      model: asText(Deno.env.get("CHAT_REPLY_MODEL")),
+      speaker: { characterId: speaker.characterId, groupPlayerId: speaker.groupPlayerId, name: speaker.name, expressiveness: 1 },
+      situation,
+      memory: memory ?? null,
+      mind: mind ?? null,
+    });
+    if (!text) return false;
+    await onlineClient.postBotThought({
+      tableId,
+      groupPlayerId: speaker.groupPlayerId,
+      name: speaker.name,
+      character: speaker.characterId,
+      text,
+    });
+    return true;
+  } catch (error) {
+    console.error("[thought] failed", error instanceof Error ? error.message : String(error));
+    return false;
+  }
 }
 
 // How long a human must stall on their decision before a bot starts needling
@@ -109,6 +166,30 @@ async function maybeIntimidateTankingPlayer({
   const target = identities.find((s: any) => s.groupPlayerId === String(actingSeat.group_player_id));
   const targetName = String(target?.name || "you");
   const speaker = bots[Math.floor(Math.random() * bots.length)];
+
+  // The table remembers a habitual tanker -- future needles reference it.
+  const mem = await loadTableMemory(onlineClient.client, tableId);
+  if (target?.name) {
+    noteHumanTank(mem, String(target.name));
+    saveTableMemory(onlineClient.client, tableId, mem);
+  }
+  const memBlock = memoryPromptBlock(mem, { speakerCharacterId: String(speaker.botCharacter), speakerName: String(speaker.name || "Bot") });
+  const mind = mindLineFor(mem, String(speaker.botCharacter));
+
+  // A quarter of the time the pressure is PRIVATE: the character just watches
+  // and thinks -- the human "hears" the predator sizing them up, which is its
+  // own kind of intimidation (and costs no TTS).
+  if (Math.random() < 0.25) {
+    await generateAndPostThought({
+      onlineClient, tableId,
+      speaker: { characterId: String(speaker.botCharacter), groupPlayerId: String(speaker.groupPlayerId), name: String(speaker.name || "Bot") },
+      situation: `${targetName} has been in the tank forever on this decision. You're watching them squirm. The private read forming in your head.`,
+      memory: memBlock,
+      mind,
+    });
+    return;
+  }
+
   const recent = await onlineClient.listRecentChatLines({ tableId, limit: 12 });
   const nameByGpid = new Map(identities.map((s: any) => [s.groupPlayerId, s.name || "Player"]));
   const history = recent.slice().reverse().map((r) => ({ name: String(nameByGpid.get(r.groupPlayerId) || "Player"), text: r.message }));
@@ -120,6 +201,8 @@ async function maybeIntimidateTankingPlayer({
     targetName,
     roster,
     chatHistory: history,
+    memory: memBlock,
+    mind,
     canned: () => pickBanterLine({
       characterId: String(speaker.botCharacter),
       context: "bully",
@@ -477,7 +560,7 @@ function createOnlineRpcClient() {
       // `avoid` re-roll. Compares against the last dozen table lines.
       const { data: recent } = await client
         .from("online_table_chat_messages")
-        .select("group_player_id, message")
+        .select("group_player_id, message, created_at")
         .eq("table_id", tableId)
         .order("created_at", { ascending: false })
         .limit(12);
@@ -488,6 +571,13 @@ function createOnlineRpcClient() {
           (String(r.group_player_id) === mine || recent.indexOf(r) < 3)
         );
         if (dup) return;
+        // Spoke-too-recently cooldown: real tables don't have one voice
+        // narrating every beat. If this character already posted in the last
+        // few seconds (across ANY banter path -- mid-hand needle, settle gloat,
+        // ambient), let the line die. Conversation chains are unaffected: they
+        // alternate speakers.
+        const lastMine = recent.find((r: any) => String(r.group_player_id) === mine);
+        if (lastMine?.created_at && Date.now() - new Date(lastMine.created_at).getTime() < 15000) return;
       }
       const { data: inserted, error } = await client
         .from("online_table_chat_messages")
@@ -536,6 +626,56 @@ function createOnlineRpcClient() {
       } catch (_broadcastErr) {
         // live delivery is best-effort; the message is already persisted
       }
+    },
+
+    // A character's PRIVATE thought: broadcast-only, so it reaches watching
+    // humans live but never lands in online_table_chat_messages -- which means
+    // no other character can "hear" it (prompt context is built from that
+    // table), it can't echo back into the LLM, and it vanishes on reload like
+    // a real passing thought. voice:false always -- thoughts are read, not
+    // spoken, and cost zero TTS.
+    async postBotThought({
+      tableId,
+      groupPlayerId,
+      name,
+      character,
+      text
+    }: {
+      tableId: string;
+      groupPlayerId: string;
+      name: string;
+      character: string | null;
+      text: string;
+    }) {
+      const trimmed = String(text || "").trim().slice(0, 140);
+      if (!trimmed) return;
+      const res = await fetch(`${supabaseUrl}/realtime/v1/api/broadcast`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "apikey": serviceRoleKey,
+          "Authorization": `Bearer ${serviceRoleKey}`
+        },
+        body: JSON.stringify({
+          messages: [{
+            topic: `table-chat:${tableId}`,
+            event: "table_chat",
+            payload: {
+              id: `thought_${Date.now()}_${Math.floor(Math.random() * 1e6)}`,
+              tableId,
+              playerId: groupPlayerId,
+              name: name || "Player",
+              text: trimmed,
+              kind: "thought",
+              voice: false,
+              character: character || null,
+              mood: null,
+              at: new Date().toISOString()
+            }
+          }]
+        })
+      });
+      if (!res.ok) throw new Error(`thought_broadcast_failed_${res.status}`);
     },
 
     // The recent chat lines for a table, newest first -- used to build per-bot
@@ -690,59 +830,138 @@ async function runBotExpressions({
     }
   }
 
-  // Settle chat: after a meaningful pot, at most ONE character gloats or
-  // grumbles in the real table chat. Kept to a single line per hand so the
-  // chat stays banter, not noise.
+  // Settle: update the table's living memory (events, emotions, human reads),
+  // then let at most ONE character react -- with a line that matches what
+  // ACTUALLY happened (bluff shown / hero call / cooler / steal), colored by
+  // their emotional state, with session history available for callbacks.
   try {
     const bb = Math.max(1, Number(table?.big_blind || 2));
     const potBb = Number(hand?.pot_total || 0) / bb;
+    const identities = await onlineClient.listSeatIdentities({ tableId });
+    const nameByGpid = new Map(identities.map((s: any) => [s.groupPlayerId, s.name || "Player"]));
+    const isBotByGpid = new Map(identities.map((s: any) => [s.groupPlayerId, !!s.isBot]));
+    const byGpid = new Map(botSeats.map((b) => [b.groupPlayerId, b]));
+
+    // --- Memory pass (every settled hand, even tiny ones: fold streaks count).
+    const mem = await loadTableMemory(onlineClient.client, tableId);
+    mem.hands += 1;
+    const handNo = mem.hands;
+    const settlePlayers: SettlePlayer[] = players
+      .filter((p: any) => p.groupPlayerId)
+      .map((p: any) => {
+        const gpid = String(p.groupPlayerId);
+        const bot = byGpid.get(gpid);
+        return {
+          name: String(nameByGpid.get(gpid) || bot?.name || "Player"),
+          characterId: bot?.botCharacter || null,
+          isBot: Boolean(isBotByGpid.get(gpid) ?? Boolean(bot)),
+          folded: !!p.folded,
+          netBb: (Number(p.resultAmount || 0) - Number(p.committed || 0)) / bb,
+          committedBb: Number(p.committed || 0) / bb,
+          holeCards: Array.isArray(p.holeCards) ? p.holeCards : [],
+          wasAggressor: !!p.wasAggressor,
+        };
+      });
+    const boardCards = Array.isArray(hand?.board_cards) ? hand.board_cards : [];
+    const { events: memEvents, aftermath } = classifySettle({ players: settlePlayers, boardCards, potBb, handNo });
+    // Emotions and relationships update FIRST so fresh feelings color the
+    // reactions; event callbacks come from PREVIOUS hands only (this hand is
+    // already described by the situation itself), hence the snapshot.
+    updateEmotions(mem, settlePlayers, aftermath, handNo);
+    updateHumanReads(mem, settlePlayers, aftermath.showdown);
+    updateRelationships(mem, settlePlayers, aftermath, handNo);
+    const memForBlocks = { ...mem, events: mem.events.slice() };
+    const memBlocksBuilt = (cid: string | null, name?: string | null) =>
+      memoryPromptBlock(memForBlocks, { speakerCharacterId: cid, speakerName: name ?? null });
+    mem.events.push(...memEvents);
+    saveTableMemory(onlineClient.client, tableId, mem);
+
     if (potBb >= 3) {
-      const byGpid = new Map(botSeats.map((b) => [b.groupPlayerId, b]));
-      const candidates: { characterId: string; groupPlayerId: string; context: "win" | "lose"; weight: number }[] = [];
-      for (const p of players) {
-        if (!p.groupPlayerId) continue;
-        const bot = byGpid.get(String(p.groupPlayerId));
-        if (!bot || !bot.botCharacter || !hasBanter(bot.botCharacter)) continue;
+      // Candidate speakers, by how personally the hand touched them. The
+      // aftermath principals (caught bluffer, cooler victim, hero caller)
+      // outrank generic winners/losers -- the person the hand HAPPENED to
+      // is the one with something to say.
+      let spokenByCharacter: string | null = null;
+      const candidates: { characterId: string; groupPlayerId: string; role: string; weight: number; netBb: number }[] = [];
+      for (const sp of settlePlayers) {
+        if (!sp.characterId || !hasBanter(sp.characterId)) continue;
+        const bot = botSeats.find((b) => b.botCharacter === sp.characterId);
+        if (!bot) continue;
         const expr = typeof bot.expressiveness === "number" ? bot.expressiveness : 1;
-        if (p.resultAmount > 0) {
-          candidates.push({ characterId: bot.botCharacter, groupPlayerId: bot.groupPlayerId, context: "win", weight: 0.6 * expr });
-        } else if (p.resultAmount <= -(bb * 6)) {
-          candidates.push({ characterId: bot.botCharacter, groupPlayerId: bot.groupPlayerId, context: "lose", weight: 0.62 * expr });
-        }
+        let role: string | null = null;
+        let weight = 0;
+        if (aftermath.caughtName === sp.name && sp.netBb < 0) { role = "caught"; weight = 0.85; }
+        else if (aftermath.kind === "hero_call" && aftermath.winnerName === sp.name) { role = "hero"; weight = 0.85; }
+        else if (aftermath.kind === "cooler" && aftermath.loserName === sp.name) { role = "coolered"; weight = 0.8; }
+        else if (aftermath.kind === "cooler" && aftermath.winnerName === sp.name) { role = "cooler_win"; weight = 0.6; }
+        else if (sp.netBb > 1) { role = "win"; weight = 0.55; }
+        else if (sp.netBb <= -6) { role = "lose"; weight = 0.6; }
+        if (!role) continue;
+        // Unfinished business gets the mic: a speaker holding a grudge against
+        // one of this hand's principals is the one with something to say.
+        const principals = [aftermath.winnerName, aftermath.caughtName, aftermath.loserName]
+          .filter((n): n is string => Boolean(n) && n !== sp.name);
+        const grudge = grudgeWeight(mem, sp.name, principals);
+        weight = Math.min(0.95, weight * expr + 0.08 * grudge);
+        candidates.push({ characterId: sp.characterId, groupPlayerId: bot.groupPlayerId, role, weight, netBb: sp.netBb });
       }
-      // One roll, weighted toward the chattiest candidate.
       candidates.sort((a, b) => b.weight - a.weight);
       const speaker = candidates[0];
       if (speaker && Math.random() < speaker.weight) {
         const recent = await onlineClient.listRecentChatLines({ tableId, limit: 12 });
-        const identities = await onlineClient.listSeatIdentities({ tableId });
         const roster = identities.map((s: any) => String(s.name || "Player")).filter(Boolean);
-        const nameByGpid = new Map(identities.map((s: any) => [s.groupPlayerId, s.name || "Player"]));
         const history = recent.slice().reverse().map((r) => ({ name: String(nameByGpid.get(r.groupPlayerId) || "Player"), text: r.message }));
         const avoid = recent
           .filter((r) => r.groupPlayerId === String(speaker.groupPlayerId))
           .map((r) => r.message);
-        const speakerName = String(nameByGpid.get(speaker.groupPlayerId) || botSeats.find((b) => String(b.groupPlayerId) === String(speaker.groupPlayerId))?.name || "them");
-        const wentToShowdown = players.filter((p: any) => !p.folded).length >= 2;
-        const situation = speaker.context === "win"
-          ? `You just WON a ${potBb.toFixed(0)}bb pot${wentToShowdown ? " at showdown" : ""}. Gloat / react to the table in character.`
-          : `You just LOST a big pot -- a rough one. React in character (grumble, tilt, or take it on the chin).`;
+        const speakerName = String(nameByGpid.get(speaker.groupPlayerId) || "them");
+        const pot = potBb.toFixed(0);
+
+        // Situation matched to what actually happened -- Level 4 aftermath.
+        let situation: string;
+        let mood: string;
+        let cannedContext: "win" | "lose" = speaker.netBb > 0 ? "win" : "lose";
+        switch (speaker.role) {
+          case "caught":
+            situation = `Your big bluff just got looked up by ${aftermath.winnerName || "them"} -- your junk is face-up in front of everyone. React: sulk, get defensive, or laugh it off. Own the moment either way.`;
+            mood = "regret";
+            break;
+          case "hero":
+            situation = `You just HERO-CALLED ${aftermath.caughtName || "the bluffer"} with ${aftermath.winnerLabel || "almost nothing"} and you were RIGHT. The read of the night. Savor it.`;
+            mood = potBb >= 12 ? "allin" : "win";
+            break;
+          case "coolered":
+            situation = `You just lost a ${pot}bb pot holding ${aftermath.loserLabel || "a monster"} -- a genuine cooler. That one HURTS and everyone saw it.`;
+            mood = potBb >= 12 ? "badbeat" : "lose";
+            break;
+          case "cooler_win":
+            situation = `You just dragged a ${pot}bb pot by cracking ${aftermath.loserName || "their"}'s ${aftermath.loserLabel || "big hand"}. You got there. Celebrate -- or twist the knife politely.`;
+            mood = potBb >= 12 ? "allin" : "win";
+            break;
+          case "win":
+            situation = aftermath.kind === "steal"
+              ? `You just bet everyone off a ${pot}bb pot -- no showdown, nobody knows what you had. Enjoy that.`
+              : `You just WON a ${pot}bb pot${aftermath.showdown ? " at showdown" : ""}. Gloat / react to the table in character.`;
+            mood = aftermath.showdown && potBb >= 12 ? "allin" : "win";
+            break;
+          default:
+            situation = `You just LOST a big pot -- a rough one. React in character (grumble, tilt, or take it on the chin).`;
+            mood = aftermath.showdown && potBb >= 12 ? "badbeat" : "lose";
+        }
+
+        const speakerMind = mindLineFor(mem, speaker.characterId);
         const line = await mixedHandBanter({
           speaker: { characterId: speaker.characterId, name: speakerName },
           situation,
           targetName: null,
           roster,
           chatHistory: history,
-          canned: () => pickBanterLine({ characterId: speaker.characterId, context: speaker.context, targetName: null, avoid }),
+          memory: memBlocksBuilt(speaker.characterId, speakerName),
+          mind: speakerMind,
+          canned: () => pickBanterLine({ characterId: speaker.characterId, context: cannedContext, targetName: null, avoid }),
         });
         if (line) {
-          // Only genuinely dramatic moments (big pots that reached showdown --
-          // usually all-ins / bad beats) get the premium Gemini voice; everyday
-          // wins and losses stay on the free tiers.
-          const bigShowdown = wentToShowdown && potBb >= 12;
-          const mood = speaker.context === "win"
-            ? (bigShowdown ? "allin" : "win")
-            : (bigShowdown ? "badbeat" : "lose");
+          spokenByCharacter = speaker.characterId;
           await onlineClient.postBotChat({ tableId, groupPlayerId: speaker.groupPlayerId, message: line, voice: true, character: speaker.characterId, mood });
 
           // Bot-to-bot cross-talk: a rival character occasionally claps back at
@@ -762,6 +981,8 @@ async function runBotExpressions({
               targetName: speakerName,
               roster,
               chatHistory: [...history, { name: speakerName, text: line }],
+              memory: memBlocksBuilt(String(rival.botCharacter), String(rival.name || "Bot")),
+              mind: mindLineFor(mem, String(rival.botCharacter)),
               canned: () => pickComebackLine({ characterId: String(rival.botCharacter), aboutName: speakerName, avoid: rivalAvoid }),
             });
             if (comeback) {
@@ -769,6 +990,54 @@ async function runBotExpressions({
               await onlineClient.postBotChat({ tableId, groupPlayerId: rival.groupPlayerId, message: comeback, voice: true, character: String(rival.botCharacter), mood: "banter" });
             }
           }
+        }
+      }
+
+      // Layer C -- nonverbal audio: the stuck player who DIDN'T get a line
+      // still exists at the table. A sigh or a groan carries the loss without
+      // another quip; imperfect, wordless moments are part of the realism.
+      const nvPick = settlePlayers
+        .filter((p) => p.characterId && p.netBb <= -8 && p.characterId !== spokenByCharacter)
+        .sort((a, b) => a.netBb - b.netBb)[0] || null;
+      if (nvPick && nvPick.characterId && Math.random() < 0.3) {
+        const bot = botSeats.find((b) => b.botCharacter === nvPick.characterId);
+        if (bot) {
+          const NONVERBALS = ["*long exhale*", "*sighs*", "*mutters under his breath*", "*groans quietly*"];
+          const nv = NONVERBALS[Math.floor(Math.random() * NONVERBALS.length)];
+          await onlineClient.postBotChat({
+            tableId, groupPlayerId: bot.groupPlayerId, message: nv,
+            voice: true, character: nvPick.characterId, mood: "nonverbal",
+          });
+        }
+      }
+
+      // Private aftermath: the character the hand happened HARDEST to gets an
+      // inner thought -- the thing they'd never say into the table. Shown only
+      // to humans, never voiced, so it deepens the drama at zero TTS cost.
+      const thoughtPick =
+        (aftermath.caughtName && settlePlayers.find((p) => p.name === aftermath.caughtName && p.characterId)) ||
+        (aftermath.kind === "cooler" && settlePlayers.find((p) => p.name === aftermath.loserName && p.characterId)) ||
+        (aftermath.kind === "hero_call" && settlePlayers.find((p) => p.name === aftermath.winnerName && p.characterId)) ||
+        settlePlayers.find((p) => p.characterId && p.netBb <= -15) ||
+        null;
+      if (thoughtPick && thoughtPick.characterId && Math.random() < 0.45) {
+        const bot = botSeats.find((b) => b.botCharacter === thoughtPick.characterId);
+        if (bot) {
+          const thoughtSituation =
+            aftermath.caughtName === thoughtPick.name
+              ? "Your bluff just got shown to the whole table. The thought you'd never admit out loud -- the sting, the recalculation, who you blame."
+              : aftermath.kind === "cooler" && aftermath.loserName === thoughtPick.name
+                ? "You just lost a huge pot with a monster hand. Privately processing the injustice -- or talking yourself off the ledge."
+                : aftermath.kind === "hero_call" && aftermath.winnerName === thoughtPick.name
+                  ? "You just picked off a big bluff. The private satisfaction of reading someone perfectly -- and what you noticed that gave them away."
+                  : "You're stuck tonight and just dumped another big pot. The private damage report.";
+          await generateAndPostThought({
+            onlineClient, tableId,
+            speaker: { characterId: thoughtPick.characterId, groupPlayerId: bot.groupPlayerId, name: thoughtPick.name },
+            situation: thoughtSituation,
+            memory: memBlocksBuilt(thoughtPick.characterId, thoughtPick.name),
+            mind: mindLineFor(mem, thoughtPick.characterId),
+          });
         }
       }
     }
@@ -1277,8 +1546,14 @@ async function processBotAction({
               character: String(actingSeat.bot_character),
               mood: "needle",
             });
-            // Clap-back from another seated character about the loudmouth.
-            if (Math.random() < 0.45) {
+            // Clap-back from another seated character about the loudmouth --
+            // but NOT during the tensest moments. On a big turn/river pot the
+            // table goes quiet and only the players IN the hand speak; a
+            // bystander cracking wise there kills the pressure. (Silence is
+            // part of the sound design.)
+            const streetNow = String(liveHand?.state || hand.state || "");
+            const bigPotHush = (streetNow === "turn" || streetNow === "river") && potBbForChat >= 12;
+            if (!bigPotHush && Math.random() < 0.45) {
               const speakerName = identities.find((s: any) =>
                 s.groupPlayerId === String(actingSeat.group_player_id))?.name || "that guy";
               const responders = identities.filter((s: any) =>
@@ -1313,6 +1588,36 @@ async function processBotAction({
           }
         }
       }
+    }
+
+    // Private thought at a pressure point: the bot just made a real decision
+    // facing real money. Fires AFTER the action is locked and public (fair-play:
+    // the thought explains a visible choice, never predicts one), shown only to
+    // humans, never voiced. This is where doubt, reads, and self-deception live.
+    const toCallBbForThought = Number(toCall || 0) / bbForTalk;
+    const facedPressure = toCallBbForThought >= 5
+      || (decision.actionType === "all_in")
+      || (decision.actionType === "fold" && toCallBbForThought >= 3.5);
+    if (facedPressure && character && hasBanter(actingSeat.bot_character) && Math.random() < 0.22) {
+      const mem = await loadTableMemory(onlineClient.client, tableId);
+      const streetForThought = String(liveHand?.state || hand.state || "the hand");
+      const actionWord = decision.actionType === "all_in" ? "moved all in"
+        : decision.actionType === "raise" ? "raised"
+        : decision.actionType === "call" ? "called"
+        : decision.actionType === "fold" ? "folded"
+        : decision.actionType === "check" ? "checked"
+        : "bet";
+      await generateAndPostThought({
+        onlineClient, tableId,
+        speaker: {
+          characterId: String(actingSeat.bot_character),
+          groupPlayerId: String(actingSeat.group_player_id),
+          name: String(character.name || "Bot"),
+        },
+        situation: `Facing ${toCallBbForThought.toFixed(0)}bb on the ${streetForThought}, you just ${actionWord}. The action is done and public. The private thought you had while deciding -- the read, the doubt, the self-coaching, or the thing you'd never admit.`,
+        memory: memoryPromptBlock(mem, { speakerCharacterId: String(actingSeat.bot_character), speakerName: String(character.name || "Bot") }),
+        mind: mindLineFor(mem, String(actingSeat.bot_character)),
+      });
     }
   } catch (_error) {
     // table talk is cosmetic
@@ -1869,6 +2174,9 @@ async function handleChatReply({
   const anthropicKey = asText(Deno.env.get("ANTHROPIC_API_KEY"));
   const chatModel = asText(Deno.env.get("CHAT_REPLY_MODEL"));
 
+  // Session history + feelings color even direct replies to the human.
+  const chatMem = await loadTableMemory(onlineClient.client, tableId);
+
   // One place to produce an in-character line for `speaker` reacting to what
   // `fromName` just said: Gemini -> Anthropic -> canned banks. Returns the text
   // and whether a live model wrote it (so we can size the "typing" pause).
@@ -1884,6 +2192,8 @@ async function handleChatReply({
       message: said,
       chatHistory: history,
       otherSeated: bots.filter((b) => b.groupPlayerId !== speaker.groupPlayerId).map((b) => b.name),
+      memory: memoryPromptBlock(chatMem, { speakerCharacterId: speaker.characterId, speakerName: speaker.name }),
+      mind: mindLineFor(chatMem, speaker.characterId),
     };
     if (geminiKey) {
       try {
@@ -2001,6 +2311,30 @@ async function handleTableTalk({
     return json({ ok: true, talked: false, reason: "rate_limited" });
   }
 
+  // Silence discipline: when a big pot is on the turn/river, the room goes
+  // quiet -- no ambient chatter over someone's sweat. Only the players in the
+  // hand get to talk (their pressure lines come from the action paths).
+  try {
+    const { data: liveHand } = await onlineClient.client
+      .from("online_hands")
+      .select("state, pot_total")
+      .eq("table_id", tableId)
+      .order("hand_no", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (liveHand) {
+      const { data: tableRow } = await onlineClient.client
+        .from("online_tables").select("big_blind").eq("id", tableId).maybeSingle();
+      const bbHush = Math.max(1, Number(tableRow?.big_blind || 2));
+      const potBbHush = Number(liveHand.pot_total || 0) / bbHush;
+      const street = String(liveHand.state || "");
+      if ((street === "turn" || street === "river" || street === "showdown") && potBbHush >= 12) {
+        return json({ ok: true, talked: false, reason: "table_hushed" });
+      }
+    }
+  } catch { /* hush check is best-effort */ }
+
+  const tableMem = await loadTableMemory(onlineClient.client, tableId);
   const roster = identities.map((s: any) => String(s.name || "Player")).filter(Boolean);
   const { data: recent } = await onlineClient.client
     .from("online_table_chat_messages")
@@ -2027,7 +2361,12 @@ async function handleTableTalk({
 
   let line: string | null = null;
   try {
-    line = await generateAmbientLine({ provider, apiKey, model: asText(Deno.env.get("CHAT_REPLY_MODEL")), speaker: opener, roster, chatHistory, beat });
+    line = await generateAmbientLine({
+      provider, apiKey, model: asText(Deno.env.get("CHAT_REPLY_MODEL")),
+      speaker: opener, roster, chatHistory, beat,
+      memory: memoryPromptBlock(tableMem, { speakerCharacterId: opener.characterId, speakerName: opener.name }),
+      mind: mindLineFor(tableMem, opener.characterId),
+    });
   } catch (error) {
     console.error("[table_talk] opener failed", error instanceof Error ? error.message : String(error));
   }
@@ -2047,7 +2386,13 @@ async function handleTableTalk({
     const next = others[Math.floor(Math.random() * others.length)];
     let reply: string | null = null;
     try {
-      reply = await generateAmbientLine({ provider, apiKey, model: asText(Deno.env.get("CHAT_REPLY_MODEL")), speaker: next, roster, chatHistory: running, respondingTo: { name: lastSpeaker.name, text: lastLine } });
+      reply = await generateAmbientLine({
+        provider, apiKey, model: asText(Deno.env.get("CHAT_REPLY_MODEL")),
+        speaker: next, roster, chatHistory: running,
+        respondingTo: { name: lastSpeaker.name, text: lastLine },
+        memory: memoryPromptBlock(tableMem, { speakerCharacterId: next.characterId, speakerName: next.name }),
+        mind: mindLineFor(tableMem, next.characterId),
+      });
     } catch (error) {
       console.error("[table_talk] thread failed", error instanceof Error ? error.message : String(error));
       break;
