@@ -3100,6 +3100,15 @@ function scheduleReactionCleanup() {
 // banter (and human trash talk) is visible even with the chat panel closed.
 // Tempo knobs for the speech-bubble presentation.
 const SPEECH_WORD_MS = 130;          // reveal cadence: one word "pop" every N ms (deliberate, not rushed)
+
+// Temporary voice diagnostics: add ?ttsdebug=1 to the URL to surface, as toasts,
+// exactly where the voice pipeline stops (request made? audio returned? played?).
+let TTS_DEBUG = false;
+try { TTS_DEBUG = new URLSearchParams(location.search).has("ttsdebug"); } catch { /* ignore */ }
+function ttsDbg(msg) {
+  try { console.log("[tts]", msg); } catch { /* ignore */ }
+  if (TTS_DEBUG) { try { toast("TTS: " + msg); } catch { /* ignore */ } }
+}
 const SPEECH_MIN_HOLD_MS = 1500;     // floor dwell after a line finishes typing
 const SPEECH_READ_MS_PER_CHAR = 42;  // extra dwell scaled to length (reading time)
 const SPEECH_MAX_HOLD_MS = 4200;     // cap dwell so a long line never camps
@@ -3163,6 +3172,8 @@ async function presentSpeechBubble(item) {
   if (chatVoice.wouldSpeak(item.voice)) {
     try { await chatVoice.speakGated(characterId, item.text, { mood: item.mood, maxWaitMs: 2500 }); spoken = true; }
     catch { /* fall through to showing text */ }
+  } else if (TTS_DEBUG) {
+    ttsDbg(`skip [voice=${item.voice} on=${chatVoice.enabled} inflight=${chatVoice._inflight} tok=${!!getSeatToken()} vis=${typeof document !== "undefined" ? document.visibilityState : "?"} gap=${Date.now() - chatVoice._lastAt}]`);
   }
 
   // Reveal the bubble (empty), then type it out.
@@ -3341,15 +3352,17 @@ const chatVoice = {
           },
         }).then(({ data, error }) => {
           if (error) {
+            ttsDbg("invoke error: " + String(error.message || error).slice(0, 80));
             if (/429/.test(String(error.message || ""))) this._backoffUntil = Date.now() + 30000;
             clearTimeout(timer); finish(); return;
           }
-          if (!data || !data.audio) { clearTimeout(timer); finish(); return; }
+          if (!data || !data.audio) { ttsDbg("no audio (" + (data?.reason || data?.error || "empty") + ")"); clearTimeout(timer); finish(); return; }
           const a = this.ensureAudio();
-          a.onplaying = () => { clearTimeout(timer); finish(); };
+          a.onplaying = () => { ttsDbg("playing " + Math.round(String(data.audio).length / 1024) + "kb"); clearTimeout(timer); finish(); };
+          a.onerror = () => { ttsDbg("audio element error"); };
           a.src = "data:" + (data.mime || "audio/wav") + ";base64," + data.audio;
-          Promise.resolve(a.play()).catch(() => { clearTimeout(timer); finish(); });
-        }).catch(() => { clearTimeout(timer); finish(); });
+          Promise.resolve(a.play()).catch((e) => { ttsDbg("play() blocked: " + String(e?.name || e).slice(0, 40)); clearTimeout(timer); finish(); });
+        }).catch((e) => { ttsDbg("invoke threw: " + String(e?.message || e).slice(0, 60)); clearTimeout(timer); finish(); });
       });
     } finally {
       this._inflight = false;
