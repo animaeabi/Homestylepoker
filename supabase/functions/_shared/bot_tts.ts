@@ -144,11 +144,13 @@ function pickAzureStyle(characterId: string, voice: string, mood: string): strin
 // Route the moment (mood) to a tier/provider.
 //   high   -> Gemini (paid, real laughs): only genuinely dramatic moments
 //             (big all-in / bad-beat showdowns, anger) so the budget lasts.
-//   medium -> Groq   (free, real laughs): mid-level banter / bullying / needling.
-//   small  -> Azure + Chirp3 (free): all regular chat (win, lose, banter, ...).
+//   medium -> Groq/Orpheus (free, HUMAN + real laughs): the conversational chat
+//             -- normal banter, needling, bullying -- where realism matters most.
+//   small  -> Chirp3-HD (free, natural): the rest (win/lose reactions, greetings).
+// Azure stays only as a last-resort fallback (it reads robotic).
 function tierForMood(mood: string): "high" | "medium" | "small" {
   if (mood === "allin" || mood === "badbeat" || mood === "anger") return "high";
-  if (mood === "needle" || mood === "regret") return "medium";
+  if (mood === "needle" || mood === "regret" || mood === "banter") return "medium";
   return "small";
 }
 
@@ -285,8 +287,15 @@ async function azureTts(characterId: string, clean: string, mood: string, key: s
 // ---------------------------------------------------------------------------
 async function groqTts(characterId: string, clean: string, mood: string, apiKey: string): Promise<SpeechClip | null> {
   const voice = GROQ_VOICE[characterId] || GROQ_DEFAULT;
-  // Orpheus adds emotion from inline tags; a light chuckle sells a needle.
-  const input = mood === "needle" ? `${clean} <chuckle>` : clean;
+  // Orpheus renders inline emotion tags as REAL laughs, so bots crack up in
+  // conversation instead of sounding scripted. Sprinkle a genuine laugh/chuckle
+  // onto a chunk of the banter + needle lines (not every one -- that'd be manic).
+  let input = clean;
+  if (mood === "banter" || mood === "needle") {
+    const r = Math.random();
+    if (r < 0.18) input = `${clean} <laugh>`;
+    else if (r < 0.42) input = `${clean} <chuckle>`;
+  }
 
   const resp = await fetch("https://api.groq.com/openai/v1/audio/speech", {
     method: "POST",
@@ -370,9 +379,11 @@ export async function generateSpeech({
   // Primary by tier, then fall back to the free/reliable providers, then Gemini.
   // High moments always lead with Gemini (real laughs); a pinned character still
   // falls back to its everyday provider so its win-line stays on-voice.
-  const order = tier === "high" ? [gemini, ...(pinned ? [pinned] : []), chirp, azure, groq]
-    : tier === "medium" ? [...(pinned ? [pinned] : []), groq, azure, chirp, gemini]
-    : [...(pinned ? [pinned] : []), azure, chirp, groq, gemini];
+  // Human providers lead (Groq/Orpheus for laughs, Chirp3-HD for natural speech);
+  // Azure is only a last-resort fallback because it reads robotic.
+  const order = tier === "high" ? [gemini, ...(pinned ? [pinned] : []), chirp, groq, azure]
+    : tier === "medium" ? [...(pinned ? [pinned] : []), groq, chirp, azure, gemini]
+    : [...(pinned ? [pinned] : []), chirp, groq, azure, gemini];
 
   let lastErr: unknown = null;
   for (const provider of order) {
