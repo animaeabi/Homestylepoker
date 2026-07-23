@@ -300,6 +300,7 @@ const state = {
   chatForceScroll: false,
   chatMessages: [],
   chatMessageIds: new Set(),
+  chatVoicedIds: new Set(),   // ids we've already offered to voice (survives display-dedup)
   lastChatActivityAt: 0,
   lastAmbientFireAt: 0,
   ambientTimer: null,
@@ -480,6 +481,7 @@ function resetChatState() {
   state.chatUnread = 0;
   state.chatMessages = [];
   state.chatMessageIds = new Set();
+  state.chatVoicedIds = new Set();
   // Start the ambient-talk clocks fresh on entry so the first burst waits out a
   // real lull instead of firing the instant the table loads.
   state.lastChatActivityAt = Date.now();
@@ -1383,8 +1385,28 @@ function toggleChatExpanded(force = !state.chatExpanded) {
 function addChatMessage(message, { self = false } = {}) {
   const text = String(message?.text || "").trim();
   const id = String(message?.id || "");
-  if (!text || !id || state.chatMessageIds.has(id)) return;
+  if (!text || !id) return;
+  // A bot line reaches us on two paths: the table_chat BROADCAST (carries the
+  // voice/character/mood metadata) and the periodic table-state SYNC (carries
+  // none). Whichever lands first registers the id. If the voiceless sync won the
+  // race, the voiced broadcast would otherwise be dropped here and the line would
+  // never be spoken -- so let a voiced delivery through for an already-seen id,
+  // as long as we haven't voiced it yet.
+  if (state.chatMessageIds.has(id)) {
+    if (!self && message?.voice && !state.chatVoicedIds.has(id)) {
+      state.chatVoicedIds.add(id);
+      enqueueSpeechBubble({
+        playerId: message?.playerId || null,
+        text,
+        voice: message?.voice,
+        character: message?.character || null,
+        mood: message?.mood || null,
+      });
+    }
+    return;
+  }
   state.chatMessageIds.add(id);
+  if (!self && message?.voice) state.chatVoicedIds.add(id);
   state.lastChatActivityAt = Date.now();
   state.chatMessages.push({
     id,
@@ -1396,7 +1418,7 @@ function addChatMessage(message, { self = false } = {}) {
   });
   while (state.chatMessages.length > 40) {
     const removed = state.chatMessages.shift();
-    if (removed?.id) state.chatMessageIds.delete(removed.id);
+    if (removed?.id) { state.chatMessageIds.delete(removed.id); state.chatVoicedIds.delete(removed.id); }
   }
   if (!self && !state.chatOpen) state.chatUnread += 1;
   if (!self) {
