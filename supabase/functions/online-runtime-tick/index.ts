@@ -688,7 +688,14 @@ async function runBotExpressions({
           canned: () => pickBanterLine({ characterId: speaker.characterId, context: speaker.context, targetName: null, avoid }),
         });
         if (line) {
-          await onlineClient.postBotChat({ tableId, groupPlayerId: speaker.groupPlayerId, message: line, voice: true, character: speaker.characterId, mood: speaker.context === "win" ? "win" : "lose" });
+          // Only genuinely dramatic moments (big pots that reached showdown --
+          // usually all-ins / bad beats) get the premium Gemini voice; everyday
+          // wins and losses stay on the free tiers.
+          const bigShowdown = wentToShowdown && potBb >= 12;
+          const mood = speaker.context === "win"
+            ? (bigShowdown ? "allin" : "win")
+            : (bigShowdown ? "badbeat" : "lose");
+          await onlineClient.postBotChat({ tableId, groupPlayerId: speaker.groupPlayerId, message: line, voice: true, character: speaker.characterId, mood });
 
           // Bot-to-bot cross-talk: a rival character occasionally claps back at
           // the one who just spoke, so the table banters with itself between
