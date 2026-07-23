@@ -10,14 +10,19 @@ import { generateSpeech } from "../_shared/bot_tts.ts";
 import {
   classifySettle,
   grudgeWeight,
+  hushActive,
   loadTableMemory,
+  maybeStartHush,
   memoryPromptBlock,
   mindLineFor,
   needledTooRecently,
   noteHumanTank,
+  noteMoment,
   noteNeedle,
   saveTableMemory,
   seedChemistry,
+  setHumanLabels,
+  stepsOnMoment,
   updateEmotions,
   updateHumanReads,
   updateRelationships,
@@ -272,7 +277,7 @@ async function maybeIntimidateTankingPlayer({
   if (line) {
     await onlineClient.postBotChat({
       tableId, groupPlayerId: speaker.groupPlayerId, message: line,
-      voice: true, character: String(speaker.botCharacter), mood: "needle",
+      voice: true, character: String(speaker.botCharacter), mood: "needle", priority: 3,
     });
   }
 }
@@ -602,7 +607,8 @@ function createOnlineRpcClient() {
       name,
       voice,
       character,
-      mood
+      mood,
+      priority = 5
     }: {
       tableId: string;
       groupPlayerId: string;
@@ -611,9 +617,16 @@ function createOnlineRpcClient() {
       voice?: boolean;        // "punchy" line the client may read aloud
       character?: string | null;
       mood?: string | null;   // emotional delivery hint for TTS (win/lose/needle/...)
+      priority?: number;      // conversation-director rank (1 strongest .. 6 weakest)
     }) {
       const trimmed = String(message || "").trim().slice(0, 178);
       if (!trimmed) return;
+
+      // Conversation director: a clearly weaker line must not stomp a strong
+      // moment that just landed (an ambient crack two seconds after a shown
+      // bluff kills the beat). Direct chains -- one rung apart -- flow through.
+      const dirMem = await loadTableMemory(client, tableId);
+      if (stepsOnMoment(dirMem, priority)) return;
       // Dedup safety net: no character should post text it (or the table) just
       // said. Catches every banter path in one place, on top of the per-pick
       // `avoid` re-roll. Compares against the last dozen table lines.
@@ -644,6 +657,12 @@ function createOnlineRpcClient() {
         .select("id, created_at")
         .single();
       if (error) throw normalizeSupabaseError("[postBotChat]", error);
+
+      // This line IS now the table's latest moment; weaker lines yield to it.
+      try {
+        noteMoment(dirMem, priority);
+        saveTableMemory(client, tableId, dirMem);
+      } catch { /* director bookkeeping is best-effort */ }
 
       // Push it live so seated clients see it immediately -- the client only
       // learns of new chat from a `table_chat` broadcast (a bare INSERT is
@@ -935,6 +954,45 @@ async function runBotExpressions({
     updateEmotions(mem, settlePlayers, aftermath, handNo);
     updateHumanReads(mem, settlePlayers, aftermath.showdown);
     updateRelationships(mem, settlePlayers, aftermath, handNo);
+
+    // Engine reads become social reputations: the poker engine already
+    // profiles every player (nit/lag/station/trapper, tilting, bullying...).
+    // Surface the humans' labels so the characters talk about your GAME the
+    // way pros would -- each through their own lens.
+    try {
+      const profileRows = await onlineClient.getBotOpponentProfiles({ tableId });
+      if (Array.isArray(profileRows) && profileRows.length) {
+        const humanSeats = new Map(identities.filter((s: any) => !s.isBot).map((s: any) => [Number(s.seatNo), String(s.name || "")]));
+        const bb = Math.max(1, Number(table?.big_blind || 2));
+        const avgStackBb = profileRows.reduce((sum: number, r: any) => sum + Number(r?.chip_stack || 0), 0)
+          / Math.max(1, profileRows.length) / bb;
+        for (const row of profileRows) {
+          const seatNo = Number(row?.seat_no || 0);
+          if (!humanSeats.has(seatNo)) continue;
+          const profile = classifyOpponentProfile({
+            seatNo,
+            playerName: String(row?.player_name || humanSeats.get(seatNo) || ""),
+            stack: Number(row?.chip_stack || 0),
+            bigBlind: bb,
+            avgStackBb,
+            overall: row?.overall || null,
+            session: row?.session || null,
+          });
+          if (profile) {
+            setHumanLabels(mem, String(humanSeats.get(seatNo) || row?.player_name || ""), [
+              ...(profile.tags || []),
+              ...(profile.states || []),
+            ]);
+          }
+        }
+      }
+    } catch { /* reputation labels are flavor */ }
+
+    // Designed silence: some aftermaths deserve a hush, not a quip. When one
+    // starts, the settle line and chorus stay quiet, ambient talk yields, and
+    // whoever speaks next knows they're breaking it.
+    const hushStarted = maybeStartHush(mem, aftermath);
+
     const memForBlocks = { ...mem, events: mem.events.slice() };
     const memBlocksBuilt = (cid: string | null, name?: string | null) =>
       memoryPromptBlock(memForBlocks, { speakerCharacterId: cid, speakerName: name ?? null });
@@ -973,7 +1031,7 @@ async function runBotExpressions({
       candidates.sort((a, b) => b.weight - a.weight);
       const tune = intensityFor((table as any)?.chat_intensity);
       const speaker = candidates[0];
-      if (speaker && Math.random() < Math.min(0.95, speaker.weight * tune.settleMul)) {
+      if (!hushStarted && speaker && Math.random() < Math.min(0.95, speaker.weight * tune.settleMul)) {
         const recent = await onlineClient.listRecentChatLines({ tableId, limit: 12 });
         const roster = identities.map((s: any) => String(s.name || "Player")).filter(Boolean);
         const history = recent.slice().reverse().map((r) => ({ name: String(nameByGpid.get(r.groupPlayerId) || "Player"), text: r.message }));
@@ -1029,7 +1087,7 @@ async function runBotExpressions({
         });
         if (line) {
           spokenByCharacter = speaker.characterId;
-          await onlineClient.postBotChat({ tableId, groupPlayerId: speaker.groupPlayerId, message: line, voice: true, character: speaker.characterId, mood });
+          await onlineClient.postBotChat({ tableId, groupPlayerId: speaker.groupPlayerId, message: line, voice: true, character: speaker.characterId, mood, priority: 2 });
 
           // Bot-to-bot cross-talk: a rival character occasionally claps back at
           // the one who just spoke, so the table banters with itself between
@@ -1055,7 +1113,7 @@ async function runBotExpressions({
             });
             if (comeback) {
               await new Promise((resolve) => setTimeout(resolve, 300 + Math.floor(Math.random() * 400)));
-              await onlineClient.postBotChat({ tableId, groupPlayerId: rival.groupPlayerId, message: comeback, voice: true, character: String(rival.botCharacter), mood: "banter" });
+              await onlineClient.postBotChat({ tableId, groupPlayerId: rival.groupPlayerId, message: comeback, voice: true, character: String(rival.botCharacter), mood: "banter", priority: 3 });
             }
           }
         }
@@ -1074,7 +1132,7 @@ async function runBotExpressions({
           const nv = NONVERBALS[Math.floor(Math.random() * NONVERBALS.length)];
           await onlineClient.postBotChat({
             tableId, groupPlayerId: bot.groupPlayerId, message: nv,
-            voice: true, character: nvPick.characterId, mood: "nonverbal",
+            voice: true, character: nvPick.characterId, mood: "nonverbal", priority: 3,
           });
         }
       }
@@ -1088,7 +1146,9 @@ async function runBotExpressions({
         (aftermath.kind === "hero_call" && settlePlayers.find((p) => p.name === aftermath.winnerName && p.characterId)) ||
         settlePlayers.find((p) => p.characterId && p.netBb <= -15) ||
         null;
-      if (thoughtPick && thoughtPick.characterId && Math.random() < Math.min(0.9, 0.45 * tune.thoughtMul)) {
+      // During a designed silence the private layer carries the drama: the
+      // thought fires far more often precisely because nobody is talking.
+      if (thoughtPick && thoughtPick.characterId && Math.random() < (hushStarted ? 0.75 : Math.min(0.9, 0.45 * tune.thoughtMul))) {
         const bot = botSeats.find((b) => b.botCharacter === thoughtPick.characterId);
         if (bot) {
           const thoughtSituation =
@@ -1624,6 +1684,7 @@ async function processBotAction({
               voice: true,
               character: String(actingSeat.bot_character),
               mood: "needle",
+              priority: 3,
             });
             // Clap-back from another seated character about the loudmouth --
             // but NOT during the tensest moments. On a big turn/river pot the
@@ -1660,6 +1721,7 @@ async function processBotAction({
                     voice: true,
                     character: String(responder.botCharacter),
                     mood: "needle",
+                    priority: 4,
                   });
                 }
               }
@@ -1862,7 +1924,7 @@ async function prepareBotsForNextHand({
             if (line) {
               await onlineClient.postBotChat({
                 tableId, groupPlayerId: sp.groupPlayerId, message: line,
-                voice: true, character: String(sp.botCharacter), mood: "banter",
+                voice: true, character: String(sp.botCharacter), mood: "banter", priority: 4,
               });
             }
           }
@@ -2361,7 +2423,7 @@ async function handleChatReply({
   const first = await produceReply(responder, playerName, message, chatHistory);
   if (!first.text) return json({ ok: true, replied: false, reason: "no_line" });
   await pause(first.usedLlm);
-  await onlineClient.postBotChat({ tableId, groupPlayerId: responder.groupPlayerId, message: first.text, voice: true, character: responder.characterId, mood: "banter" });
+  await onlineClient.postBotChat({ tableId, groupPlayerId: responder.groupPlayerId, message: first.text, voice: true, character: responder.characterId, mood: "banter", priority: 1 });
 
   // 2) Bot-to-bot: another seated character may fire back at the one who just
   // spoke, and a third may pile on — so the table argues with itself, not just
@@ -2378,7 +2440,7 @@ async function handleChatReply({
     const chain = await produceReply(next, lastSpeaker.name, lastLine, running);
     if (!chain.text) break;
     await pause(chain.usedLlm);
-    await onlineClient.postBotChat({ tableId, groupPlayerId: next.groupPlayerId, message: chain.text, voice: true, character: next.characterId, mood: "banter" });
+    await onlineClient.postBotChat({ tableId, groupPlayerId: next.groupPlayerId, message: chain.text, voice: true, character: next.characterId, mood: "banter", priority: 1 });
     running.push({ name: next.name, text: chain.text });
     lastSpeaker = next;
     lastLine = chain.text;
@@ -2477,6 +2539,11 @@ async function handleTableTalk({
   } catch { /* hush check is best-effort */ }
 
   const tableMem = await loadTableMemory(onlineClient.client, tableId);
+  // A designed silence is in effect: mostly let it breathe. The line that does
+  // get through will see the hush in its memory block and break it knowingly.
+  if (hushActive(tableMem) && Math.random() < 0.65) {
+    return json({ ok: true, talked: false, reason: "table_in_silence" });
+  }
   // Ambient chatter can fire before the first settle -- make sure the starting
   // chemistry is planted so even hand-one table talk has relationships.
   if (seedChemistry(tableMem, bots.map((b) => ({ characterId: b.characterId, name: b.name })))) {
@@ -2525,7 +2592,7 @@ async function handleTableTalk({
   }
   if (!line) return json({ ok: true, talked: false, reason: "no_line" });
   await new Promise((resolve) => setTimeout(resolve, 140 + Math.floor(Math.random() * 260)));
-  await onlineClient.postBotChat({ tableId, groupPlayerId: opener.groupPlayerId, message: line, voice: true, character: opener.characterId, mood: "banter" });
+  await onlineClient.postBotChat({ tableId, groupPlayerId: opener.groupPlayerId, message: line, voice: true, character: opener.characterId, mood: "banter", priority: 5 });
 
   // Thread: one or two other characters respond, so it reads as a conversation.
   const running = [...chatHistory, { name: opener.name, text: line }];
@@ -2553,7 +2620,7 @@ async function handleTableTalk({
     }
     if (!reply) break;
     await new Promise((resolve) => setTimeout(resolve, 260 + Math.floor(Math.random() * 400)));
-    await onlineClient.postBotChat({ tableId, groupPlayerId: next.groupPlayerId, message: reply, voice: true, character: next.characterId, mood: "banter" });
+    await onlineClient.postBotChat({ tableId, groupPlayerId: next.groupPlayerId, message: reply, voice: true, character: next.characterId, mood: "banter", priority: 5 });
     running.push({ name: next.name, text: reply });
     lastSpeaker = next;
     lastLine = reply;
@@ -2654,7 +2721,7 @@ async function handleSessionEvent({
   await new Promise((resolve) => setTimeout(resolve, 250 + Math.floor(Math.random() * 350)));
   await onlineClient.postBotChat({
     tableId, groupPlayerId: speaker.groupPlayerId, message: line,
-    voice: true, character: speaker.characterId, mood: "banter",
+    voice: true, character: speaker.characterId, mood: "banter", priority: 4,
   });
   return json({ ok: true, talked: true, by: speaker.name });
 }

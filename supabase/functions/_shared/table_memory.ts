@@ -41,7 +41,31 @@ export type HumanRead = {
   sdWon: number;
   sdLost: number;
   tanks: number;
+  labels?: string[];     // engine-profile reads (nit/lag/station/trapper/...)
 };
+
+// How the engine's opponent-profile tags read as SOCIAL reputations. The
+// characters get the observation; their persona supplies the interpretation
+// (a bully reads "nit" as fear, a vet reads it as patience).
+const LABEL_PHRASES: Record<string, string> = {
+  nit: "plays scared-tight -- barely enters a pot",
+  tag: "plays solid, disciplined poker",
+  lag: "is in everything and always betting",
+  station: "is a calling station -- nearly impossible to bluff",
+  trapper: "is a trapper -- when they go quiet, danger",
+  "bluff-heavy": "bluffs far too much",
+  "river-overfolder": "folds rivers under pressure -- one big bet gets it done",
+  tilting: "is visibly tilting",
+  protecting_stack: "has started protecting a short stack",
+  bullying: "is bullying the table with a big stack",
+  sticky_after_showdown: "goes sticky after losing a showdown -- won't fold for an orbit",
+};
+
+export function setHumanLabels(mem: TableMemory, name: string, labels: string[]) {
+  const h: HumanRead = mem.human[name] || { hands: 0, vpip: 0, pfFoldStreak: 0, sdWon: 0, sdLost: 0, tanks: 0 };
+  h.labels = labels.filter((l) => LABEL_PHRASES[l]).slice(0, 3);
+  mem.human[name] = h;
+}
 
 // Directional relationship: how `from` (a display name) currently feels about
 // `to`. Directional on purpose -- Pony can respect Finn while Finn just finds
@@ -75,6 +99,8 @@ export type TableMemory = {
   rel: Record<string, Relation>;      // by "fromName>toName"
   seeded?: string[];                  // characterIds whose chemistry is planted
   lastNeedle?: { target: string; at: number } | null; // repetition guard: who just got heat
+  hush?: { until: number; kind: string; note: string } | null; // designed table silence
+  lastMoment?: { at: number; pr: number } | null; // director gate: last line's priority
 };
 
 const MAX_EVENTS = 24;
@@ -95,7 +121,73 @@ export function normalizeTableMemory(raw: unknown): TableMemory {
     rel: m.rel && typeof m.rel === "object" ? m.rel as Record<string, Relation> : {},
     seeded: Array.isArray(m.seeded) ? m.seeded : [],
     lastNeedle: m.lastNeedle && typeof m.lastNeedle === "object" ? m.lastNeedle : null,
+    hush: m.hush && typeof m.hush === "object" ? m.hush : null,
+    lastMoment: m.lastMoment && typeof m.lastMoment === "object" ? m.lastMoment : null,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Designed silence: some moments deserve a hush, not a quip. The aftermath can
+// declare one -- the table then sits with it (ambient talk suppressed, no
+// settle line), and whoever eventually speaks knows they are BREAKING it.
+// ---------------------------------------------------------------------------
+export function maybeStartHush(mem: TableMemory, aftermath: Aftermath): { kind: string; note: string } | null {
+  let kind: string | null = null;
+  let p = 0;
+  if (aftermath.kind === "hero_call") { kind = "respectful"; p = 0.35; }
+  else if (aftermath.kind === "bluff_called") { kind = "embarrassed"; p = 0.3; }
+  else if (aftermath.kind === "cooler" && aftermath.potBb >= 25) { kind = "stunned"; p = 0.35; }
+  if (!kind || Math.random() >= p) return null;
+  const note =
+    aftermath.kind === "hero_call" ? `${aftermath.winnerName}'s hero call on ${aftermath.caughtName}`
+    : aftermath.kind === "bluff_called" ? `${aftermath.caughtName}'s bluff getting shown`
+    : `the ${Math.round(aftermath.potBb)}bb cooler that hit ${aftermath.loserName}`;
+  mem.hush = { until: Date.now() + 15000, kind, note };
+  return { kind, note };
+}
+
+export function hushActive(mem: TableMemory): boolean {
+  return Boolean(mem.hush && Date.now() < Number(mem.hush.until || 0));
+}
+
+// Prompt direction for the first voice after (or during) a designed silence.
+// Stays relevant for a short window after the hush lifts.
+export function hushLine(mem: TableMemory): string | null {
+  if (!mem.hush) return null;
+  const age = Date.now() - Number(mem.hush.until || 0);
+  if (age > 45000) return null;
+  return `THE ROOM: the table just sat in ${mem.hush.kind} silence after ${mem.hush.note}. If you speak now, YOU are the one breaking that silence -- acknowledge the weight, or puncture it deliberately. Either way, the pause happened.`;
+}
+
+// ---------------------------------------------------------------------------
+// Conversation director (global gate): several systems can want to talk at
+// once. A clearly weaker line must not stomp a strong moment that just
+// happened -- an ambient crack two seconds after a shown bluff kills the beat.
+// Priorities: 1 reply-to-human, 2 settle aftermath, 3 in-hand pressure /
+// aftermath chorus, 4 session events, 5 ambient, 6 stray nonverbals. A line
+// two or more rungs weaker than the last moment yields for a few seconds;
+// direct chains (one rung apart) are part of the moment and flow through.
+// ---------------------------------------------------------------------------
+export function stepsOnMoment(mem: TableMemory, priority: number, windowMs = 8000): boolean {
+  if (!mem.lastMoment) return false;
+  return priority - Number(mem.lastMoment.pr || 5) >= 2
+    && Date.now() - Number(mem.lastMoment.at || 0) < windowMs;
+}
+
+export function noteMoment(mem: TableMemory, priority: number) {
+  mem.lastMoment = { at: Date.now(), pr: priority };
+}
+
+// ---------------------------------------------------------------------------
+// Session dramatic arc: hand count sets the social register so hand 3 and
+// hand 30 don't carry the same maturity. Pacing direction, not a script.
+// ---------------------------------------------------------------------------
+export function sessionArcLine(mem: TableMemory): string {
+  const h = mem.hands;
+  if (h < 4) return "SESSION ARC: the night is just starting -- exploratory energy. Feel people out; reads and jokes are still forming. Do NOT open at full hostility.";
+  if (h < 10) return "SESSION ARC: settling in -- styles are showing, small jokes and minor irritations are taking root. Rivalries forming, not yet declared.";
+  if (h < 20) return "SESSION ARC: deep in the session -- the money and the history are real now. Grudges have names, needles are personal, callbacks land hardest here.";
+  return "SESSION ARC: late session -- everyone's tired, the history is long, unsettled scores itch. Fewer jokes, heavier callbacks; what's unfinished wants finishing.";
 }
 
 // Target-recency guard: the same player shouldn't take heat from the table
@@ -514,6 +606,9 @@ export function memoryPromptBlock(
     else if (h.hands >= 8 && h.vpip / h.hands >= 0.7) lines.push(`- ${name} plays nearly every pot`);
     if (h.tanks >= 2) lines.push(`- ${name} keeps going deep in the tank on decisions`);
     if (h.sdWon >= 3 && h.sdLost === 0) lines.push(`- ${name} has shown up with the goods every single showdown`);
+    // Engine-profile reputation: the table's professional read on their game.
+    const phrased = (h.labels || []).map((l) => LABEL_PHRASES[l]).filter(Boolean);
+    if (phrased.length) lines.push(`- ${name} ${phrased.join(", and ")}`);
   }
 
   // Everyone can see who's steaming (except your own state -- that's `mind`).
@@ -527,10 +622,14 @@ export function memoryPromptBlock(
     for (const rl of relationLinesFor(mem, speakerName)) lines.push(`- ${rl}`);
   }
 
-  if (!lines.length) return null;
+  const arc = sessionArcLine(mem);
+  const hush = hushLine(mem);
+  if (!lines.length) return [arc, ...(hush ? [hush] : [])].join("\n");
   return [
     "TABLE MEMORY -- real history from this session. Interpret it through YOUR character's eyes (a bully reads folding as fear; a vet reads it as patience). Callback fuel: weave one in naturally when it fits -- running jokes get better the second time, but retire a joke once it's had its payoff. Never recite the list, never invent history that isn't here:",
     ...lines.slice(0, 7),
+    arc,
+    ...(hush ? [hush] : []),
   ].join("\n");
 }
 
