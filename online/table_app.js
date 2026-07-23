@@ -1522,17 +1522,80 @@ function playTone(freq, duration = 0.08, gain = 0.1, type = "sine") {
   osc.stop(ctx.currentTime + duration);
 }
 
+// Cached white-noise buffer -- the raw material for the percussive chip/card
+// sounds (filtered bursts of noise sound like real impacts, unlike pure tones).
+function getNoiseBuffer(ctx) {
+  if (!state._noiseBuf || state._noiseBuf.sampleRate !== ctx.sampleRate) {
+    const len = Math.floor(ctx.sampleRate * 0.3);
+    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i += 1) d[i] = Math.random() * 2 - 1;
+    state._noiseBuf = buf;
+  }
+  return state._noiseBuf;
+}
+
+// One filtered noise burst with a fast-attack / exponential-decay envelope.
+// `sweepTo` optionally ramps the filter frequency for a card "fwip".
+function noiseBurst(ctx, { t, dur, gain, type = "bandpass", freq, q = 1, sweepTo = null }) {
+  const src = ctx.createBufferSource();
+  src.buffer = getNoiseBuffer(ctx);
+  const filt = ctx.createBiquadFilter();
+  filt.type = type;
+  filt.frequency.setValueAtTime(Math.max(40, freq), t);
+  filt.Q.value = q;
+  if (sweepTo) filt.frequency.exponentialRampToValueAtTime(Math.max(40, sweepTo), t + dur);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(gain, t + 0.003);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  src.connect(filt).connect(g).connect(ctx.destination);
+  src.start(t);
+  src.stop(t + dur + 0.03);
+}
+
+// A single clay/ceramic poker-chip clink: sharp impact click + two short rings.
+function chipClink(ctx, t, gain, pitch = 1) {
+  noiseBurst(ctx, { t, dur: 0.028, gain: gain * 0.8, type: "highpass", freq: 1600 * pitch, q: 0.7 });
+  noiseBurst(ctx, { t: t + 0.002, dur: 0.06, gain, type: "bandpass", freq: 3100 * pitch, q: 7 });
+  noiseBurst(ctx, { t: t + 0.002, dur: 0.045, gain: gain * 0.5, type: "bandpass", freq: 5400 * pitch, q: 9 });
+}
+
+// A little clatter of N chips landing on the felt (bet/call/raise/all-in/pot rake).
+function chipStack(n = 3, gain = 0.11) {
+  if (!state.config.soundOn) return;
+  const ctx = getAudioCtx();
+  if (!ctx) return;
+  const t0 = ctx.currentTime;
+  let t = t0;
+  for (let i = 0; i < n; i += 1) {
+    chipClink(ctx, t, gain * (0.8 + Math.random() * 0.4), 0.9 + Math.random() * 0.28);
+    t += 0.022 + Math.random() * 0.035;
+  }
+}
+
+// A card "fwip": broadband noise with a downward filter sweep. `snap` adds a
+// crisper leading transient (for a flip vs. a soft slide).
+function cardFwip(gain = 0.09, dur = 0.075, hi = 6500, lo = 1300, snap = false) {
+  if (!state.config.soundOn) return;
+  const ctx = getAudioCtx();
+  if (!ctx) return;
+  const t = ctx.currentTime;
+  if (snap) noiseBurst(ctx, { t, dur: 0.02, gain: gain * 0.9, type: "highpass", freq: 4000, q: 0.6 });
+  noiseBurst(ctx, { t, dur, gain, type: "bandpass", freq: hi, q: 0.8, sweepTo: lo });
+}
+
 const sounds = {
   yourTurn: () => { playTone(880, 0.12, 0.15); setTimeout(() => playTone(1100, 0.1, 0.12), 130); },
-  check: () => playTone(400, 0.05, 0.08, "triangle"),
-  call: () => { playTone(470, 0.05, 0.08, "triangle"); setTimeout(() => playTone(560, 0.05, 0.07, "triangle"), 55); },
-  bet: () => { playTone(600, 0.06, 0.1); setTimeout(() => playTone(800, 0.04, 0.08), 60); },
-  raise: () => { playTone(640, 0.08, 0.1); setTimeout(() => playTone(860, 0.08, 0.09), 65); setTimeout(() => playTone(1040, 0.06, 0.08), 135); },
-  fold: () => playTone(250, 0.1, 0.06, "triangle"),
-  allIn: () => { playTone(500, 0.15, 0.15); setTimeout(() => playTone(700, 0.15, 0.12), 100); setTimeout(() => playTone(900, 0.2, 0.1), 200); },
-  win: () => { playTone(800, 0.15, 0.12); setTimeout(() => playTone(1000, 0.15, 0.1), 120); setTimeout(() => playTone(1200, 0.25, 0.1), 250); },
-  deal: () => playTone(1200, 0.03, 0.05, "triangle"),
-  streetFlip: () => { playTone(880, 0.04, 0.05, "triangle"); setTimeout(() => playTone(620, 0.06, 0.05, "triangle"), 45); },
+  check: () => { const ctx = getAudioCtx(); if (state.config.soundOn && ctx) { noiseBurst(ctx, { t: ctx.currentTime, dur: 0.05, gain: 0.09, type: "lowpass", freq: 900, q: 0.6 }); } }, // knuckle rap
+  call: () => chipStack(2, 0.1),
+  bet: () => chipStack(3, 0.11),
+  raise: () => chipStack(4, 0.12),
+  fold: () => cardFwip(0.08, 0.11, 5200, 900),          // muck toss
+  allIn: () => { chipStack(8, 0.13); setTimeout(() => chipStack(4, 0.1), 130); },  // big shove
+  win: () => { chipStack(6, 0.12); setTimeout(() => chipStack(6, 0.11), 150); setTimeout(() => chipStack(4, 0.1), 300); }, // raking the pot
+  deal: () => cardFwip(0.07, 0.05, 7000, 2000, true),   // quick flick off the deck
+  streetFlip: () => cardFwip(0.1, 0.08, 6800, 1500, true), // board card snap
   tick: () => playTone(1000, 0.02, 0.04, "square"),
   ring: () => { playTone(760, 0.09, 0.08, "sine"); setTimeout(() => playTone(980, 0.09, 0.07, "sine"), 140); },
 };
