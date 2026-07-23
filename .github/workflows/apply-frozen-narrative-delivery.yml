@@ -1,0 +1,45 @@
+name: Apply frozen narrative delivery patch
+
+on:
+  push:
+    branches:
+      - agent/frozen-narrative-delivery
+
+permissions:
+  contents: write
+
+concurrency:
+  group: frozen-narrative-delivery
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/frozen-narrative-delivery
+          fetch-depth: 0
+
+      - name: Apply focused runtime patch
+        run: |
+          git apply --recount --check .github/patches/frozen-narrative-delivery.patch
+          git apply --recount .github/patches/frozen-narrative-delivery.patch
+
+      - name: Validate classifier and patch
+        run: |
+          npm run test:narrative
+          node --check supabase/functions/_shared/narrative_moment.js
+          git diff --check
+
+      - name: Commit generated implementation
+        run: |
+          rm .github/patches/frozen-narrative-delivery.patch
+          rm .github/workflows/apply-frozen-narrative-delivery.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Freeze narrative context and classify late delivery"
+          git push origin HEAD:agent/frozen-narrative-delivery
