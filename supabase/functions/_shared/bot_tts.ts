@@ -291,10 +291,12 @@ async function groqTts(characterId: string, clean: string, mood: string, apiKey:
   // conversation instead of sounding scripted. Sprinkle a genuine laugh/chuckle
   // onto a chunk of the banter + needle lines (not every one -- that'd be manic).
   let input = clean;
+  // The line text may already carry a written laugh; add a real Orpheus laugh
+  // tag on a smaller slice so it doesn't turn manic.
   if (mood === "banter" || mood === "needle") {
     const r = Math.random();
-    if (r < 0.18) input = `${clean} <laugh>`;
-    else if (r < 0.42) input = `${clean} <chuckle>`;
+    if (r < 0.10) input = `${clean} <laugh>`;
+    else if (r < 0.24) input = `${clean} <chuckle>`;
   }
 
   const resp = await fetch("https://api.groq.com/openai/v1/audio/speech", {
