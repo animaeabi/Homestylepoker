@@ -1,23 +1,24 @@
 name: Apply frozen narrative delivery patch
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/frozen-narrative-delivery
+      - main
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: write
 
 concurrency:
-  group: frozen-narrative-delivery
+  group: frozen-narrative-delivery-${{ github.event.pull_request.number }}
   cancel-in-progress: false
 
 jobs:
   apply:
-    if: github.actor != 'github-actions[bot]'
+    if: github.head_ref == 'agent/frozen-narrative-delivery' && github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
-      - name: Check out branch
+      - name: Check out implementation branch
         uses: actions/checkout@v4
         with:
           ref: agent/frozen-narrative-delivery
