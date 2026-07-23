@@ -1600,6 +1600,132 @@ const sounds = {
   ring: () => { playTone(760, 0.09, 0.08, "sine"); setTimeout(() => playTone(980, 0.09, 0.07, "sine"), 140); },
 };
 
+// ============ ROOM AMBIENCE ============
+// A living poker-room bed, synthesized (no audio files): a low room-tone hum, an
+// unintelligible crowd murmur that slowly breathes, and sparse distant chip
+// riffles / clinks scheduled at random. Loops forever; gated by soundOn.
+const ambience = {
+  running: false,
+  master: null,
+  nodes: null,
+  eventTimer: null,
+  _buf: {},
+
+  _noise(ctx, color) {
+    if (this._buf[color] && this._buf[color].sampleRate === ctx.sampleRate) return this._buf[color];
+    const len = Math.floor(ctx.sampleRate * 3);
+    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    if (color === "brown") {
+      let last = 0;
+      for (let i = 0; i < len; i += 1) { const w = Math.random() * 2 - 1; last = (last + 0.02 * w) / 1.02; d[i] = last * 3.2; }
+    } else { // pink (Voss-ish)
+      let b0 = 0, b1 = 0, b2 = 0;
+      for (let i = 0; i < len; i += 1) {
+        const w = Math.random() * 2 - 1;
+        b0 = 0.99765 * b0 + w * 0.0990460; b1 = 0.96300 * b1 + w * 0.2965164; b2 = 0.57000 * b2 + w * 1.0526913;
+        d[i] = (b0 + b1 + b2 + w * 0.1848) * 0.16;
+      }
+    }
+    this._buf[color] = buf;
+    return buf;
+  },
+
+  // A soft, distant chip riffle (someone shuffling a stack across the room).
+  _riffle(ctx) {
+    const bus = ctx.createGain(); bus.gain.value = 0.4;
+    const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 2400; lp.Q.value = 0.5;
+    bus.connect(lp).connect(this.master);
+    let t = ctx.currentTime + 0.02;
+    const n = 8 + Math.floor(Math.random() * 8);
+    for (let i = 0; i < n; i += 1) {
+      const src = ctx.createBufferSource(); src.buffer = this._noise(ctx, "pink");
+      const bp = ctx.createBiquadFilter(); bp.type = "bandpass"; bp.frequency.value = 2600 + Math.random() * 1500; bp.Q.value = 6;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.5, t + 0.002);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.03);
+      src.connect(bp).connect(g).connect(bus);
+      src.start(t); src.stop(t + 0.05);
+      t += 0.018 + Math.random() * 0.022;
+    }
+  },
+
+  // A single distant clink (a chip or glass tapped somewhere in the room).
+  _clink(ctx) {
+    const t = ctx.currentTime + 0.02;
+    const bus = ctx.createGain(); bus.gain.value = 0.3;
+    const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 3200;
+    bus.connect(lp).connect(this.master);
+    const src = ctx.createBufferSource(); src.buffer = this._noise(ctx, "pink");
+    const bp = ctx.createBiquadFilter(); bp.type = "bandpass"; bp.frequency.value = 2800 + Math.random() * 1200; bp.Q.value = 9;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.6, t + 0.003);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+    src.connect(bp).connect(g).connect(bus);
+    src.start(t); src.stop(t + 0.16);
+  },
+
+  _scheduleEvent(ctx) {
+    if (!this.running) return;
+    const delay = 6000 + Math.random() * 15000;
+    this.eventTimer = setTimeout(() => {
+      if (this.running && state.config.soundOn) {
+        try { (Math.random() < 0.6 ? this._riffle(ctx) : this._clink(ctx)); } catch { /* ignore */ }
+      }
+      this._scheduleEvent(ctx);
+    }, delay);
+  },
+
+  start() {
+    if (this.running || !state.config.soundOn) return;
+    const ctx = getAudioCtx();
+    if (!ctx) return;
+    if (ctx.state === "suspended") { try { ctx.resume(); } catch { /* ignore */ } }
+    const now = ctx.currentTime;
+    const master = ctx.createGain();
+    master.gain.setValueAtTime(0.0001, now);
+    master.gain.exponentialRampToValueAtTime(0.16, now + 3); // gentle fade-in
+    master.connect(ctx.destination);
+
+    // Room tone: brown noise, heavily low-passed -> the "hum" of the room.
+    const room = ctx.createBufferSource(); room.buffer = this._noise(ctx, "brown"); room.loop = true;
+    const rlp = ctx.createBiquadFilter(); rlp.type = "lowpass"; rlp.frequency.value = 380; rlp.Q.value = 0.4;
+    const rg = ctx.createGain(); rg.gain.value = 0.55;
+    room.connect(rlp).connect(rg).connect(master);
+
+    // Crowd murmur: pink noise band-passed to voice range, no words -> babble.
+    const crowd = ctx.createBufferSource(); crowd.buffer = this._noise(ctx, "pink"); crowd.loop = true;
+    const cbp = ctx.createBiquadFilter(); cbp.type = "bandpass"; cbp.frequency.value = 1000; cbp.Q.value = 0.5;
+    const cg = ctx.createGain(); cg.gain.value = 0.14;
+    crowd.connect(cbp).connect(cg).connect(master);
+    // Slow tremolo so the crowd "breathes".
+    const lfo = ctx.createOscillator(); lfo.type = "sine"; lfo.frequency.value = 0.12;
+    const lfoG = ctx.createGain(); lfoG.gain.value = 0.07;
+    lfo.connect(lfoG).connect(cg.gain);
+
+    room.start(); crowd.start(); lfo.start();
+    this.master = master;
+    this.nodes = { room, crowd, lfo };
+    this.running = true;
+    this._scheduleEvent(ctx);
+  },
+
+  stop() {
+    if (!this.running) return;
+    this.running = false;
+    if (this.eventTimer) { clearTimeout(this.eventTimer); this.eventTimer = null; }
+    const ctx = getAudioCtx();
+    try {
+      if (ctx && this.master) this.master.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.8);
+      const n = this.nodes;
+      setTimeout(() => { try { n.room.stop(); n.crowd.stop(); n.lfo.stop(); } catch { /* ignore */ } }, 900);
+    } catch { /* ignore */ }
+    this.nodes = null; this.master = null;
+  },
+};
+
 // ============ HELPERS ============
 function normalizeMoney(value) {
   const n = Number(value || 0);
@@ -7807,8 +7933,13 @@ function bindEvents() {
   });
 
   // Sound toggle
-  document.getElementById("cfgSoundOn").addEventListener("click", () => { setToggle("cfgSoundOn", "cfgSoundOff"); state.config.soundOn = true; });
-  document.getElementById("cfgSoundOff").addEventListener("click", () => { setToggle("cfgSoundOff", "cfgSoundOn"); state.config.soundOn = false; });
+  document.getElementById("cfgSoundOn").addEventListener("click", () => { setToggle("cfgSoundOn", "cfgSoundOff"); state.config.soundOn = true; ambience.start(); });
+  document.getElementById("cfgSoundOff").addEventListener("click", () => { setToggle("cfgSoundOff", "cfgSoundOn"); state.config.soundOn = false; ambience.stop(); });
+  // Autoplay needs a user gesture: start the room ambience on the first tap.
+  document.addEventListener("pointerdown", function ambienceFirstGesture() {
+    document.removeEventListener("pointerdown", ambienceFirstGesture);
+    if (state.config.soundOn) ambience.start();
+  }, { once: true });
 
   // Log toggle
   document.getElementById("cfgLogOn").addEventListener("click", () => {
