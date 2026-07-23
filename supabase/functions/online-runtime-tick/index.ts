@@ -2037,7 +2037,8 @@ async function handleTts({
   const azureKey = asText(Deno.env.get("AZURE_SPEECH_KEY"));
   const azureRegion = asText(Deno.env.get("AZURE_SPEECH_REGION"));
   const groqKey = asText(Deno.env.get("GROQ_API_KEY"));
-  if (!geminiKey && !azureKey && !groqKey) return json({ ok: true, audio: null, reason: "no_key" });
+  const googleKey = asText(Deno.env.get("GOOGLE_TTS_KEY"));
+  if (!geminiKey && !azureKey && !groqKey && !googleKey) return json({ ok: true, audio: null, reason: "no_key" });
   if (!(await onlineClient.aiRateHit({ tableId, kind: "tts", limit: AI_TTS_PER_MIN }))) {
     return json({ ok: true, audio: null, reason: "rate_limited" });
   }
@@ -2052,6 +2053,7 @@ async function handleTts({
         azureKey: azureKey || null,
         azureRegion: azureRegion || null,
         groq: groqKey || null,
+        google: googleKey || null,
         model: asText(Deno.env.get("TTS_MODEL")) || null,
       },
     });
