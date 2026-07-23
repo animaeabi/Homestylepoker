@@ -8030,6 +8030,17 @@ function bindEvents() {
     if (state.config.soundOn) ambience.start();
   }, { once: true });
 
+  // Don't let the room hum on in the background: pause it (and all audio) when the
+  // tab is hidden / the app is backgrounded, resume when it comes back; and stop
+  // it outright when the page is being torn down.
+  document.addEventListener("visibilitychange", () => {
+    const ctx = state.audioCtx;
+    if (!ctx) return;
+    if (document.visibilityState === "hidden") { try { ctx.suspend(); } catch { /* ignore */ } }
+    else if (state.config.soundOn) { try { ctx.resume(); } catch { /* ignore */ } }
+  });
+  window.addEventListener("pagehide", () => { try { ambience.stop(); } catch { /* ignore */ } });
+
   // Log toggle
   document.getElementById("cfgLogOn").addEventListener("click", () => {
     setToggle("cfgLogOn", "cfgLogOff");
