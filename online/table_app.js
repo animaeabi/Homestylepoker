@@ -324,6 +324,7 @@ const state = {
   // enough to read, and fades -- the next line never cuts it off.
   speechQueue: [],
   speechActive: false,
+  speechCurrent: null,
   speechTypeTimer: null,
   speechHoldTimer: null,
   turnGrace: {
@@ -455,6 +456,9 @@ function startSeatHeartbeat({ immediate = false } = {}) {
     }
     if (document.visibilityState === "visible") {
       void touchSeatPresence({ silent: true });
+      // Presence stamp for the "returned from a break" social event: on a later
+      // reload we compare against this to tell a quick refresh from a real absence.
+      try { localStorage.setItem("hsp_last_active_at", String(Date.now())); } catch { /* ignore */ }
     }
   }, SEAT_HEARTBEAT_MS);
 }
@@ -1971,6 +1975,10 @@ function isShowdownPresentationActive(hand = getLatestHand()) {
     || state.victoryPopupTimer
     || state.victoryPopup?.visible
     || hasActiveWinOverlays()
+    // The winner/loser gets to finish their line before the next shuffle --
+    // result speech is part of the hand's completion, capped at 12s so a
+    // stuck voice can never block the game.
+    || hasPendingResultSpeech(handId)
   );
 }
 
@@ -2076,7 +2084,16 @@ function syncActionAnnouncements({ hadPriorTableState = false, oldHandId = null 
 
   state.lastAnnouncedActionSeq = Number(newActions[newActions.length - 1].seq || state.lastAnnouncedActionSeq || 0);
   const latestAction = newActions[newActions.length - 1];
-  queueActionAnnouncement(latestAction, { replace: true });
+  // Present EVERY unseen action in order. Collapsing to only the newest one
+  // (the old `replace: true`) made checks and calls vanish whenever a refresh
+  // carried several events -- bots appeared to skip turns and their sounds
+  // never played. After a long gap (reconnect, background-tab throttle) we
+  // still skip deep history and present only the last few: that's an explicit
+  // recovery policy, not an accident.
+  const MAX_ACTION_CATCHUP = 4;
+  for (const ev of newActions.slice(-MAX_ACTION_CATCHUP)) {
+    queueActionAnnouncement(ev);
+  }
   return { hasNewActions: true, latestAction };
 }
 
@@ -3448,6 +3465,11 @@ function enqueueSpeechBubble(message) {
     character: message?.character || null,
     mood: message?.mood || null,
     thought: Boolean(message?.thought),
+    // Gameplay anchoring: which hand this line belongs to and when it was
+    // queued -- stale lines are dropped instead of leaking into a newer hand,
+    // and result speech briefly holds the next hand's presentation.
+    handId: getLatestHand()?.id || null,
+    enqueuedAt: Date.now(),
   });
   // Keep the queue short: if lines arrive faster than they can be read, drop the
   // oldest PENDING bubbles (the full text still lives in the chat panel).
@@ -3459,13 +3481,40 @@ function enqueueSpeechBubble(message) {
 
 function pumpSpeechQueue() {
   if (state.speechActive) return;
+  // Expire stale lines: a reaction anchored to an older hand must never play
+  // into a newer one (the audit's "loser reaction during the next hand").
+  const currentHandId = getLatestHand()?.id || null;
+  while (state.speechQueue.length) {
+    const head = state.speechQueue[0];
+    const wrongHand = Boolean(head.handId && currentHandId && head.handId !== currentHandId);
+    const tooOld = Date.now() - Number(head.enqueuedAt || 0) > 25000;
+    if (wrongHand || tooOld) state.speechQueue.shift();
+    else break;
+  }
   const item = state.speechQueue.shift();
   if (!item) return;
   state.speechActive = true;
+  state.speechCurrent = item;
   presentSpeechBubble(item).finally(() => {
     state.speechActive = false;
+    state.speechCurrent = null;
     pumpSpeechQueue();
   });
+}
+
+// Result speech (win/lose/all-in/bad-beat reactions to THIS hand) briefly
+// holds the next hand's presentation so winners finish their line before the
+// shuffle -- hard-capped so a stuck queue can never block dealing.
+const RESULT_SPEECH_MOODS = new Set(["win", "lose", "allin", "badbeat", "regret", "anger", "nonverbal"]);
+function hasPendingResultSpeech(handId) {
+  if (!handId) return false;
+  const isBlocking = (item) => Boolean(
+    item
+    && item.handId === handId
+    && RESULT_SPEECH_MOODS.has(String(item.mood || ""))
+    && Date.now() - Number(item.enqueuedAt || 0) < 12000
+  );
+  return isBlocking(state.speechCurrent) || state.speechQueue.some(isBlocking);
 }
 
 function currentSpeechSeatNo(playerId) {
@@ -4299,9 +4348,10 @@ function getBoardRevealProfile(street, runout = false) {
       // flip crowned with a golden bloom.
       return { tone: "turn", landDurMs: 620, gapMs: 320, flipDurMs: 560, breathMs: 260 };
     case "river":
-      // Chaos: the card snaps in fast and hard with a punchy overshoot flip and
-      // a bright impact flash.
-      return { tone: "river", landDurMs: 330, gapMs: 30, flipDurMs: 300, breathMs: 150 };
+      // Chaos, then weight: the card still snaps in fast and hard (that's its
+      // character), but the RESULT holds -- the most consequential card of the
+      // hand earns a real beat after the flip instead of flashing past.
+      return { tone: "river", landDurMs: 330, gapMs: 120, flipDurMs: 300, breathMs: 520 };
     case "flop":
     default:
       // Decent pace: the three cards land and flip one by one.
@@ -4878,6 +4928,10 @@ function maybeLaunchPotPushFx(hand = getLatestHand()) {
     return;
   }
 
+  // Sound is emitted by the presentation event itself: the rake begins the
+  // instant the chips visibly leave the pot.
+  sounds.potPush();
+
   state.clearedPotHandId = anim.handId;
   if (el.potDisplay) el.potDisplay.classList.add("pot-paying", "pot-cleared");
   if (el.potAmount) el.potAmount.textContent = fmtShort(0);
@@ -5168,6 +5222,21 @@ async function tryRestoreExistingSeat(tableId, identity) {
     });
     if (!seat?.seat_token) return false;
     setSeatToken(tableId, identity.groupPlayerId, seat.seat_token);
+    // Returning after a REAL break (not a quick refresh)? Let the table mark
+    // it. Gated on the last presence stamp so page reloads stay silent.
+    try {
+      const lastActive = Number(localStorage.getItem("hsp_last_active_at") || 0);
+      if (lastActive > 0 && Date.now() - lastActive > 180000) {
+        supabase.functions.invoke("online-runtime-tick", {
+          body: {
+            mode: "player_returned",
+            table_id: tableId,
+            group_player_id: identity.groupPlayerId,
+            seat_token: seat.seat_token,
+          },
+        }).catch(() => { /* welcome-back is best-effort */ });
+      }
+    } catch { /* ignore */ }
     enterTable(tableId);
     return true;
   } catch (err) {
@@ -5949,7 +6018,9 @@ function handleSettlementFx(hand, { revealDelayMs = 0 } = {}) {
       cleanupTimer: null,
     } : null;
 
-    if (netWinners.length > 0 || payoutRecipients.length > 0) { sounds.win(); sounds.potPush(); ambience.react("swell"); }
+    // Winner moment: the win sting plays here; the pot-push RAKE sound moves
+    // to maybeLaunchPotPushFx so it starts WITH the chips, not before them.
+    if (netWinners.length > 0 || payoutRecipients.length > 0) { sounds.win(); ambience.react("swell"); }
     renderAll();
   };
 
@@ -6157,6 +6228,16 @@ async function doRebuy() {
       seatToken: token,
     });
     toast("Chips added!", "success");
+    // A rebuy is a social event -- the table noticed you reload. One character
+    // may mark it ("fresh ammunition"). Fire-and-forget.
+    supabase.functions.invoke("online-runtime-tick", {
+      body: {
+        mode: "player_rebuy",
+        table_id: state.tableId,
+        group_player_id: state.identity.groupPlayerId,
+        seat_token: token,
+      },
+    }).catch(() => { /* banter is best-effort */ });
     await loadTableState();
   } catch (err) {
     toast(friendlyOnlineError(err, "Rebuy failed — try again."), "error");
@@ -6795,7 +6876,16 @@ function renderSeats() {
         const isShowdown = contestedShowdown;
         const manuallyShown = Boolean(hp?.manually_shown);
         let reveal = isMe;
-        if ((isShowdown && !isFolded) || (hand?.state === "settled" && manuallyShown)) {
+        // Presentation barrier: the server can flip to showdown while the
+        // final call's banner is still on screen. Opponent hole cards stay
+        // facedown until the actions that LED here have finished presenting
+        // (the announcement flush re-renders, releasing this gate) -- so the
+        // reveal always lands AFTER the call, never in the same frame.
+        const actionPresentationPending = Boolean(
+          state.actionAnnouncementQueue.length || state.actionAnnouncementCurrent
+        );
+        if (!actionPresentationPending
+          && ((isShowdown && !isFolded) || (hand?.state === "settled" && manuallyShown))) {
           reveal = shouldRevealShowdownSeat({
             hand,
             players: handPlayers,
@@ -7803,15 +7893,15 @@ function returnToLobbyDeadTable() {
 
 async function submitTurnAction(label, actionType) {
   if (state.pendingAction || state.heroActionWaiting) return;
-  if (state.loading) {
-    // A background refresh holds state.loading for its whole round-trip —
-    // previously any tap landing in that window was silently dropped (on a
-    // flaky link the poll keeps loading almost constantly, eating ~half the
-    // player's taps until the timer auto-folds them). Wait briefly for the
-    // refresh to finish instead, then proceed with the fresh state.
+  // Input must not contend with the state-fetch lock: if the CACHED state
+  // already shows it's our turn, submit immediately -- the server validates
+  // the turn anyway, and a background refresh has no business delaying a tap.
+  // Only when the cached turn looks stale do we briefly wait for fresh state.
+  const cachedActionable = isHeroTurnActionable(getLatestHand(), getMyHandPlayer());
+  if (state.loading && !cachedActionable) {
     state.heroActionWaiting = true;
     try {
-      const waitUntil = Date.now() + 4000;
+      const waitUntil = Date.now() + 2000;
       while (state.loading && Date.now() < waitUntil) {
         await new Promise((resolve) => setTimeout(resolve, 80));
       }
@@ -8016,7 +8106,9 @@ function bindEvents() {
         startedByGroupPlayerId: state.identity.groupPlayerId,
         hostSeatToken: getSeatToken(),
       });
-      sounds.deal();
+      // No sound here: the deal-animation scheduler owns shuffle + per-card
+      // audio, timed to the cards actually moving. A click-time sound landed
+      // BEFORE anything was visible and then doubled with the real one.
     });
   });
 

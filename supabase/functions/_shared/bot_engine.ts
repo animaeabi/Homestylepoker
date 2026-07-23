@@ -1475,6 +1475,7 @@ function decideStructuredPreflopAction({
   preflopLimperCount = 0,
   effectiveStackBbHint = null,
   preflopStyleOverride = null,
+  jammerRead = null,
 }: {
   personality: BotPersonality;
   holeCards: string[];
@@ -1493,6 +1494,7 @@ function decideStructuredPreflopAction({
   preflopLimperCount?: number;
   effectiveStackBbHint?: number | null;
   preflopStyleOverride?: Record<string, number> | null;
+  jammerRead?: { jams: number; jamStreak: number } | null;
 }) {
   const blind = Math.max(1, Number(bigBlind || 2));
   const toCall = Math.max(0, Number(currentBet || 0) - Number(streetContribution || 0));
@@ -1516,6 +1518,27 @@ function decideStructuredPreflopAction({
   // Facing a raise, don't fold a fixed range every time — peel occasionally so
   // the decision stays unpredictable and priced by mood/read, not a hard cap.
   const riskMood = handRiskMood(holeCards, seatNo, "preflop", personality);
+
+  // -------------------------------------------------------------------------
+  // Maniac-jammer defense (anti-exploit). Someone open-shoving hand after
+  // hand has a range close to RANDOM -- and poker's answer isn't folding
+  // tighter, it's calling on raw equity vs random, which turns the spam
+  // massively -EV for them. Kicks in only with real evidence (repeated big
+  // jams recorded in table memory) and loosens as the spam gets more
+  // shameless: at streak 5+, any hand with ~52% vs random calls -- roughly
+  // the top 40% -- and the hostage-taking dies within an orbit.
+  // -------------------------------------------------------------------------
+  const facingBigJam = toCallBb >= 15 && Number(streetAggressionCount || 0) >= 1;
+  if (facingBigJam && jammerRead && (jammerRead.jamStreak >= 2 || jammerRead.jams >= 3)) {
+    const eqVsRandom = monteCarloEquity({ holeCards, boardCards: [], opponents: 1, samples: 220 });
+    const callAt = jammerRead.jamStreak >= 5 || jammerRead.jams >= 8 ? 0.52
+      : jammerRead.jamStreak >= 3 || jammerRead.jams >= 5 ? 0.55
+      : 0.58;
+    if (eqVsRandom >= callAt) {
+      return { actionType: "call", amount: null as number | null };
+    }
+  }
+
   const curiosityFold = () => (
     coinFlip(curiosityContinueProb({
       features,
@@ -1720,9 +1743,17 @@ function decideStructuredPreflopAction({
 
   if (features.tier === "premium") {
     if (jamNow) return { actionType: "all_in", amount: null as number | null };
-    if (toCallBb <= Math.max(8, effectiveStackBb * 0.24)) {
-      return { actionType: "call", amount: null as number | null };
-    }
+    // Premium hands do not fold preflop to a single all-in at cash depths --
+    // the old size cap here had aces folding to big open-jams, which is what
+    // let a shove-every-hand exploit run the table unpunished.
+    return { actionType: "call", amount: null as number | null };
+  }
+  // Strong hands still look up very big 4-bet/jam pressure often enough that
+  // relentless shoving can't print: the deeper the aggression spiral, the more
+  // this call leans on real equity rather than a fixed fold.
+  if (features.tier === "strong" && toCallBb >= 15) {
+    const eqVsRandom = monteCarloEquity({ holeCards, boardCards: [], opponents: 1, samples: 180 });
+    if (eqVsRandom >= 0.6) return { actionType: "call", amount: null as number | null };
   }
   return curiosityFold();
 }
@@ -1751,6 +1782,7 @@ function decideBotActionCore({
   effectiveStackBb = null,
   startingStackBb = null,
   averageOpponentStackBb = null,
+  jammerRead = null,
 }: {
   personality: BotPersonality;
   holeCards: string[];
@@ -1775,6 +1807,7 @@ function decideBotActionCore({
   effectiveStackBb?: number | null;
   startingStackBb?: number | null;
   averageOpponentStackBb?: number | null;
+  jammerRead?: { jams: number; jamStreak: number } | null;
 }) {
   const toCall = Math.max(0, (currentBet || 0) - (streetContribution || 0));
   const stack = stackEnd || 0;
@@ -1880,6 +1913,7 @@ function decideBotActionCore({
       preflopLimperCount,
       effectiveStackBbHint: effectiveStackForStreetBb,
       preflopStyleOverride: styleOverrides && styleOverrides.preflop ? styleOverrides.preflop : null,
+      jammerRead,
     });
   }
 
@@ -2220,12 +2254,22 @@ export function botThinkTimeMs({
   pot = 0,
   currentBet = 0,
   activeSeatCount = 2,
+  bigBlind = 0,
+  stack = 0,
+  raiseCount = 0,
+  facingAllIn = false,
+  paceMul = 1,
 }: {
   street?: string;
   toCall?: number;
   pot?: number;
   currentBet?: number;
   activeSeatCount?: number;
+  bigBlind?: number;   // makes pot/call weights RELATIVE (a $120 pot means nothing at $25/$50)
+  stack?: number;      // to-call as a fraction of stack is what makes a decision heavy
+  raiseCount?: number; // raises this street: escalation reads as thought
+  facingAllIn?: boolean;
+  paceMul?: number;    // character pacing profile (Hunger snaps, Grease deliberates)
 } = {}) {
   const baseByStreet: Record<string, number> = {
     preflop: 1650,
@@ -2236,9 +2280,29 @@ export function botThinkTimeMs({
   let delay = baseByStreet[street] || 2000;
   if (toCall > 0) delay += 320;
   if (currentBet > 0) delay += 180;
-  if (pot >= 40) delay += 260;
-  if (pot >= 120) delay += 320;
   if (activeSeatCount <= 3) delay += 140;
+
+  // Decision weight: everything scales in big blinds and stack fractions so a
+  // genuinely big spot tanks visibly longer than a routine one at ANY stakes.
+  const bb = Math.max(1, Number(bigBlind || 0)) || 0;
+  if (bb > 0) {
+    const potBb = Number(pot || 0) / bb;
+    if (potBb >= 12) delay += 350;
+    if (potBb >= 30) delay += 500;
+    if (potBb >= 60) delay += 600;
+    const toCallBb = Number(toCall || 0) / bb;
+    if (toCallBb >= 10) delay += 300;
+  } else {
+    // Legacy absolute thresholds when the blind isn't provided.
+    if (pot >= 40) delay += 260;
+    if (pot >= 120) delay += 320;
+  }
+  const stackFraction = stack > 0 ? Math.min(1, Number(toCall || 0) / Number(stack)) : 0;
+  delay += Math.round(stackFraction * 1900); // calling off your stack is a real tank
+  if (facingAllIn && toCall > 0) delay += 750;
+  delay += Math.min(3, Math.max(0, Number(raiseCount || 0))) * 200;
+
+  delay = Math.round(delay * Math.max(0.4, Math.min(1.8, Number(paceMul || 1))));
   delay += Math.floor(Math.random() * 850);
-  return delay;
+  return Math.max(900, Math.min(8000, delay));
 }
