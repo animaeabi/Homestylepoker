@@ -3137,8 +3137,9 @@ async function presentSpeechBubble(item) {
   // Voice FIRST: if this line will actually be spoken, start the audio and wait
   // until it begins (or a short cap) before revealing any text.
   const characterId = item.character || characterIdForPlayer(item.playerId);
+  let spoken = false;
   if (chatVoice.wouldSpeak(item.voice)) {
-    try { await chatVoice.speakGated(characterId, item.text, { mood: item.mood, maxWaitMs: 2500 }); }
+    try { await chatVoice.speakGated(characterId, item.text, { mood: item.mood, maxWaitMs: 2500 }); spoken = true; }
     catch { /* fall through to showing text */ }
   }
 
@@ -3177,6 +3178,14 @@ async function presentSpeechBubble(item) {
   if (!wordBounds.length) wordBounds.push(full.length);
   if (wordBounds[wordBounds.length - 1] < full.length) wordBounds.push(full.length);
 
+  // Lock the reveal cadence to the actual voice length so the text finishes
+  // exactly when the audio does -- no drift between typing and speech. Without
+  // a spoken clip (voice off / failed), fall back to the fixed cadence.
+  const durMs = spoken ? chatVoice.currentDurationMs() : null;
+  const wordInterval = durMs
+    ? Math.min(600, Math.max(55, durMs / Math.max(1, wordBounds.length)))
+    : SPEECH_WORD_MS;
+
   await new Promise((resolve) => {
     let k = 0;
     const tick = () => {
@@ -3193,7 +3202,7 @@ async function presentSpeechBubble(item) {
         resolve();
         return;
       }
-      state.speechTypeTimer = setTimeout(tick, SPEECH_WORD_MS);
+      state.speechTypeTimer = setTimeout(tick, wordInterval);
     };
     tick();
   });
@@ -3244,6 +3253,13 @@ const chatVoice = {
   ensureAudio() {
     if (!this._audio) { this._audio = new Audio(); this._audio.preload = "auto"; }
     return this._audio;
+  },
+
+  // Duration (ms) of the clip currently loaded, once metadata is available.
+  // Used to pace the typewriter so text and voice stay locked together.
+  currentDurationMs() {
+    const d = this._audio && this._audio.duration;
+    return (typeof d === "number" && isFinite(d) && d > 0) ? d * 1000 : null;
   },
 
   // Play a tiny silent clip inside a user gesture so iOS unlocks audio for the

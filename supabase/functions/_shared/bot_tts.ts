@@ -102,6 +102,9 @@ const GEMINI_STYLE: Record<string, string> = {
 
 // The moment, layered on top of the character voice.
 const GEMINI_MOOD: Record<string, string> = {
+  allin:  "It's a huge all-in pot on the line -- sound charged up, dramatic and larger than life, and laugh if you win it.",
+  badbeat:"You just took a brutal bad beat on a big pot -- sound gutted and stunned, tilting, in disbelief.",
+  anger:  "You are FURIOUS -- sound angry, worked up and venting.",
   win:    "You just WON the pot -- sound cocky and gloating, delighted with yourself, and laugh naturally.",
   lose:   "You just LOST a rough one -- sound bitter, deflated, a little salty and stung.",
   needle: "You're needling and trash-talking -- sound sarcastic, teasing, and cocky.",
@@ -112,6 +115,9 @@ const GEMINI_MOOD: Record<string, string> = {
 // Azure: map the moment to an express-as style; clamped per-voice below.
 const AZURE_MOOD_STYLE: Record<string, string[]> = {
   // preference order; first one the voice supports wins
+  allin:  ["excited", "shouting", "excitement", "cheerful"],
+  badbeat:["sad", "angry", "sadness", "unfriendly"],
+  anger:  ["angry", "shouting", "anger", "unfriendly"],
   win:    ["excited", "cheerful", "joyful", "joy", "excitement"],
   lose:   ["sad", "sadness", "unfriendly", "disappointed"],
   needle: ["angry", "unfriendly", "anger", "shouting"],
@@ -136,8 +142,12 @@ function pickAzureStyle(characterId: string, voice: string, mood: string): strin
 }
 
 // Route the moment (mood) to a tier/provider.
+//   high   -> Gemini (paid, real laughs): only genuinely dramatic moments
+//             (big all-in / bad-beat showdowns, anger) so the budget lasts.
+//   medium -> Groq   (free, real laughs): mid-level banter / bullying / needling.
+//   small  -> Azure + Chirp3 (free): all regular chat (win, lose, banter, ...).
 function tierForMood(mood: string): "high" | "medium" | "small" {
-  if (mood === "win") return "high";
+  if (mood === "allin" || mood === "badbeat" || mood === "anger") return "high";
   if (mood === "needle" || mood === "regret") return "medium";
   return "small";
 }
