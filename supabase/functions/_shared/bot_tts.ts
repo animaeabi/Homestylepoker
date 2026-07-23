@@ -285,18 +285,32 @@ async function azureTts(characterId: string, clean: string, mood: string, key: s
 // Provider: Groq + Orpheus (medium banter -- free, real laughs). Base64 WAV.
 // A browser-like User-Agent avoids Cloudflare bot mitigation.
 // ---------------------------------------------------------------------------
+// Laughter is personality, not decoration: who laughs, how often, and how is
+// part of each character's identity. Finn almost never laughs -- when he does
+// it means something. Grease laughs like amusement costs money. Pony laughs as
+// dominance. `p` scales the base laugh chance; `tag` is the vocal gesture.
+const LAUGH_PROFILE: Record<string, { p: number; tag: string }> = {
+  negranope: { p: 1.3, tag: "<laugh>" },   // warm, delighted when a read lands
+  donk:      { p: 0.5, tag: "<chuckle>" }, // tiny delayed heh
+  holes:     { p: 0.8, tag: "<chuckle>" }, // serene amusement
+  haxxon:    { p: 0.4, tag: "<chuckle>" }, // dry, rare, precise
+  eyev:      { p: 0.06, tag: "<chuckle>" },// almost never -- an event when it happens
+  hellsmouth:{ p: 1.2, tag: "<laugh>" },   // loud at his own version of events
+  sydell:    { p: 0.9, tag: "<chuckle>" }, // quiet and genuine
+  hunger:    { p: 1.1, tag: "<laugh>" },   // fast laugh, instantly moves on
+  grease:    { p: 0.3, tag: "<chuckle>" }, // reluctant, like it's being invoiced
+  pony:      { p: 1.4, tag: "<laugh>" },   // laughter as dominance
+};
+
 async function groqTts(characterId: string, clean: string, mood: string, apiKey: string): Promise<SpeechClip | null> {
   const voice = GROQ_VOICE[characterId] || GROQ_DEFAULT;
   // Orpheus renders inline emotion tags as REAL laughs, so bots crack up in
-  // conversation instead of sounding scripted. Sprinkle a genuine laugh/chuckle
-  // onto a chunk of the banter + needle lines (not every one -- that'd be manic).
+  // conversation instead of sounding scripted -- gated per character so the
+  // laugh RATE is characterization too (not every savage line deserves one).
   let input = clean;
-  // The line text may already carry a written laugh; add a real Orpheus laugh
-  // tag on a smaller slice so it doesn't turn manic.
   if (mood === "banter" || mood === "needle") {
-    const r = Math.random();
-    if (r < 0.10) input = `${clean} <laugh>`;
-    else if (r < 0.24) input = `${clean} <chuckle>`;
+    const prof = LAUGH_PROFILE[characterId] || { p: 1, tag: "<chuckle>" };
+    if (Math.random() < 0.17 * prof.p) input = `${clean} ${prof.tag}`;
   }
 
   const resp = await fetch("https://api.groq.com/openai/v1/audio/speech", {
@@ -366,6 +380,23 @@ export async function generateSpeech({
   const clean = stripForSpeech(text);
   if (!clean) return null;
   const m = String(mood || "");
+
+  // Nonverbal layer: lines like "*sighs*" / "*groans quietly*" aren't words to
+  // read -- they're sounds. Orpheus renders its emotion tags as REAL vocal
+  // gestures, so map the stage direction to a tag on the character's Groq
+  // voice. No other provider can do this (Chirp/Azure would read the word
+  // aloud), so if Groq is unavailable the bubble stays a silent subtitle.
+  if (m === "nonverbal") {
+    if (!keys.groq) return null;
+    const lower = clean.toLowerCase();
+    const tag = /groan|mutter/.test(lower) ? "<groan>" : "<sigh>";
+    try {
+      return await groqTts(characterId, tag, m, keys.groq);
+    } catch {
+      return null;
+    }
+  }
+
   const tier = tierForMood(m);
 
   const gemini = () => keys.gemini ? geminiTts(characterId, clean, m, keys.gemini, keys.model) : Promise.resolve(null);

@@ -1234,6 +1234,23 @@
       @keyframes speechBubbleIn { from { opacity: 0; } to { opacity: 1; } }
       /* Fade-out just before the next queued line takes the stage. */
       .seat-reaction-popup--speech.speech-fading { opacity: 0; }
+      /* Private inner THOUGHTS (heard only by you): a dashed, dimmer "thought
+         cloud" so it never reads as something said out loud at the table. */
+      .seat-reaction-popup--speech.speech-thought {
+        border-style: dashed;
+        border-color: rgba(160,190,255,0.38);
+        background: rgba(16,22,34,0.9);
+        color: rgba(205,220,245,0.92);
+      }
+      .seat-reaction-popup--speech.speech-thought .reaction-text {
+        font-style: italic;
+        font-weight: 500;
+      }
+      .seat-reaction-popup--speech.speech-thought .reaction-text::before {
+        content: "\1F4AD\0020";
+        font-style: normal;
+      }
+      .chat-msg.thought .chat-msg-body { font-style: italic; opacity: 0.78; }
       /* Blinking caret ONLY while the line is actively typing out. */
       .seat-reaction-popup--speech.speech-typing .reaction-text::after {
         content: "";
@@ -5587,6 +5604,15 @@
               </div>
             </div>
 
+            <div class="config-toggle-row">
+              <span>Table Talk</span>
+              <div class="config-toggle-group">
+                <button class="config-toggle-opt" data-intensity="quiet" type="button">Quiet Pro</button>
+                <button class="config-toggle-opt active" data-intensity="social" type="button">Social</button>
+                <button class="config-toggle-opt" data-intensity="drama" type="button">High Drama</button>
+              </div>
+            </div>
+
             <label class="config-field">
               <span>Decision Time Limit (seconds)</span>
               <input class="config-input" id="cfgTurnTime" type="number" min="10" max="120" step="5" value="25" />
@@ -5791,6 +5817,6 @@
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
     <script src="./online/table_fx_geometry.js?v=203"></script>
-    <script type="module" src="./online/table_app.js?v=259"></script>
+    <script type="module" src="./online/table_app.js?v=262"></script>
   </body>
 </html>

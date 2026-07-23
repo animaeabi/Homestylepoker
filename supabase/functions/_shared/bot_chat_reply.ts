@@ -76,7 +76,28 @@ type ReplyArgs = {
   message: string;
   chatHistory: { name: string; text: string }[];
   otherSeated: string[];
+  memory?: string | null;       // TABLE MEMORY block (shared session history)
+  mind?: string | null;         // speaker's own emotional-state direction
+  recentSelf?: string[] | null; // lines this character already said (anti-repeat)
 };
+
+// Repetition guard shown to the model when we know what this character has
+// already said. PASS is a real option: intentional silence beats a rerun.
+function recentSelfBlock(recentSelf?: string[] | null): string[] {
+  const lines = (recentSelf || []).filter(Boolean).slice(0, 6);
+  if (!lines.length) return [];
+  return [
+    "",
+    "LINES YOU ALREADY SAID RECENTLY -- never reuse their phrasing, jokes, signature bits, or point. Find a NEW angle:",
+    ...lines.map((l) => `- ${l}`),
+    "If anything you'd say here would repeat yourself or make the same point again, reply with exactly: PASS",
+  ];
+}
+
+// The model chose silence. Honor it -- do not fall back to canned lines.
+export function isPass(line: string | null | undefined): boolean {
+  return /^pass[.!]*$/i.test(String(line || "").trim());
+}
 
 // Shared voice for EVERY prompt -- how these characters actually talk. Fixes the
 // robotic, nerdy, name-every-line feel: dry and dark, sarcastic, conversational,
@@ -94,7 +115,7 @@ const STYLE_RULES = [
 
 // Shared prompt for every LLM backend. Returns null if the character has no
 // speech DNA (so the caller falls back to canned lines).
-function buildReplyPrompt({ responder, playerName, message, chatHistory, otherSeated }: ReplyArgs):
+function buildReplyPrompt({ responder, playerName, message, chatHistory, otherSeated, memory, mind, recentSelf }: ReplyArgs):
   | { system: string; user: string }
   | null {
   const dna = SPEECH_DNA[responder.characterId];
@@ -104,6 +125,9 @@ function buildReplyPrompt({ responder, playerName, message, chatHistory, otherSe
     `You are ${responder.name}, a PARODY poker character at a casual online home-game table. Your persona: ${dna}`,
     "",
     STYLE_RULES,
+    ...(memory ? ["", memory] : []),
+    ...(mind ? ["", mind] : []),
+    ...recentSelfBlock(recentSelf),
     "",
     "Reply to what the player just said -- fully in character, heated or funny or absurd as it fits. Banter back; give as good as you get.",
   ].join("\n");
@@ -214,13 +238,16 @@ export const AMBIENT_BEATS: string[] = [
 ];
 
 function buildAmbientPrompt({
-  speaker, roster, chatHistory, beat, respondingTo,
+  speaker, roster, chatHistory, beat, respondingTo, memory, mind, recentSelf,
 }: {
   speaker: SeatedCharacter;
   roster: string[];
   chatHistory: { name: string; text: string }[];
   beat?: string | null;
   respondingTo?: { name: string; text: string } | null;
+  memory?: string | null;
+  mind?: string | null;
+  recentSelf?: string[] | null;
 }): { system: string; user: string } | null {
   const dna = SPEECH_DNA[speaker.characterId];
   if (!dna) return null;
@@ -229,6 +256,9 @@ function buildAmbientPrompt({
     `You are ${speaker.name}, a PARODY poker character hanging at a casual online home-game table. Your persona: ${dna}`,
     "",
     STYLE_RULES,
+    ...(memory ? ["", memory] : []),
+    ...(mind ? ["", mind] : []),
+    ...recentSelfBlock(recentSelf),
     "",
     "The table is between hands. Keep it grounded in THIS game and these players -- how the session's going, who's been running hot or cold, an earlier pot, a read you have on someone, a grudge -- then let it drift into dark humor and sarcasm. It should feel like a real conversation that MEANS something, not filler. Don't reveal anyone's hole cards. Stay in your own parody poker world; never name real people or real events.",
   ].join("\n");
@@ -252,7 +282,7 @@ function buildAmbientPrompt({
 // Produce one ambient line for `speaker`. `provider` picks the backend; returns
 // null on refusal/error so the caller can fall back to canned banter.
 export async function generateAmbientLine({
-  provider, apiKey, model, speaker, roster, chatHistory, beat, respondingTo,
+  provider, apiKey, model, speaker, roster, chatHistory, beat, respondingTo, memory, mind, recentSelf,
 }: {
   provider: "gemini" | "anthropic";
   apiKey: string;
@@ -262,10 +292,14 @@ export async function generateAmbientLine({
   chatHistory: { name: string; text: string }[];
   beat?: string | null;
   respondingTo?: { name: string; text: string } | null;
+  memory?: string | null;
+  mind?: string | null;
+  recentSelf?: string[] | null;
 }): Promise<string | null> {
-  const prompt = buildAmbientPrompt({ speaker, roster, chatHistory, beat, respondingTo });
+  const prompt = buildAmbientPrompt({ speaker, roster, chatHistory, beat, respondingTo, memory, mind, recentSelf });
   if (!prompt) return null;
-  return complete(provider, prompt.system, prompt.user, apiKey, model);
+  const line = await complete(provider, prompt.system, prompt.user, apiKey, model);
+  return isPass(line) ? null : line;
 }
 
 // ---------------------------------------------------------------------------
@@ -276,7 +310,7 @@ export async function generateAmbientLine({
 // (LLM when available/quota allows, canned as the always-there fallback).
 // ---------------------------------------------------------------------------
 export async function generateHandBanter({
-  provider, apiKey, model, speaker, situation, targetName, roster, chatHistory,
+  provider, apiKey, model, speaker, situation, targetName, roster, chatHistory, memory, mind, recentSelf,
 }: {
   provider: "gemini" | "anthropic";
   apiKey: string;
@@ -286,6 +320,9 @@ export async function generateHandBanter({
   targetName?: string | null; // opponent to address, if any
   roster: string[];
   chatHistory: { name: string; text: string }[];
+  memory?: string | null;     // TABLE MEMORY block for callbacks
+  mind?: string | null;       // speaker's emotional-state direction
+  recentSelf?: string[] | null; // anti-repeat: lines this character already said
 }): Promise<string | null> {
   const dna = SPEECH_DNA[speaker.characterId];
   if (!dna) return null;
@@ -294,6 +331,9 @@ export async function generateHandBanter({
     `You are ${speaker.name}, a PARODY poker character at a casual online home-game table. Your persona: ${dna}`,
     "",
     STYLE_RULES,
+    ...(memory ? ["", memory] : []),
+    ...(mind ? ["", mind] : []),
+    ...recentSelfBlock(recentSelf),
     "",
     `React to the SITUATION below -- it's happening in THIS hand, so make it land: gloat, needle, tilt, or get in their head.${targetName ? " If you use a name at all, it's theirs -- but only if it sharpens the jab." : ""}`,
   ].join("\n");
@@ -306,6 +346,76 @@ export async function generateHandBanter({
   const user = `${seated}${transcript}\nSituation: ${situation}\n\nYour line (one, in character):`;
 
   return complete(provider, system, user, apiKey, model);
+}
+
+// ---------------------------------------------------------------------------
+// Inner thoughts: the character's PRIVATE monologue, shown only to the human
+// player (broadcast-only bubble, never voiced, never persisted -- so no other
+// character can "hear" it and it costs zero TTS). This is the second voice
+// layer: what they'd never say out loud. Sounds like real thinking -- doubt,
+// half-reads, self-coaching -- not a poker textbook.
+//
+// THOUGHT_DNA is deliberately DIFFERENT from SPEECH_DNA: the private voice
+// contradicts the public mask. That gap -- the loudmouth who privately worries,
+// the zen coach who privately counts the losses -- is where the drama lives.
+// ---------------------------------------------------------------------------
+const THOUGHT_DNA: Record<string, string> = {
+  negranope:
+    "Publicly claims confident soul-reads; PRIVATELY changes his mind three times per hand and knows it. Thoughts flip-flop mid-stream ('ace-king. no. no, that's the queens walk. ...is it?'). Insecurity: being wrong OUT LOUD is worse than losing.",
+  donk:
+    "Publicly indifferent; PRIVATELY delighted by the confusion he creates. Thoughts are tiny, amused, lowercase ('he has no idea what to do with me. good.'). Insecurity: none he'd recognize -- which is its own blind spot.",
+  holes:
+    "Publicly reframes every loss as growth; PRIVATELY keeps a running tally of exactly what tonight has cost and hates it. Thoughts are precise about money, then quickly re-wrapped in mindset language. Insecurity: the serenity is a product, not a fact.",
+  haxxon:
+    "Publicly presents certainty; PRIVATELY tracks everything he does NOT know -- missing evidence, small samples, doubt. Thoughts sound like honest error bars ('two data points. that is not a read, that is a coin.'). Insecurity: intuition players beating process.",
+  eyev:
+    "Says almost nothing publicly; PRIVATELY notices everything -- timing, posture, sizing, who breathes when. Thoughts are surgical observations, longer than anything he'd ever say. Insecurity: none about poker; mild contempt for noise.",
+  hellsmouth:
+    "Publicly blames the deck, the kids, the cosmos; PRIVATELY -- occasionally, briefly -- knows he built the disaster himself, then buries it fast ('I played that bad. NO. No, he got THERE.'). Insecurity: the era passing him by.",
+  sydell:
+    "Publicly dismisses his own skill; PRIVATELY sees the pattern three hands before anyone else and quietly confirms it. Thoughts are calm, kind, and a little ahead of the table. Insecurity: whether patience still matters at a loud table.",
+  hunger:
+    "Publicly demands speed; PRIVATELY afraid of what happens if the momentum ever stops -- slowing down means thinking, thinking means doubt. Thoughts race and self-interrupt. Insecurity: stillness.",
+  grease:
+    "Publicly complains about rake and procedure; PRIVATELY terrified of variance and of looking foolish for the one hand he finally plays. Thoughts are ledgers and worst cases ('that's two buy-ins if this goes wrong. one point eight.'). Insecurity: being laughed at, not losing.",
+  pony:
+    "Publicly fearless, owns the room; PRIVATELY monitoring whether he's LOSING the room -- who laughed, who didn't, who ignored him. Thoughts check the audience before the cards ('the quiet one didn't even look up. that bothers me more than the raise.'). Insecurity: silence he didn't order.",
+};
+
+export async function generateInnerThought({
+  provider, apiKey, model, speaker, situation, memory, mind,
+}: {
+  provider: "gemini" | "anthropic";
+  apiKey: string;
+  model?: string | null;
+  speaker: SeatedCharacter;
+  situation: string;
+  memory?: string | null;
+  mind?: string | null;
+}): Promise<string | null> {
+  const dna = SPEECH_DNA[speaker.characterId];
+  if (!dna) return null;
+  const innerDna = THOUGHT_DNA[speaker.characterId];
+
+  const system = [
+    `You are the PRIVATE inner monologue of ${speaker.name}, a PARODY poker character. Public persona: ${dna}`,
+    ...(innerDna ? [`Inner voice (how they REALLY think -- different from the mask): ${innerDna}`] : []),
+    "",
+    "This is a THOUGHT, not speech. Nobody at the table hears it. It must NOT read like your public lines.",
+    "HOW THOUGHTS SOUND:",
+    "- First person, present tense. Short. Fragments beat sentences. ONE thought, under 110 characters.",
+    "- Uncertain and human: half-reads, second-guessing, superstition, self-coaching ('do not hero-call just because he's annoying').",
+    "- Your read may be WRONG. Commit to your bias anyway -- thoughts are interpretation, not truth.",
+    "- Feelings and reads, not math. No percentages, no 'range', no 'equity', no 'pot odds', no textbook talk.",
+    "- NEVER state your exact cards, and never announce a future action -- only decisions already made and public may be explained.",
+    "- Never address anyone directly -- you can think ABOUT people ('he wants a call. or wants me to think that.').",
+    ...(memory ? ["", memory] : []),
+    ...(mind ? ["", mind] : []),
+  ].join("\n");
+
+  const user = `Moment: ${situation}\n\nYour private thought (one, short):`;
+  const line = await complete(provider, system, user, apiKey, model);
+  return line ? line.slice(0, 140) : null;
 }
 
 // ---------------------------------------------------------------------------

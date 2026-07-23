@@ -236,6 +236,20 @@ export function createOnlinePokerClient(supabase) {
       });
     },
 
+    setChatIntensity({
+      tableId,
+      actorGroupPlayerId,
+      seatToken,
+      intensity
+    }) {
+      return callRpc(supabase, "online_set_chat_intensity", {
+        p_table_id: tableId,
+        p_actor_group_player_id: actorGroupPlayerId,
+        p_actor_seat_token: seatToken,
+        p_intensity: intensity
+      });
+    },
+
     requestTurnGrace({
       handId,
       actorGroupPlayerId,

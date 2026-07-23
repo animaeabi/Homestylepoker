@@ -1262,13 +1262,13 @@ function renderChatUi() {
 
   for (const msg of messages) {
     const item = document.createElement("div");
-    item.className = `chat-msg${msg.self ? " self" : ""}`;
+    item.className = `chat-msg${msg.self ? " self" : ""}${msg.thought ? " thought" : ""}`;
 
     const meta = document.createElement("div");
     meta.className = "chat-msg-meta";
     const author = document.createElement("span");
     author.className = "chat-msg-author";
-    author.textContent = msg.name || "Player";
+    author.textContent = msg.thought ? `💭 ${msg.name || "Player"}` : (msg.name || "Player");
     const time = document.createElement("span");
     time.className = "chat-msg-time";
     time.textContent = formatChatTime(msg.at);
@@ -1388,6 +1388,9 @@ function addChatMessage(message, { self = false } = {}) {
   const text = String(message?.text || "").trim();
   const id = String(message?.id || "");
   if (!text || !id) return;
+  // Private inner THOUGHT: broadcast-only (never persisted server-side), shown
+  // to humans as a dashed thought-cloud, never voiced. Bots can't hear these.
+  const isThought = String(message?.kind || "") === "thought";
   // A bot line reaches us on two paths: the table_chat BROADCAST (carries the
   // voice/character/mood metadata) and the periodic table-state SYNC (carries
   // none). Whichever lands first registers the id. If the voiceless sync won the
@@ -1395,7 +1398,7 @@ function addChatMessage(message, { self = false } = {}) {
   // never be spoken -- so let a voiced delivery through for an already-seen id,
   // as long as we haven't voiced it yet.
   if (state.chatMessageIds.has(id)) {
-    if (!self && message?.voice && !state.chatVoicedIds.has(id)) {
+    if (!self && !isThought && message?.voice && !state.chatVoicedIds.has(id)) {
       state.chatVoicedIds.add(id);
       enqueueSpeechBubble({
         playerId: message?.playerId || null,
@@ -1417,6 +1420,7 @@ function addChatMessage(message, { self = false } = {}) {
     playerId: message?.playerId || null,
     at: message?.at || new Date().toISOString(),
     self,
+    thought: isThought,
   });
   while (state.chatMessages.length > 40) {
     const removed = state.chatMessages.shift();
@@ -1429,9 +1433,10 @@ function addChatMessage(message, { self = false } = {}) {
     enqueueSpeechBubble({
       playerId: message?.playerId || null,
       text,
-      voice: message?.voice,
+      voice: isThought ? false : message?.voice,
       character: message?.character || null,
       mood: message?.mood || null,
+      thought: isThought,
     });
   }
   renderChatUi();
@@ -3324,6 +3329,7 @@ function buildReactionPopup(reaction, { hero = false, anchor = "above" } = {}) {
     ? "seat-reaction-popup hero-reaction-popup"
     : `seat-reaction-popup seat-reaction-popup--${anchor}`;
   if (reaction?.speech) popup.classList.add("seat-reaction-popup--speech");
+  if (reaction?.speech && reaction?.thought) popup.classList.add("speech-thought");
   if (reaction?.speech && reaction?.fading) popup.classList.add("speech-fading");
   if (reaction?.speech && reaction?.typing) popup.classList.add("speech-typing");
   if (reaction?.emoji) {
@@ -3440,6 +3446,7 @@ function enqueueSpeechBubble(message) {
     voice: Boolean(message?.voice),
     character: message?.character || null,
     mood: message?.mood || null,
+    thought: Boolean(message?.thought),
   });
   // Keep the queue short: if lines arrive faster than they can be read, drop the
   // oldest PENDING bubbles (the full text still lives in the chat panel).
@@ -3504,6 +3511,7 @@ async function presentSpeechBubble(item) {
     text: full,
     revealChars: 0,
     speech: true,
+    thought: Boolean(item.thought),
     typing: true,
     self: false,
     until: Date.now() + 60000, // lifecycle is driven here, not by the sweep
@@ -5130,7 +5138,20 @@ async function joinExistingTable(tableId) {
       groupPlayerId: id.groupPlayerId,
     });
   }
-  if (seat?.seat_token) setSeatToken(tableId, id.groupPlayerId, seat.seat_token);
+  if (seat?.seat_token) {
+    setSeatToken(tableId, id.groupPlayerId, seat.seat_token);
+    // Mid-session arrivals get marked by the table -- a character sizes up the
+    // newcomer. Fire-and-forget; the server ignores pokes during initial setup
+    // (before the first hand has settled) so table creation stays quiet.
+    supabase.functions.invoke("online-runtime-tick", {
+      body: {
+        mode: "player_joined",
+        table_id: tableId,
+        group_player_id: id.groupPlayerId,
+        seat_token: seat.seat_token,
+      },
+    }).catch(() => { /* greeting is best-effort */ });
+  }
   await requestMicrophonePermissionOnJoin();
   enterTable(tableId);
 }
@@ -5990,6 +6011,17 @@ function openConfigPanel() {
   const isHost = canManageHand();
   if (el.cfgSB) el.cfgSB.disabled = !isHost;
   if (el.cfgBB) el.cfgBB.disabled = !isHost;
+  // Table Talk (conversation intensity) is a server-side table setting; fetch
+  // the live value so the panel shows what the table is actually running.
+  el.configPanel.querySelectorAll("[data-intensity]").forEach((btn) => { btn.disabled = !isHost; });
+  supabase.from("online_tables").select("chat_intensity").eq("id", state.tableId).maybeSingle()
+    .then(({ data }) => {
+      const current = data?.chat_intensity || "social";
+      el.configPanel.querySelectorAll("[data-intensity]").forEach((btn) => {
+        btn.classList.toggle("active", btn.dataset.intensity === current);
+      });
+    })
+    .catch(() => { /* leave the default highlighted */ });
   if (el.cfgSaveGame) el.cfgSaveGame.style.display = isHost ? "" : "none";
   syncPlayerPreferenceControls();
   renderConfigPlayers();
@@ -8001,6 +8033,18 @@ function bindEvents() {
     const token = getSeatToken();
     if (!token) { toast("Not seated.", "error"); return; }
     stopSeatHeartbeat();
+    // Let the table mark the exit (a farewell jab from a character): poke the
+    // runtime while the seat token is still valid, give its seat check a beat
+    // to pass, then actually leave. Fire-and-forget either way.
+    supabase.functions.invoke("online-runtime-tick", {
+      body: {
+        mode: "player_left",
+        table_id: state.tableId,
+        group_player_id: state.identity.groupPlayerId,
+        seat_token: token,
+      },
+    }).catch(() => { /* farewell is best-effort */ });
+    await new Promise((resolve) => setTimeout(resolve, 250));
     try {
       await online.leaveTable({
         tableId: state.tableId,
@@ -8079,6 +8123,33 @@ function bindEvents() {
       el.configPanel.querySelectorAll("[data-showdown]").forEach(b => b.classList.remove("active"));
       btn.classList.add("active");
       state.config.showdownTime = Number(btn.dataset.showdown) * 1000;
+    });
+  });
+
+  // Table Talk (conversation intensity): saves to the table immediately -- the
+  // runtime reads it when scaling every banter/thought/silence knob.
+  el.configPanel.querySelectorAll("[data-intensity]").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const intensity = btn.dataset.intensity;
+      const token = getSeatToken();
+      if (!token || !state.identity?.groupPlayerId) { toast("Join a seat first.", "error"); return; }
+      const prev = [...el.configPanel.querySelectorAll("[data-intensity].active")];
+      el.configPanel.querySelectorAll("[data-intensity]").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      try {
+        await online.setChatIntensity({
+          tableId: state.tableId,
+          actorGroupPlayerId: state.identity.groupPlayerId,
+          seatToken: token,
+          intensity,
+        });
+        const label = intensity === "quiet" ? "Quiet Professional" : intensity === "drama" ? "High Drama" : "Social Home Game";
+        toast(`Table talk: ${label}`, "success");
+      } catch (err) {
+        el.configPanel.querySelectorAll("[data-intensity]").forEach(b => b.classList.remove("active"));
+        prev.forEach(b => b.classList.add("active"));
+        toast(friendlyOnlineError(err, "Could not change table talk."), "error");
+      }
     });
   });
 
