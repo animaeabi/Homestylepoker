@@ -6,7 +6,7 @@ import { monteCarloEquity } from "../_shared/equity.ts";
 import { resolveCharacterStyle } from "../_shared/characters.ts";
 import { hasBanter, pickBanterLine, pickComebackLine } from "../_shared/bot_banter.ts";
 import { AMBIENT_BEATS, cannedReply, generateAmbientLine, generateGeminiReply, generateHandBanter, generateLlmReply, pickResponder } from "../_shared/bot_chat_reply.ts";
-import { generateSpeechWav } from "../_shared/bot_tts.ts";
+import { generateSpeech } from "../_shared/bot_tts.ts";
 
 const STREET_STATES = new Set(["preflop", "flop", "turn", "river"]);
 const ACTIVE_RUNTIME_STATES = new Set(["preflop", "flop", "turn", "river", "showdown"]);
@@ -2033,21 +2033,29 @@ async function handleTts({
     return json({ ok: false, error: "tts_seat_not_found" }, 403);
   }
 
-  const apiKey = asText(Deno.env.get("GEMINI_API_KEY"));
-  if (!apiKey) return json({ ok: true, audio: null, reason: "no_key" });
+  const geminiKey = asText(Deno.env.get("GEMINI_API_KEY"));
+  const azureKey = asText(Deno.env.get("AZURE_SPEECH_KEY"));
+  const azureRegion = asText(Deno.env.get("AZURE_SPEECH_REGION"));
+  const groqKey = asText(Deno.env.get("GROQ_API_KEY"));
+  if (!geminiKey && !azureKey && !groqKey) return json({ ok: true, audio: null, reason: "no_key" });
   if (!(await onlineClient.aiRateHit({ tableId, kind: "tts", limit: AI_TTS_PER_MIN }))) {
     return json({ ok: true, audio: null, reason: "rate_limited" });
   }
 
   try {
-    const audio = await generateSpeechWav({
-      apiKey,
+    const clip = await generateSpeech({
       characterId: character,
       text,
       mood,
-      model: asText(Deno.env.get("TTS_MODEL")),
+      keys: {
+        gemini: geminiKey || null,
+        azureKey: azureKey || null,
+        azureRegion: azureRegion || null,
+        groq: groqKey || null,
+        model: asText(Deno.env.get("TTS_MODEL")) || null,
+      },
     });
-    return json({ ok: true, audio: audio || null, mime: "audio/wav" });
+    return json({ ok: true, audio: clip?.audio || null, mime: clip?.mime || "audio/wav" });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     console.error("[tts] failed", msg);
