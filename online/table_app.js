@@ -266,6 +266,8 @@ const state = {
   victoryPopupHideTimer: null,
   victoryPopupVisibleUntilMs: 0,
   lastVictoryPopupKey: null,
+  settleObservedForHandId: null,
+  victoryPopupScheduledForHandId: null,
   showdownResultReveal: null,
   deferredStreetRevealTimer: null,
   streetActionLabelHold: null,
@@ -3068,7 +3070,11 @@ function clearVictoryPopup({ preserveKey = false } = {}) {
   state.victoryPopup = null;
   state.victoryPopupVisibleUntilMs = 0;
   state.showdownResultReveal = null;
-  if (!preserveKey) state.lastVictoryPopupKey = null;
+  if (!preserveKey) {
+    state.lastVictoryPopupKey = null;
+    state.settleObservedForHandId = null;
+    state.victoryPopupScheduledForHandId = null;
+  }
   checkQueuedRender();
 }
 
@@ -3187,11 +3193,28 @@ function syncVictoryPopup({ oldHand, hand, hadPriorTableState = false, shouldDel
     return;
   }
 
-  if (!hadPriorTableState || oldHand.state === "settled") return;
+  // Remember that we've observed the live (non-settled → settled) transition
+  // for this hand. In a fast multi-way all-in runout, the settle event can
+  // arrive before the revealed hole cards / board have finished syncing, so the
+  // winner may not be computable on the very first settled sync. Record the
+  // transition so we can keep retrying on later settled syncs instead of giving
+  // up forever (the old guard bailed permanently once oldHand.state was
+  // "settled", which is why some showdowns never showed a winner).
+  if (hadPriorTableState && oldHand.state !== "settled") {
+    state.settleObservedForHandId = hand.id;
+  }
+
+  // Only present for hands whose settle we actually saw live (this also keeps
+  // the popup from firing on a fresh page load straight into a settled hand),
+  // and only schedule once.
+  if (state.settleObservedForHandId !== hand.id) return;
+  if (state.victoryPopupScheduledForHandId === hand.id) return;
 
   const payload = buildVictoryPopupPayload(hand, getHandPlayers());
-  if (!payload || payload.key === state.lastVictoryPopupKey) return;
+  if (!payload) return; // winner not computable yet — retry on the next sync
+  if (payload.key === state.lastVictoryPopupKey) return;
 
+  state.victoryPopupScheduledForHandId = hand.id;
   clearVictoryPopup({ preserveKey: true });
   state.lastVictoryPopupKey = payload.key;
 
