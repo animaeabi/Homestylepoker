@@ -1585,6 +1585,39 @@ function cardFwip(gain = 0.09, dur = 0.075, hi = 6500, lo = 1300, snap = false) 
   noiseBurst(ctx, { t, dur, gain, type: "bandpass", freq: hi, q: 0.8, sweepTo: lo });
 }
 
+// Recorded one-shot SFX: small mp3 assets decoded to AudioBuffers and played
+// on demand. Preloaded on the first user gesture so they're ready to fire.
+const SFX_URLS = {
+  allin: "online/sfx_allin.mp3?v=1",
+  shuffle: "online/sfx_shuffle.mp3?v=1",
+};
+const sfxBuffers = {};
+function loadSfxSample(name) {
+  if (sfxBuffers[name] !== undefined || !SFX_URLS[name]) return;
+  const ctx = getAudioCtx();
+  if (!ctx) return;
+  sfxBuffers[name] = "loading";
+  fetch(SFX_URLS[name])
+    .then((r) => r.arrayBuffer())
+    .then((ab) => ctx.decodeAudioData(ab))
+    .then((buf) => { sfxBuffers[name] = buf; })
+    .catch(() => { sfxBuffers[name] = null; });
+}
+function preloadSfxSamples() { for (const k of Object.keys(SFX_URLS)) loadSfxSample(k); }
+function playSfxSample(name, gain = 0.6) {
+  if (!state.config.soundOn) return false;
+  const ctx = getAudioCtx();
+  if (!ctx) return false;
+  const buf = sfxBuffers[name];
+  if (!(buf && typeof buf === "object")) { loadSfxSample(name); return false; }
+  if (ctx.state === "suspended") { try { ctx.resume(); } catch { /* ignore */ } }
+  const src = ctx.createBufferSource(); src.buffer = buf;
+  const g = ctx.createGain(); g.gain.value = gain;
+  src.connect(g).connect(ctx.destination);
+  try { src.start(); } catch { /* ignore */ }
+  return true;
+}
+
 const sounds = {
   yourTurn: () => { playTone(880, 0.12, 0.15); setTimeout(() => playTone(1100, 0.1, 0.12), 130); },
   check: () => { const ctx = getAudioCtx(); if (state.config.soundOn && ctx) { noiseBurst(ctx, { t: ctx.currentTime, dur: 0.05, gain: 0.09, type: "lowpass", freq: 900, q: 0.6 }); } }, // knuckle rap
@@ -1592,12 +1625,14 @@ const sounds = {
   bet: () => chipStack(3, 0.11),
   raise: () => chipStack(4, 0.12),
   fold: () => cardFwip(0.08, 0.11, 5200, 900),          // muck toss
-  allIn: () => { chipStack(8, 0.13); setTimeout(() => chipStack(4, 0.1), 130); },  // big shove
+  allIn: () => { if (!playSfxSample("allin", 0.6)) { chipStack(8, 0.13); setTimeout(() => chipStack(4, 0.1), 130); } }, // recorded chip shove (synth fallback)
   win: () => { chipStack(6, 0.12); setTimeout(() => chipStack(6, 0.11), 150); setTimeout(() => chipStack(4, 0.1), 300); }, // raking the pot
   deal: () => cardFwip(0.07, 0.05, 7000, 2000, true),   // quick flick off the deck
   streetFlip: () => cardFwip(0.1, 0.08, 6800, 1500, true), // board card snap
   // Riffle shuffle at the start of a hand: dense card-edge clicks + a bridge snap.
   shuffle: () => {
+    if (playSfxSample("shuffle", 0.55)) return; // recorded riffle shuffle
+    // synth fallback until the sample loads
     if (!state.config.soundOn) return;
     const ctx = getAudioCtx();
     if (!ctx) return;
@@ -7990,6 +8025,7 @@ function bindEvents() {
   // Autoplay needs a user gesture: start the room ambience on the first tap.
   document.addEventListener("pointerdown", function ambienceFirstGesture() {
     document.removeEventListener("pointerdown", ambienceFirstGesture);
+    preloadSfxSamples();
     if (state.config.soundOn) ambience.start();
   }, { once: true });
 
