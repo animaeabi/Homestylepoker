@@ -718,7 +718,7 @@ async function runBotExpressions({
             });
             if (comeback) {
               await new Promise((resolve) => setTimeout(resolve, 300 + Math.floor(Math.random() * 400)));
-              await onlineClient.postBotChat({ tableId, groupPlayerId: rival.groupPlayerId, message: comeback });
+              await onlineClient.postBotChat({ tableId, groupPlayerId: rival.groupPlayerId, message: comeback, voice: true, character: String(rival.botCharacter), mood: "banter" });
             }
           }
         }
@@ -1255,6 +1255,9 @@ async function processBotAction({
                     tableId,
                     groupPlayerId: responder.groupPlayerId,
                     message: comeback,
+                    voice: true,
+                    character: String(responder.botCharacter),
+                    mood: "needle",
                   });
                 }
               }
@@ -1731,7 +1734,7 @@ async function runRuntimeTick({
 // client also throttles, but a modified client could ignore that). Generous
 // enough that real play never trips them; low enough to stop a script from
 // draining the shared Gemini quota. Voiced TTS is the scarcest resource.
-const AI_TTS_PER_MIN = 12;
+const AI_TTS_PER_MIN = 40;
 const AI_CHAT_PER_MIN = 24;
 
 // A human posted in table chat -> pick a seated character and talk back.
@@ -1875,7 +1878,7 @@ async function handleChatReply({
     const chain = await produceReply(next, lastSpeaker.name, lastLine, running);
     if (!chain.text) break;
     await pause(chain.usedLlm);
-    await onlineClient.postBotChat({ tableId, groupPlayerId: next.groupPlayerId, message: chain.text });
+    await onlineClient.postBotChat({ tableId, groupPlayerId: next.groupPlayerId, message: chain.text, voice: true, character: next.characterId, mood: "banter" });
     running.push({ name: next.name, text: chain.text });
     lastSpeaker = next;
     lastLine = chain.text;
@@ -1975,7 +1978,7 @@ async function handleTableTalk({
   }
   if (!line) return json({ ok: true, talked: false, reason: "no_line" });
   await new Promise((resolve) => setTimeout(resolve, 140 + Math.floor(Math.random() * 260)));
-  await onlineClient.postBotChat({ tableId, groupPlayerId: opener.groupPlayerId, message: line });
+  await onlineClient.postBotChat({ tableId, groupPlayerId: opener.groupPlayerId, message: line, voice: true, character: opener.characterId, mood: "banter" });
 
   // Thread: one or two other characters respond, so it reads as a conversation.
   const running = [...chatHistory, { name: opener.name, text: line }];
@@ -1996,7 +1999,7 @@ async function handleTableTalk({
     }
     if (!reply) break;
     await new Promise((resolve) => setTimeout(resolve, 260 + Math.floor(Math.random() * 400)));
-    await onlineClient.postBotChat({ tableId, groupPlayerId: next.groupPlayerId, message: reply });
+    await onlineClient.postBotChat({ tableId, groupPlayerId: next.groupPlayerId, message: reply, voice: true, character: next.characterId, mood: "banter" });
     running.push({ name: next.name, text: reply });
     lastSpeaker = next;
     lastLine = reply;
