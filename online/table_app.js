@@ -1752,17 +1752,30 @@ const ambience = {
     this._startBed(ctx, master); // the recorded poker-room loop
   },
 
-  // Fetch + loop the real room recording. Gain 1.19 through the 0.16 master lands
-  // it at the same level (~ -37 dBFS RMS) as the synth bed it replaced.
+  // Fetch + loop the real room recording. To kill the audible loop seam we run
+  // TWO playheads of the same clip at once: one from the start, one from the
+  // middle, at slightly different speeds and each breathing on its own slow LFO.
+  // Their loop points never coincide (each masks the other's seam) and the tiny
+  // speed drift means the blend never exactly repeats -- it reads as a live room.
+  // Two decorrelated layers at 0.84 sum (in quadrature) to the same ~ -37 dBFS
+  // RMS through the 0.16 master as the synth bed they replaced.
   _startBed(ctx, master) {
     const startSrc = (buf) => {
       if (!this.running || this.master !== master) return;
-      const src = ctx.createBufferSource();
-      src.buffer = buf; src.loop = true;
-      const g = ctx.createGain(); g.gain.value = 1.19;
-      src.connect(g).connect(master);
-      try { src.start(); } catch { /* ignore */ }
-      this.nodes = { src };
+      const L = buf.duration;
+      const layer = (offset, rate, lfoRate) => {
+        const src = ctx.createBufferSource();
+        src.buffer = buf; src.loop = true; src.playbackRate.value = rate;
+        const g = ctx.createGain(); g.gain.value = 0.84;
+        const lfo = ctx.createOscillator(); lfo.type = "sine"; lfo.frequency.value = lfoRate;
+        const lg = ctx.createGain(); lg.gain.value = 0.10;
+        lfo.connect(lg).connect(g.gain); // breathe +-0.10 around 0.84
+        src.connect(g).connect(master);
+        try { src.start(ctx.currentTime, offset % L); } catch { try { src.start(); } catch { /* ignore */ } }
+        lfo.start();
+        return { src, lfo };
+      };
+      this.nodes = { layers: [layer(0, 0.997, 0.061), layer(L / 2, 1.004, 0.049)] };
     };
     if (this._bedBuf) { startSrc(this._bedBuf); return; }
     fetch("online/room_ambience.mp3?v=1")
@@ -1806,7 +1819,9 @@ const ambience = {
     try {
       if (ctx && this.master) this.master.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.8);
       const n = this.nodes;
-      setTimeout(() => { try { if (n && n.src) n.src.stop(); } catch { /* ignore */ } }, 900);
+      setTimeout(() => {
+        try { for (const l of (n?.layers || [])) { l.src.stop(); l.lfo.stop(); } } catch { /* ignore */ }
+      }, 900);
     } catch { /* ignore */ }
     this.nodes = null; this.master = null;
   },
