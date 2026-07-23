@@ -30,6 +30,8 @@ export type CharEmotion = {
   i: number;          // intensity 0..3
   streak: number;     // +wins / -losses in big pots, consecutive
   hand: number;       // last hand that moved this state
+  moment?: string | null; // transient flash from the LAST settle (embarrassed/vindicated/...)
+  story?: string | null;  // self-narrative: what they believe tonight says about them
 };
 
 export type HumanRead = {
@@ -43,9 +45,26 @@ export type HumanRead = {
 
 // Directional relationship: how `from` (a display name) currently feels about
 // `to`. Directional on purpose -- Pony can respect Finn while Finn just finds
-// Pony exhausting. score runs -3 (open grudge) .. +3 (real respect); `why` is
-// the last event that moved it, prompt-ready.
-export type Relation = { score: number; why: string; hand: number };
+// Pony exhausting. score runs -3 (open grudge) .. +3 (real respect) and drives
+// speaker selection; `kind` is the QUALITY of the feeling (revenge is not
+// fear is not amusement), and `why` is the last event that moved it.
+export type Relation = { score: number; why: string; hand: number; kind?: string | null };
+
+// How each relationship kind reads in a speaker's head. Sentiment (score) says
+// how strongly; kind says what it actually IS.
+const KIND_FEEL: Record<string, string> = {
+  revenge: "You want REVENGE on {to}",
+  suspicious: "You don't believe a word out of {to} anymore",
+  respectful: "You genuinely respect {to}",
+  resentful: "You resent {to}",
+  irritated: "{to} irritates you",
+  amused: "{to} genuinely amuses you",
+  exhausted: "{to} exhausts you",
+  protective: "You feel oddly protective of {to}",
+  intimidated: "{to} unsettles you -- you can't get a grip on them",
+  competitive: "You and {to} are locked in a contest for this room",
+  curious: "You can't stop studying {to}",
+};
 
 export type TableMemory = {
   v: number;
@@ -101,31 +120,31 @@ export function noteNeedle(mem: TableMemory, targetName: string) {
 // that real session events then confirm, invert, or bury. Directional on
 // purpose; earned feelings are never overwritten.
 // ---------------------------------------------------------------------------
-const CHEMISTRY: Array<{ from: string; to: string; score: number; why: string }> = [
+const CHEMISTRY: Array<{ from: string; to: string; score: number; why: string; kind?: string }> = [
   // Pony vs Finn: noise against silence.
-  { from: "pony", to: "eyev", score: -1, why: "his silence gives you NOTHING to push against -- no reaction, no respect, and it eats at you" },
-  { from: "eyev", to: "pony", score: -1, why: "he is noise. Endless noise. You answer him in four words or none" },
+  { from: "pony", to: "eyev", score: -1, kind: "irritated", why: "his silence gives you NOTHING to push against -- no reaction, no respect, and it eats at you" },
+  { from: "eyev", to: "pony", score: -1, kind: "exhausted", why: "he is noise. Endless noise. You answer him in four words or none" },
   // Fill vs Sydell: eruption against composure.
-  { from: "hellsmouth", to: "sydell", score: -1, why: "his calm feels like a quiet judgment of every one of your eruptions" },
-  { from: "sydell", to: "hellsmouth", score: 1, why: "you've watched brats melt down for forty years -- his tantrums are almost nostalgic" },
+  { from: "hellsmouth", to: "sydell", score: -1, kind: "irritated", why: "his calm feels like a quiet judgment of every one of your eruptions" },
+  { from: "sydell", to: "hellsmouth", score: 1, kind: "amused", why: "you've watched brats melt down for forty years -- his tantrums are almost nostalgic" },
   // Haxxon vs Donk: theory against chaos.
-  { from: "haxxon", to: "donk", score: -1, why: "his chaos breaks your models and he doesn't even notice he's doing it" },
-  { from: "donk", to: "haxxon", score: 1, why: "the math guy keeps trying to solve you. it's sort of funny" },
+  { from: "haxxon", to: "donk", score: -1, kind: "intimidated", why: "his chaos breaks your models and he doesn't even notice he's doing it" },
+  { from: "donk", to: "haxxon", score: 1, kind: "amused", why: "the math guy keeps trying to solve you. it's sort of funny" },
   // Grease vs Holes: scarcity against abundance.
-  { from: "grease", to: "holes", score: -1, why: "he burns money like incense and calls it growth -- it offends your ledger personally" },
-  { from: "holes", to: "grease", score: 1, why: "his scarcity mindset is a beautiful case study -- you'd love to coach him. For a fee" },
+  { from: "grease", to: "holes", score: -1, kind: "irritated", why: "he burns money like incense and calls it growth -- it offends your ledger personally" },
+  { from: "holes", to: "grease", score: 1, kind: "curious", why: "his scarcity mindset is a beautiful case study -- you'd love to coach him. For a fee" },
   // Dandy vs Finn: constant interpretation against unreadability.
-  { from: "negranope", to: "eyev", score: -1, why: "he's the ONE player at this table you cannot read, and it itches" },
-  { from: "eyev", to: "negranope", score: -1, why: "he narrates reads all night. Noise pretending to be signal" },
+  { from: "negranope", to: "eyev", score: -1, kind: "curious", why: "he's the ONE player at this table you cannot read, and it itches" },
+  { from: "eyev", to: "negranope", score: -1, kind: "irritated", why: "he narrates reads all night. Noise pretending to be signal" },
   // Hunger vs Grease: speed against caution.
-  { from: "hunger", to: "grease", score: -1, why: "he takes a full minute to fold and it is stealing your LIFE" },
-  { from: "grease", to: "hunger", score: -1, why: "that pace is how mistakes happen. You wrote it down, with the date" },
+  { from: "hunger", to: "grease", score: -1, kind: "exhausted", why: "he takes a full minute to fold and it is stealing your LIFE" },
+  { from: "grease", to: "hunger", score: -1, kind: "suspicious", why: "that pace is how mistakes happen. You wrote it down, with the date" },
   // Pony vs Fill: two players competing to control the room.
-  { from: "pony", to: "hellsmouth", score: -1, why: "two loud kings, one room -- and he keeps grabbing YOUR spotlight" },
-  { from: "hellsmouth", to: "pony", score: -1, why: "he yells like he's earned it. NINETEEN titles say otherwise" },
+  { from: "pony", to: "hellsmouth", score: -1, kind: "competitive", why: "two loud kings, one room -- and he keeps grabbing YOUR spotlight" },
+  { from: "hellsmouth", to: "pony", score: -1, kind: "competitive", why: "he yells like he's earned it. NINETEEN titles say otherwise" },
   // Sydell vs Hunger: patience against impatience.
-  { from: "sydell", to: "hunger", score: 1, why: "the kid's fearless -- reminds you of somebody, about forty years ago" },
-  { from: "hunger", to: "sydell", score: -1, why: "he plays at the speed limit and the whole table treats it like wisdom" },
+  { from: "sydell", to: "hunger", score: 1, kind: "protective", why: "the kid's fearless -- reminds you of somebody, about forty years ago" },
+  { from: "hunger", to: "sydell", score: -1, kind: "irritated", why: "he plays at the speed limit and the whole table treats it like wisdom" },
 ];
 
 // Plant chemistry for any newly seated characters (idempotent, late-join safe).
@@ -141,7 +160,7 @@ export function seedChemistry(mem: TableMemory, bots: { characterId: string; nam
     if (seeded.has(c.from) && seeded.has(c.to)) continue; // pair already planted
     const key = `${fromName}>${toName}`;
     if (mem.rel[key]) continue; // never stomp feelings the session has earned
-    mem.rel[key] = { score: c.score, why: c.why, hand: 0 };
+    mem.rel[key] = { score: c.score, why: c.why, hand: 0, kind: c.kind || null };
     changed = true;
   }
   for (const b of bots) {
@@ -151,13 +170,14 @@ export function seedChemistry(mem: TableMemory, bots: { characterId: string; nam
   return changed;
 }
 
-function bumpRelation(mem: TableMemory, from: string, to: string, delta: number, why: string, hand: number) {
+function bumpRelation(mem: TableMemory, from: string, to: string, delta: number, why: string, hand: number, kind?: string | null) {
   if (!from || !to || from === to) return;
   const key = `${from}>${to}`;
   const cur = mem.rel[key] || { score: 0, why: "", hand: 0 };
   cur.score = Math.max(-3, Math.min(3, cur.score + delta));
   cur.why = why;
   cur.hand = hand;
+  if (kind) cur.kind = kind; // fresh events re-type the feeling
   mem.rel[key] = cur;
   // Keep the map bounded: drop the stalest near-neutral entries first.
   const keys = Object.keys(mem.rel);
@@ -327,22 +347,22 @@ export function updateRelationships(mem: TableMemory, players: SettlePlayer[], a
     const bluffer = aftermath.caughtName;
     const caller = aftermath.winnerName;
     if (bluffer && caller) {
-      bumpRelation(mem, bluffer, caller, -2, `${caller} looked up your bluff and showed the table (hand ${handNo}) -- you want that back`, handNo);
-      bumpRelation(mem, caller, bluffer, -1, `you caught ${bluffer} bluffing (hand ${handNo}) -- you don't believe a word now`, handNo);
+      bumpRelation(mem, bluffer, caller, -2, `${caller} looked up your bluff and showed the table (hand ${handNo}) -- you want that back`, handNo, "revenge");
+      bumpRelation(mem, caller, bluffer, -1, `you caught ${bluffer} bluffing (hand ${handNo}) -- you don't believe a word now`, handNo, "suspicious");
       if (aftermath.kind === "hero_call") {
         for (const n of names) {
           if (n !== caller && n !== bluffer) {
-            bumpRelation(mem, n, caller, 1, `${caller}'s hero call (hand ${handNo}) earned real respect`, handNo);
+            bumpRelation(mem, n, caller, 1, `${caller}'s hero call (hand ${handNo}) earned real respect`, handNo, "respectful");
           }
         }
       }
     }
   } else if (aftermath.kind === "cooler" && aftermath.loserName && aftermath.winnerName) {
-    bumpRelation(mem, aftermath.loserName, aftermath.winnerName, -1, `${aftermath.winnerName} got there on you in a huge pot (hand ${handNo}) -- pure luck, obviously`, handNo);
+    bumpRelation(mem, aftermath.loserName, aftermath.winnerName, -1, `${aftermath.winnerName} got there on you in a huge pot (hand ${handNo}) -- pure luck, obviously`, handNo, "resentful");
   } else if (aftermath.kind === "steal" && aftermath.winnerName && aftermath.potBb >= 14) {
     for (const p of players) {
       if (p.name !== aftermath.winnerName && p.folded && p.committedBb >= 4) {
-        bumpRelation(mem, p.name, aftermath.winnerName, -1, `${aftermath.winnerName} bet you off a big pot with no showdown (hand ${handNo}) -- it still itches`, handNo);
+        bumpRelation(mem, p.name, aftermath.winnerName, -1, `${aftermath.winnerName} bet you off a big pot with no showdown (hand ${handNo}) -- it still itches`, handNo, "irritated");
       }
     }
   }
@@ -355,7 +375,12 @@ export function relationLinesFor(mem: TableMemory, speakerName: string, max = 2)
   for (const [key, r] of Object.entries(mem.rel)) {
     const [from, to] = key.split(">");
     if (from !== speakerName || !to || Math.abs(r.score) < 1) continue;
-    const feel = r.score <= -2 ? `You have a live GRUDGE against ${to}`
+    // The kind names WHAT the feeling is; the score only says how strongly.
+    // An intense grudge still overrides a mild typed feeling in the phrasing.
+    const typed = r.kind && KIND_FEEL[r.kind] ? KIND_FEEL[r.kind].replaceAll("{to}", to) : null;
+    const feel = r.score <= -2 && r.kind === "revenge" ? `You have a LIVE grudge against ${to} and you want it settled`
+      : typed ? (Math.abs(r.score) >= 2 ? `${typed} -- intensely` : typed)
+      : r.score <= -2 ? `You have a live GRUDGE against ${to}`
       : r.score < 0 ? `You're salty at ${to}`
       : r.score >= 2 ? `You genuinely respect ${to}`
       : `You've warmed to ${to}`;
@@ -389,6 +414,8 @@ export function updateEmotions(mem: TableMemory, players: SettlePlayer[], afterm
     e.n = p.name;
     const caught = aftermath.caughtName === p.name;
     const coolered = aftermath.kind === "cooler" && aftermath.loserName === p.name;
+    const heroCalled = aftermath.kind === "hero_call" && aftermath.winnerName === p.name;
+    const priorIntensity = e.i;
 
     if (p.netBb <= -10 || caught) {
       e.streak = Math.min(0, e.streak) - 1;
@@ -407,6 +434,27 @@ export function updateEmotions(mem: TableMemory, players: SettlePlayer[], afterm
       : e.i >= 2 ? "frustrated"
       : e.streak >= 2 ? "confident"
       : "neutral";
+
+    // Moment emotion: a transient flash from THIS settle, sharper and shorter-
+    // lived than the base state. It colors the very next reactions and then
+    // gets recomputed at the next settle.
+    e.moment = caught ? "embarrassed"
+      : heroCalled ? "vindicated"
+      : coolered ? "resentful"
+      : (p.netBb >= 10 && priorIntensity >= 2) ? "relieved"
+      : e.streak >= 4 ? "overconfident"
+      : (e.s === "tilted" && p.netBb <= -10) ? "desperate"
+      : null;
+
+    // Self-narrative: the biased story they believe tonight is telling about
+    // them. Wrong is allowed -- wrong is the point.
+    e.story = e.s === "tilted" ? "The deck is against me tonight, and this whole table knows it."
+      : caught ? "They're looking me up tonight. I've gotten readable, and that's a problem."
+      : heroCalled ? "I am seeing EVERYTHING at this table tonight."
+      : e.streak >= 3 ? "I own this table right now. They're starting to play scared against me."
+      : e.streak <= -2 ? "I'm playing fine. I'm just not getting anything to work with."
+      : null;
+
     mem.emo[p.characterId] = e;
   }
 }
@@ -486,13 +534,27 @@ export function memoryPromptBlock(
   ].join("\n");
 }
 
-// The speaker's own emotional state, phrased as direction for the line.
+// The transient moment-flash, phrased as delivery direction.
+const MOMENT_LINES: Record<string, string> = {
+  embarrassed: "RIGHT NOW: embarrassed -- your bluff was just shown to the whole table. Cover it however your character covers shame (deflect, sulk, laugh it off), but it's THERE.",
+  vindicated: "RIGHT NOW: vindicated -- your read just paid off in front of everyone. Savor it in your own voice.",
+  resentful: "RIGHT NOW: quietly furious about how that pot went -- it wasn't fair and you know it.",
+  relieved: "RIGHT NOW: relieved -- you finally won one after taking a beating. The exhale shows.",
+  overconfident: "RIGHT NOW: overconfident -- you feel untouchable, which is exactly when players get clipped. Swagger past the warning signs.",
+  desperate: "RIGHT NOW: desperate -- stuck deep and starting to force it. The jokes are thinner, the stakes feel personal.",
+};
+
+// The speaker's own emotional state, phrased as direction for the line:
+// base state + transient moment-flash + the self-narrative they believe.
 export function mindLineFor(mem: TableMemory, characterId: string | null | undefined): string | null {
   if (!characterId) return null;
   const e = mem.emo[characterId];
   if (!e) return null;
-  if (e.s === "tilted") return `YOUR STATE: you are TILTED -- ${Math.abs(e.streak)} big pots lost and it shows. Shorter fuse, darker lines, no patience for jokes at your expense.`;
-  if (e.s === "frustrated") return "YOUR STATE: you're stuck and irritated tonight -- drier and snippier than usual, less generous with laughs.";
-  if (e.s === "confident") return "YOUR STATE: you're running hot and feel bulletproof -- expansive, cocky, quicker to needle everyone else.";
-  return null;
+  const parts: string[] = [];
+  if (e.s === "tilted") parts.push(`YOUR STATE: you are TILTED -- ${Math.abs(e.streak)} big pots lost and it shows. Shorter fuse, darker lines, no patience for jokes at your expense.`);
+  else if (e.s === "frustrated") parts.push("YOUR STATE: you're stuck and irritated tonight -- drier and snippier than usual, less generous with laughs.");
+  else if (e.s === "confident") parts.push("YOUR STATE: you're running hot and feel bulletproof -- expansive, cocky, quicker to needle everyone else.");
+  if (e.moment && MOMENT_LINES[e.moment]) parts.push(MOMENT_LINES[e.moment]);
+  if (e.story) parts.push(`SELF-NARRATIVE (what you believe tonight says about you -- it may be wrong, but you believe it): "${e.story}"`);
+  return parts.length ? parts.join("\n") : null;
 }

@@ -381,6 +381,43 @@ export async function generateSpeech({
   if (!clean) return null;
   const m = String(mood || "");
 
+  // Private inner thoughts are WHISPERED: an intimate, internal delivery that
+  // reads as a voice in the head, not a voice at the table. Azure's whispering
+  // express-as style does this on the free tier. Characters whose everyday
+  // Azure voice can't whisper borrow Davis (a different timbre is fine here --
+  // the inner voice isn't the table voice). No whisper available -> silent
+  // subtitle, never a full-volume read.
+  if (m === "thought") {
+    if (!(keys.azureKey && keys.azureRegion)) return null;
+    const base = AZURE_VOICE[characterId] || AZURE_DEFAULT;
+    const voice = (AZURE_STYLES[base] || []).includes("whispering") ? base : "en-US-DavisNeural";
+    const locale = voice.split("-").slice(0, 2).join("-");
+    const ssml =
+      `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" ` +
+      `xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="${locale}">` +
+      `<voice name="${voice}"><mstts:express-as style="whispering" styledegree="1.2">` +
+      `<prosody rate="-6%">${xmlEscape(clean)}</prosody>` +
+      `</mstts:express-as></voice></speak>`;
+    try {
+      const resp = await fetch(`https://${keys.azureRegion}.tts.speech.microsoft.com/cognitiveservices/v1`, {
+        method: "POST",
+        headers: {
+          "Ocp-Apim-Subscription-Key": keys.azureKey,
+          "Content-Type": "application/ssml+xml",
+          "X-Microsoft-OutputFormat": "audio-24khz-48kbitrate-mono-mp3",
+          "User-Agent": "homestylepoker",
+        },
+        body: ssml,
+      });
+      if (!resp.ok) return null;
+      const bytes = new Uint8Array(await resp.arrayBuffer());
+      if (!bytes.length) return null;
+      return { audio: bytesToB64(bytes), mime: "audio/mpeg" };
+    } catch {
+      return null;
+    }
+  }
+
   // Nonverbal layer: lines like "*sighs*" / "*groans quietly*" aren't words to
   // read -- they're sounds. Orpheus renders its emotion tags as REAL vocal
   // gestures, so map the stage direction to a tag on the character's Groq

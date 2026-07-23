@@ -1398,7 +1398,7 @@ function addChatMessage(message, { self = false } = {}) {
   // never be spoken -- so let a voiced delivery through for an already-seen id,
   // as long as we haven't voiced it yet.
   if (state.chatMessageIds.has(id)) {
-    if (!self && !isThought && message?.voice && !state.chatVoicedIds.has(id)) {
+    if (!self && message?.voice && !state.chatVoicedIds.has(id)) {
       state.chatVoicedIds.add(id);
       enqueueSpeechBubble({
         playerId: message?.playerId || null,
@@ -1406,6 +1406,7 @@ function addChatMessage(message, { self = false } = {}) {
         voice: message?.voice,
         character: message?.character || null,
         mood: message?.mood || null,
+        thought: isThought,
       });
     }
     return;
@@ -1433,7 +1434,7 @@ function addChatMessage(message, { self = false } = {}) {
     enqueueSpeechBubble({
       playerId: message?.playerId || null,
       text,
-      voice: isThought ? false : message?.voice,
+      voice: message?.voice,
       character: message?.character || null,
       mood: message?.mood || null,
       thought: isThought,
@@ -3711,6 +3712,9 @@ const chatVoice = {
           if (!data || !data.audio) { ttsDbg("no audio (" + (data?.reason || data?.error || "empty") + ")"); clearTimeout(timer); finish(); return; }
           const a = this.ensureAudio();
           this._playing = false;
+          // Private thoughts are whispered UNDER the table sound -- an inner
+          // voice, not a table voice.
+          a.volume = mood === "thought" ? 0.62 : 1;
           a.onplaying = () => { this._playing = true; ttsDbg("playing " + Math.round(String(data.audio).length / 1024) + "kb"); clearTimeout(timer); finish(); };
           a.onended = () => { this._playing = false; };
           a.onerror = () => { this._playing = false; ttsDbg("audio element error"); clearTimeout(timer); finish(); };

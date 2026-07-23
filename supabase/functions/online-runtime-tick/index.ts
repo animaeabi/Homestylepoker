@@ -691,8 +691,9 @@ function createOnlineRpcClient() {
     // humans live but never lands in online_table_chat_messages -- which means
     // no other character can "hear" it (prompt context is built from that
     // table), it can't echo back into the LLM, and it vanishes on reload like
-    // a real passing thought. voice:false always -- thoughts are read, not
-    // spoken, and cost zero TTS.
+    // a real passing thought. Voiced as an intimate WHISPER (mood "thought"
+    // routes to Azure's whispering style -- free tier), played quietly under
+    // the table sound: an inner voice only the human hears.
     async postBotThought({
       tableId,
       groupPlayerId,
@@ -726,9 +727,9 @@ function createOnlineRpcClient() {
               name: name || "Player",
               text: trimmed,
               kind: "thought",
-              voice: false,
+              voice: true,
               character: character || null,
-              mood: null,
+              mood: "thought",
               at: new Date().toISOString()
             }
           }]
