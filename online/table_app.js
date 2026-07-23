@@ -1778,7 +1778,7 @@ const ambience = {
       this.nodes = { layers: [layer(0, 0.997, 0.061), layer(L / 2, 1.004, 0.049)] };
     };
     if (this._bedBuf) { startSrc(this._bedBuf); return; }
-    fetch("online/room_ambience.mp3?v=1")
+    fetch("online/room_ambience.mp3?v=2")
       .then((r) => r.arrayBuffer())
       .then((ab) => ctx.decodeAudioData(ab))
       .then((buf) => { this._bedBuf = buf; startSrc(buf); })
