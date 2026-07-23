@@ -5,7 +5,7 @@ import { decideBotExpressions, decideMidHandExpression } from "../_shared/bot_ex
 import { monteCarloEquity } from "../_shared/equity.ts";
 import { resolveCharacterStyle } from "../_shared/characters.ts";
 import { hasBanter, pickBanterLine, pickComebackLine } from "../_shared/bot_banter.ts";
-import { AMBIENT_BEATS, cannedReply, generateAmbientLine, generateGeminiReply, generateHandBanter, generateInnerThought, generateLlmReply, pickResponder } from "../_shared/bot_chat_reply.ts";
+import { AMBIENT_BEATS, cannedReply, generateAmbientLine, generateGeminiReply, generateHandBanter, generateInnerThought, generateLlmReply, isPass, pickResponder } from "../_shared/bot_chat_reply.ts";
 import { generateSpeech } from "../_shared/bot_tts.ts";
 import {
   classifySettle,
@@ -13,7 +13,9 @@ import {
   loadTableMemory,
   memoryPromptBlock,
   mindLineFor,
+  needledTooRecently,
   noteHumanTank,
+  noteNeedle,
   saveTableMemory,
   seedChemistry,
   updateEmotions,
@@ -70,6 +72,51 @@ function llmBanterMix(): number {
   return Number.isFinite(raw) && raw >= 0 && raw <= 1 ? raw : 0.6;
 }
 
+// ---------------------------------------------------------------------------
+// Conversation intensity: the table's narrative register (online_tables.
+// chat_intensity, set from the client Settings panel). Scales every talk
+// probability in one place. Even "drama" preserves the hush rules -- more
+// drama means bigger reactions and grudges, never chatter over a river sweat.
+// ---------------------------------------------------------------------------
+type ChatIntensity = "quiet" | "social" | "drama";
+type IntensityTuning = {
+  ambientSkip: number;  // chance ambient table-talk just stays quiet
+  threadHop: number;    // initial prob an ambient opener gets a reply
+  settleMul: number;    // settle-speaker weight multiplier
+  clapback: number;     // settle cross-talk probability
+  midClapback: number;  // mid-hand clap-back probability
+  midChatMul: number;   // mid-hand needle chance multiplier
+  intimidate: number;   // tank-needle chance
+  thoughtMul: number;   // inner-thought trigger multiplier
+  nonverbal: number;    // settle sigh/groan chance
+  hushPotBb: number;    // pot size (bb) that hushes ambient talk
+  rebuyNeedle: number;  // rebuy comment chance
+};
+const INTENSITY_TUNING: Record<ChatIntensity, IntensityTuning> = {
+  // Quiet Professional: long silences, sparse dry lines; the private thoughts
+  // carry more of the characterization.
+  quiet:  { ambientSkip: 0.5, threadHop: 0.45, settleMul: 0.6,  clapback: 0.25, midClapback: 0.2,  midChatMul: 0.5, intimidate: 0.45, thoughtMul: 1.35, nonverbal: 0.4,  hushPotBb: 8,  rebuyNeedle: 0.15 },
+  // Social Home Game: the default balance.
+  social: { ambientSkip: 0,   threadHop: 0.7,  settleMul: 1,    clapback: 0.55, midClapback: 0.45, midChatMul: 1,   intimidate: 0.7,  thoughtMul: 1,    nonverbal: 0.3,  hushPotBb: 12, rebuyNeedle: 0.35 },
+  // High Drama: stronger rivalries, more callbacks and pressure -- still quiet
+  // when the money's in the middle.
+  drama:  { ambientSkip: 0,   threadHop: 0.8,  settleMul: 1.25, clapback: 0.7,  midClapback: 0.6,  midChatMul: 1.3, intimidate: 0.85, thoughtMul: 1.2,  nonverbal: 0.35, hushPotBb: 12, rebuyNeedle: 0.5 },
+};
+function intensityFor(value: unknown): IntensityTuning {
+  const key = String(value || "social") as ChatIntensity;
+  return INTENSITY_TUNING[key] || INTENSITY_TUNING.social;
+}
+// For paths that don't already hold the table row.
+// deno-lint-ignore no-explicit-any
+async function getIntensity(client: any, tableId: string): Promise<IntensityTuning> {
+  try {
+    const { data } = await client.from("online_tables").select("chat_intensity").eq("id", tableId).maybeSingle();
+    return intensityFor(data?.chat_intensity);
+  } catch {
+    return INTENSITY_TUNING.social;
+  }
+}
+
 // LLM-or-canned banter for a hand event. Rolls the mix; on an LLM miss/error it
 // falls back to the caller's canned line so the table is never silent.
 async function mixedHandBanter(opts: {
@@ -80,6 +127,7 @@ async function mixedHandBanter(opts: {
   chatHistory: { name: string; text: string }[];
   memory?: string | null;
   mind?: string | null;
+  recentSelf?: string[] | null;
   canned: () => string | null;
 }): Promise<string | null> {
   const backend = llmBackend();
@@ -96,7 +144,11 @@ async function mixedHandBanter(opts: {
         chatHistory: opts.chatHistory,
         memory: opts.memory ?? null,
         mind: opts.mind ?? null,
+        recentSelf: opts.recentSelf ?? null,
       });
+      // The model choosing silence (PASS) is a decision, not a failure -- do
+      // NOT fall back to canned, or the anti-repeat becomes a repeat machine.
+      if (isPass(line)) return null;
       if (line) return line;
     } catch (error) {
       console.error("[banter] llm failed, using canned", error instanceof Error ? error.message : String(error));
@@ -159,7 +211,8 @@ async function maybeIntimidateTankingPlayer({
   tableId: string;
   actingSeat: any;
 }): Promise<void> {
-  if (Math.random() > 0.7) return; // not every tank gets heat
+  const tune = await getIntensity(onlineClient.client, tableId);
+  if (Math.random() > tune.intimidate) return; // not every tank gets heat
   if (!(await onlineClient.aiRateHit({ tableId, kind: "intimidate", limit: 2 }))) return;
   const identities = await onlineClient.listSeatIdentities({ tableId });
   const bots = identities.filter((s: any) => s.isBot && s.botCharacter && hasBanter(s.botCharacter));
@@ -170,8 +223,12 @@ async function maybeIntimidateTankingPlayer({
 
   // The table remembers a habitual tanker -- future needles reference it.
   const mem = await loadTableMemory(onlineClient.client, tableId);
+  // Same player just took heat? Pressure comes in waves, not a drone --
+  // usually let them sweat in silence instead.
+  if (target?.name && needledTooRecently(mem, String(target.name)) && Math.random() < 0.7) return;
   if (target?.name) {
     noteHumanTank(mem, String(target.name));
+    noteNeedle(mem, String(target.name));
     saveTableMemory(onlineClient.client, tableId, mem);
   }
   const memBlock = memoryPromptBlock(mem, { speakerCharacterId: String(speaker.botCharacter), speakerName: String(speaker.name || "Bot") });
@@ -204,6 +261,7 @@ async function maybeIntimidateTankingPlayer({
     chatHistory: history,
     memory: memBlock,
     mind,
+    recentSelf: recent.filter((r) => r.groupPlayerId === String(speaker.groupPlayerId)).map((r) => r.message),
     canned: () => pickBanterLine({
       characterId: String(speaker.botCharacter),
       context: "bully",
@@ -329,7 +387,7 @@ function createOnlineRpcClient() {
     async getTableById({ tableId }: { tableId: string }) {
       const { data, error } = await client
         .from("online_tables")
-        .select("id, big_blind, max_seats, decision_time_secs")
+        .select("id, big_blind, max_seats, decision_time_secs, chat_intensity")
         .eq("id", tableId)
         .maybeSingle();
       if (error) throw normalizeSupabaseError("[getTableById]", error);
@@ -912,8 +970,9 @@ async function runBotExpressions({
         candidates.push({ characterId: sp.characterId, groupPlayerId: bot.groupPlayerId, role, weight, netBb: sp.netBb });
       }
       candidates.sort((a, b) => b.weight - a.weight);
+      const tune = intensityFor((table as any)?.chat_intensity);
       const speaker = candidates[0];
-      if (speaker && Math.random() < speaker.weight) {
+      if (speaker && Math.random() < Math.min(0.95, speaker.weight * tune.settleMul)) {
         const recent = await onlineClient.listRecentChatLines({ tableId, limit: 12 });
         const roster = identities.map((s: any) => String(s.name || "Player")).filter(Boolean);
         const history = recent.slice().reverse().map((r) => ({ name: String(nameByGpid.get(r.groupPlayerId) || "Player"), text: r.message }));
@@ -964,6 +1023,7 @@ async function runBotExpressions({
           chatHistory: history,
           memory: memBlocksBuilt(speaker.characterId, speakerName),
           mind: speakerMind,
+          recentSelf: avoid,
           canned: () => pickBanterLine({ characterId: speaker.characterId, context: cannedContext, targetName: null, avoid }),
         });
         if (line) {
@@ -976,7 +1036,7 @@ async function runBotExpressions({
           const rivals = botSeats.filter((b) =>
             String(b.groupPlayerId) !== String(speaker.groupPlayerId)
             && b.botCharacter && hasBanter(b.botCharacter));
-          if (rivals.length && Math.random() < 0.55) {
+          if (rivals.length && Math.random() < tune.clapback) {
             const rival = rivals[Math.floor(Math.random() * rivals.length)];
             const rivalAvoid = recent
               .filter((r) => r.groupPlayerId === String(rival.groupPlayerId))
@@ -989,6 +1049,7 @@ async function runBotExpressions({
               chatHistory: [...history, { name: speakerName, text: line }],
               memory: memBlocksBuilt(String(rival.botCharacter), String(rival.name || "Bot")),
               mind: mindLineFor(mem, String(rival.botCharacter)),
+              recentSelf: rivalAvoid,
               canned: () => pickComebackLine({ characterId: String(rival.botCharacter), aboutName: speakerName, avoid: rivalAvoid }),
             });
             if (comeback) {
@@ -1005,7 +1066,7 @@ async function runBotExpressions({
       const nvPick = settlePlayers
         .filter((p) => p.characterId && p.netBb <= -8 && p.characterId !== spokenByCharacter)
         .sort((a, b) => a.netBb - b.netBb)[0] || null;
-      if (nvPick && nvPick.characterId && Math.random() < 0.3) {
+      if (nvPick && nvPick.characterId && Math.random() < tune.nonverbal) {
         const bot = botSeats.find((b) => b.botCharacter === nvPick.characterId);
         if (bot) {
           const NONVERBALS = ["*long exhale*", "*sighs*", "*mutters under his breath*", "*groans quietly*"];
@@ -1026,7 +1087,7 @@ async function runBotExpressions({
         (aftermath.kind === "hero_call" && settlePlayers.find((p) => p.name === aftermath.winnerName && p.characterId)) ||
         settlePlayers.find((p) => p.characterId && p.netBb <= -15) ||
         null;
-      if (thoughtPick && thoughtPick.characterId && Math.random() < 0.45) {
+      if (thoughtPick && thoughtPick.characterId && Math.random() < Math.min(0.9, 0.45 * tune.thoughtMul)) {
         const bot = botSeats.find((b) => b.botCharacter === thoughtPick.characterId);
         if (bot) {
           const thoughtSituation =
@@ -1503,10 +1564,11 @@ async function processBotAction({
       || ((decision.actionType === "bet" || decision.actionType === "raise")
         && (raiseToBbForChat >= 5 || potBbForChat >= 10));
     // Needle on ANY bet/raise so the table stays chatty on small pots too; big
-    // aggression just fires more often.
+    // aggression just fires more often. Scaled by the table's intensity mode.
+    const tuneMid = intensityFor((table as any)?.chat_intensity);
     if (isAggro && character && hasBanter(actingSeat.bot_character)) {
       const exprMul = Math.min(1.5, Number(character.expressiveness || 1));
-      const chatP = (isBigAggro ? 0.6 : 0.34) * exprMul;
+      const chatP = (isBigAggro ? 0.6 : 0.34) * exprMul * tuneMid.midChatMul;
       if (Math.random() < chatP) {
         const identities = await onlineClient.listSeatIdentities({ tableId });
         const recentLines = await onlineClient.listRecentChatLines({ tableId, limit: 12 });
@@ -1527,7 +1589,12 @@ async function processBotAction({
         const target = humans.length
           ? humans[Math.floor(Math.random() * humans.length)]
           : (liveOpponents.length ? liveOpponents[Math.floor(Math.random() * liveOpponents.length)] : null);
-        if (target?.name) {
+        // Target recency: pressure comes in waves, not a drone -- the same
+        // player shouldn't take heat from the table twice in quick succession.
+        const memMid = target?.name ? await loadTableMemory(onlineClient.client, tableId) : null;
+        const spareTarget = Boolean(target?.name && memMid
+          && needledTooRecently(memMid, String(target.name)) && Math.random() < 0.7);
+        if (target?.name && memMid && !spareTarget) {
           const priceBb = Math.max(raiseToBbForChat, 0);
           const situation = `You just ${decision.actionType === "all_in" ? "shoved ALL IN" : `made a big ${decision.actionType} to ${priceBb.toFixed(0)}bb`} into a ${potBbForChat.toFixed(0)}bb pot. ${target.name} is still in the hand facing your bet. Pressure ${target.name} to fold.`;
           const line = await mixedHandBanter({
@@ -1536,6 +1603,9 @@ async function processBotAction({
             targetName: target.name,
             roster,
             chatHistory: history,
+            memory: memoryPromptBlock(memMid, { speakerCharacterId: String(actingSeat.bot_character), speakerName: String(character.name || "Bot") }),
+            mind: mindLineFor(memMid, String(actingSeat.bot_character)),
+            recentSelf: avoidFor(actingSeat.group_player_id),
             canned: () => pickBanterLine({
               characterId: String(actingSeat.bot_character),
               context: "bully",
@@ -1544,6 +1614,8 @@ async function processBotAction({
             }),
           });
           if (line) {
+            noteNeedle(memMid, String(target.name));
+            saveTableMemory(onlineClient.client, tableId, memMid);
             await onlineClient.postBotChat({
               tableId,
               groupPlayerId: actingSeat.group_player_id,
@@ -1559,7 +1631,7 @@ async function processBotAction({
             // part of the sound design.)
             const streetNow = String(liveHand?.state || hand.state || "");
             const bigPotHush = (streetNow === "turn" || streetNow === "river") && potBbForChat >= 12;
-            if (!bigPotHush && Math.random() < 0.45) {
+            if (!bigPotHush && Math.random() < tuneMid.midClapback) {
               const speakerName = identities.find((s: any) =>
                 s.groupPlayerId === String(actingSeat.group_player_id))?.name || "that guy";
               const responders = identities.filter((s: any) =>
@@ -1604,7 +1676,7 @@ async function processBotAction({
     const facedPressure = toCallBbForThought >= 5
       || (decision.actionType === "all_in")
       || (decision.actionType === "fold" && toCallBbForThought >= 3.5);
-    if (facedPressure && character && hasBanter(actingSeat.bot_character) && Math.random() < 0.22) {
+    if (facedPressure && character && hasBanter(actingSeat.bot_character) && Math.random() < 0.22 * tuneMid.thoughtMul) {
       const mem = await loadTableMemory(onlineClient.client, tableId);
       const streetForThought = String(liveHand?.state || hand.state || "the hand");
       const actionWord = decision.actionType === "all_in" ? "moved all in"
@@ -1764,7 +1836,8 @@ async function prepareBotsForNextHand({
         mem.events.push({ t: "rebuy", hand: mem.hands, w: 1.5, note: `${botName} went broke and reloaded -- buy-in number ${buyIn}` });
         saveTableMemory(onlineClient.client, tableId, mem);
 
-        if (Math.random() < 0.35 && await onlineClient.aiRateHit({ tableId, kind: "chat", limit: AI_CHAT_PER_MIN })) {
+        const rebuyTune = await getIntensity(onlineClient.client, tableId);
+        if (Math.random() < rebuyTune.rebuyNeedle && await onlineClient.aiRateHit({ tableId, kind: "chat", limit: AI_CHAT_PER_MIN })) {
           const identities = await onlineClient.listSeatIdentities({ tableId });
           const speakers = identities.filter((s: any) =>
             s.isBot && s.botCharacter && hasBanter(s.botCharacter)
@@ -1782,6 +1855,7 @@ async function prepareBotsForNextHand({
               chatHistory: history,
               memory: memoryPromptBlock(mem, { speakerCharacterId: String(sp.botCharacter), speakerName: String(sp.name || "Bot") }),
               mind: mindLineFor(mem, String(sp.botCharacter)),
+              recentSelf: recent.filter((r) => r.groupPlayerId === String(sp.groupPlayerId)).map((r) => r.message),
               canned: () => null,
             });
             if (line) {
@@ -2247,10 +2321,16 @@ async function handleChatReply({
       otherSeated: bots.filter((b) => b.groupPlayerId !== speaker.groupPlayerId).map((b) => b.name),
       memory: memoryPromptBlock(chatMem, { speakerCharacterId: speaker.characterId, speakerName: speaker.name }),
       mind: mindLineFor(chatMem, speaker.characterId),
+      recentSelf: (recent || [])
+        .filter((m: any) => String(m.group_player_id) === speaker.groupPlayerId)
+        .map((m: any) => String(m.message || ""))
+        .filter(Boolean),
     };
     if (geminiKey) {
       try {
         const t = await generateGeminiReply({ apiKey: geminiKey, model: chatModel, ...args });
+        // PASS = the character chose to ignore the remark (real players do).
+        if (isPass(t)) return { text: null, usedLlm: true };
         if (t) return { text: t, usedLlm: true };
       } catch (error) {
         console.error("[chat_reply] gemini failed", error instanceof Error ? error.message : String(error));
@@ -2259,6 +2339,7 @@ async function handleChatReply({
     if (anthropicKey) {
       try {
         const t = await generateLlmReply({ apiKey: anthropicKey, model: chatModel, ...args });
+        if (isPass(t)) return { text: null, usedLlm: true };
         if (t) return { text: t, usedLlm: true };
       } catch (error) {
         console.error("[chat_reply] anthropic failed, falling back to canned", error instanceof Error ? error.message : String(error));
@@ -2364,6 +2445,15 @@ async function handleTableTalk({
     return json({ ok: true, talked: false, reason: "rate_limited" });
   }
 
+  // Intensity mode scales all ambient behavior; Quiet Professional tables
+  // simply skip a chunk of these openers outright.
+  const { data: talkTableRow } = await onlineClient.client
+    .from("online_tables").select("big_blind, chat_intensity").eq("id", tableId).maybeSingle();
+  const tune = intensityFor(talkTableRow?.chat_intensity);
+  if (Math.random() < tune.ambientSkip) {
+    return json({ ok: true, talked: false, reason: "quiet_table" });
+  }
+
   // Silence discipline: when a big pot is on the turn/river, the room goes
   // quiet -- no ambient chatter over someone's sweat. Only the players in the
   // hand get to talk (their pressure lines come from the action paths).
@@ -2376,12 +2466,10 @@ async function handleTableTalk({
       .limit(1)
       .maybeSingle();
     if (liveHand) {
-      const { data: tableRow } = await onlineClient.client
-        .from("online_tables").select("big_blind").eq("id", tableId).maybeSingle();
-      const bbHush = Math.max(1, Number(tableRow?.big_blind || 2));
+      const bbHush = Math.max(1, Number(talkTableRow?.big_blind || 2));
       const potBbHush = Number(liveHand.pot_total || 0) / bbHush;
       const street = String(liveHand.state || "");
-      if ((street === "turn" || street === "river" || street === "showdown") && potBbHush >= 12) {
+      if ((street === "turn" || street === "river" || street === "showdown") && potBbHush >= tune.hushPotBb) {
         return json({ ok: true, talked: false, reason: "table_hushed" });
       }
     }
@@ -2417,6 +2505,11 @@ async function handleTableTalk({
   const rival = otherNames.length ? otherNames[Math.floor(Math.random() * otherNames.length)] : "the table";
   const beat = AMBIENT_BEATS[Math.floor(Math.random() * AMBIENT_BEATS.length)].replaceAll("{rival}", rival);
 
+  const selfLinesFor = (gpid: string) => (recent || [])
+    .filter((m: any) => String(m.group_player_id) === gpid)
+    .map((m: any) => String(m.message || ""))
+    .filter(Boolean);
+
   let line: string | null = null;
   try {
     line = await generateAmbientLine({
@@ -2424,6 +2517,7 @@ async function handleTableTalk({
       speaker: opener, roster, chatHistory, beat,
       memory: memoryPromptBlock(tableMem, { speakerCharacterId: opener.characterId, speakerName: opener.name }),
       mind: mindLineFor(tableMem, opener.characterId),
+      recentSelf: selfLinesFor(opener.groupPlayerId),
     });
   } catch (error) {
     console.error("[table_talk] opener failed", error instanceof Error ? error.message : String(error));
@@ -2436,7 +2530,7 @@ async function handleTableTalk({
   const running = [...chatHistory, { name: opener.name, text: line }];
   let lastSpeaker = opener;
   let lastLine = line;
-  let hopProb = 0.7;
+  let hopProb = tune.threadHop;
   for (let hop = 0; hop < 2; hop++) {
     if (Math.random() >= hopProb) break;
     const others = bots.filter((b) => b.groupPlayerId !== lastSpeaker.groupPlayerId);
@@ -2450,6 +2544,7 @@ async function handleTableTalk({
         respondingTo: { name: lastSpeaker.name, text: lastLine },
         memory: memoryPromptBlock(tableMem, { speakerCharacterId: next.characterId, speakerName: next.name }),
         mind: mindLineFor(tableMem, next.characterId),
+        recentSelf: selfLinesFor(next.groupPlayerId),
       });
     } catch (error) {
       console.error("[table_talk] thread failed", error instanceof Error ? error.message : String(error));
@@ -2551,6 +2646,7 @@ async function handleSessionEvent({
     chatHistory: history,
     memory: memoryPromptBlock(mem, { speakerCharacterId: speaker.characterId, speakerName: speaker.name }),
     mind: mindLineFor(mem, speaker.characterId),
+    recentSelf: recent.filter((r) => r.groupPlayerId === speaker.groupPlayerId).map((r) => r.message),
     canned: () => null,
   });
   if (!line) return json({ ok: true, talked: false, reason: "no_line" });

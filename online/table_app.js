@@ -6011,6 +6011,17 @@ function openConfigPanel() {
   const isHost = canManageHand();
   if (el.cfgSB) el.cfgSB.disabled = !isHost;
   if (el.cfgBB) el.cfgBB.disabled = !isHost;
+  // Table Talk (conversation intensity) is a server-side table setting; fetch
+  // the live value so the panel shows what the table is actually running.
+  el.configPanel.querySelectorAll("[data-intensity]").forEach((btn) => { btn.disabled = !isHost; });
+  supabase.from("online_tables").select("chat_intensity").eq("id", state.tableId).maybeSingle()
+    .then(({ data }) => {
+      const current = data?.chat_intensity || "social";
+      el.configPanel.querySelectorAll("[data-intensity]").forEach((btn) => {
+        btn.classList.toggle("active", btn.dataset.intensity === current);
+      });
+    })
+    .catch(() => { /* leave the default highlighted */ });
   if (el.cfgSaveGame) el.cfgSaveGame.style.display = isHost ? "" : "none";
   syncPlayerPreferenceControls();
   renderConfigPlayers();
@@ -8112,6 +8123,33 @@ function bindEvents() {
       el.configPanel.querySelectorAll("[data-showdown]").forEach(b => b.classList.remove("active"));
       btn.classList.add("active");
       state.config.showdownTime = Number(btn.dataset.showdown) * 1000;
+    });
+  });
+
+  // Table Talk (conversation intensity): saves to the table immediately -- the
+  // runtime reads it when scaling every banter/thought/silence knob.
+  el.configPanel.querySelectorAll("[data-intensity]").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const intensity = btn.dataset.intensity;
+      const token = getSeatToken();
+      if (!token || !state.identity?.groupPlayerId) { toast("Join a seat first.", "error"); return; }
+      const prev = [...el.configPanel.querySelectorAll("[data-intensity].active")];
+      el.configPanel.querySelectorAll("[data-intensity]").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      try {
+        await online.setChatIntensity({
+          tableId: state.tableId,
+          actorGroupPlayerId: state.identity.groupPlayerId,
+          seatToken: token,
+          intensity,
+        });
+        const label = intensity === "quiet" ? "Quiet Professional" : intensity === "drama" ? "High Drama" : "Social Home Game";
+        toast(`Table talk: ${label}`, "success");
+      } catch (err) {
+        el.configPanel.querySelectorAll("[data-intensity]").forEach(b => b.classList.remove("active"));
+        prev.forEach(b => b.classList.add("active"));
+        toast(friendlyOnlineError(err, "Could not change table talk."), "error");
+      }
     });
   });
 

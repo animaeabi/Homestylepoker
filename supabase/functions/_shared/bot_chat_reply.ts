@@ -76,9 +76,28 @@ type ReplyArgs = {
   message: string;
   chatHistory: { name: string; text: string }[];
   otherSeated: string[];
-  memory?: string | null; // TABLE MEMORY block (shared session history)
-  mind?: string | null;   // speaker's own emotional-state direction
+  memory?: string | null;       // TABLE MEMORY block (shared session history)
+  mind?: string | null;         // speaker's own emotional-state direction
+  recentSelf?: string[] | null; // lines this character already said (anti-repeat)
 };
+
+// Repetition guard shown to the model when we know what this character has
+// already said. PASS is a real option: intentional silence beats a rerun.
+function recentSelfBlock(recentSelf?: string[] | null): string[] {
+  const lines = (recentSelf || []).filter(Boolean).slice(0, 6);
+  if (!lines.length) return [];
+  return [
+    "",
+    "LINES YOU ALREADY SAID RECENTLY -- never reuse their phrasing, jokes, signature bits, or point. Find a NEW angle:",
+    ...lines.map((l) => `- ${l}`),
+    "If anything you'd say here would repeat yourself or make the same point again, reply with exactly: PASS",
+  ];
+}
+
+// The model chose silence. Honor it -- do not fall back to canned lines.
+export function isPass(line: string | null | undefined): boolean {
+  return /^pass[.!]*$/i.test(String(line || "").trim());
+}
 
 // Shared voice for EVERY prompt -- how these characters actually talk. Fixes the
 // robotic, nerdy, name-every-line feel: dry and dark, sarcastic, conversational,
@@ -96,7 +115,7 @@ const STYLE_RULES = [
 
 // Shared prompt for every LLM backend. Returns null if the character has no
 // speech DNA (so the caller falls back to canned lines).
-function buildReplyPrompt({ responder, playerName, message, chatHistory, otherSeated, memory, mind }: ReplyArgs):
+function buildReplyPrompt({ responder, playerName, message, chatHistory, otherSeated, memory, mind, recentSelf }: ReplyArgs):
   | { system: string; user: string }
   | null {
   const dna = SPEECH_DNA[responder.characterId];
@@ -108,6 +127,7 @@ function buildReplyPrompt({ responder, playerName, message, chatHistory, otherSe
     STYLE_RULES,
     ...(memory ? ["", memory] : []),
     ...(mind ? ["", mind] : []),
+    ...recentSelfBlock(recentSelf),
     "",
     "Reply to what the player just said -- fully in character, heated or funny or absurd as it fits. Banter back; give as good as you get.",
   ].join("\n");
@@ -218,7 +238,7 @@ export const AMBIENT_BEATS: string[] = [
 ];
 
 function buildAmbientPrompt({
-  speaker, roster, chatHistory, beat, respondingTo, memory, mind,
+  speaker, roster, chatHistory, beat, respondingTo, memory, mind, recentSelf,
 }: {
   speaker: SeatedCharacter;
   roster: string[];
@@ -227,6 +247,7 @@ function buildAmbientPrompt({
   respondingTo?: { name: string; text: string } | null;
   memory?: string | null;
   mind?: string | null;
+  recentSelf?: string[] | null;
 }): { system: string; user: string } | null {
   const dna = SPEECH_DNA[speaker.characterId];
   if (!dna) return null;
@@ -237,6 +258,7 @@ function buildAmbientPrompt({
     STYLE_RULES,
     ...(memory ? ["", memory] : []),
     ...(mind ? ["", mind] : []),
+    ...recentSelfBlock(recentSelf),
     "",
     "The table is between hands. Keep it grounded in THIS game and these players -- how the session's going, who's been running hot or cold, an earlier pot, a read you have on someone, a grudge -- then let it drift into dark humor and sarcasm. It should feel like a real conversation that MEANS something, not filler. Don't reveal anyone's hole cards. Stay in your own parody poker world; never name real people or real events.",
   ].join("\n");
@@ -260,7 +282,7 @@ function buildAmbientPrompt({
 // Produce one ambient line for `speaker`. `provider` picks the backend; returns
 // null on refusal/error so the caller can fall back to canned banter.
 export async function generateAmbientLine({
-  provider, apiKey, model, speaker, roster, chatHistory, beat, respondingTo, memory, mind,
+  provider, apiKey, model, speaker, roster, chatHistory, beat, respondingTo, memory, mind, recentSelf,
 }: {
   provider: "gemini" | "anthropic";
   apiKey: string;
@@ -272,10 +294,12 @@ export async function generateAmbientLine({
   respondingTo?: { name: string; text: string } | null;
   memory?: string | null;
   mind?: string | null;
+  recentSelf?: string[] | null;
 }): Promise<string | null> {
-  const prompt = buildAmbientPrompt({ speaker, roster, chatHistory, beat, respondingTo, memory, mind });
+  const prompt = buildAmbientPrompt({ speaker, roster, chatHistory, beat, respondingTo, memory, mind, recentSelf });
   if (!prompt) return null;
-  return complete(provider, prompt.system, prompt.user, apiKey, model);
+  const line = await complete(provider, prompt.system, prompt.user, apiKey, model);
+  return isPass(line) ? null : line;
 }
 
 // ---------------------------------------------------------------------------
@@ -286,7 +310,7 @@ export async function generateAmbientLine({
 // (LLM when available/quota allows, canned as the always-there fallback).
 // ---------------------------------------------------------------------------
 export async function generateHandBanter({
-  provider, apiKey, model, speaker, situation, targetName, roster, chatHistory, memory, mind,
+  provider, apiKey, model, speaker, situation, targetName, roster, chatHistory, memory, mind, recentSelf,
 }: {
   provider: "gemini" | "anthropic";
   apiKey: string;
@@ -298,6 +322,7 @@ export async function generateHandBanter({
   chatHistory: { name: string; text: string }[];
   memory?: string | null;     // TABLE MEMORY block for callbacks
   mind?: string | null;       // speaker's emotional-state direction
+  recentSelf?: string[] | null; // anti-repeat: lines this character already said
 }): Promise<string | null> {
   const dna = SPEECH_DNA[speaker.characterId];
   if (!dna) return null;
@@ -308,6 +333,7 @@ export async function generateHandBanter({
     STYLE_RULES,
     ...(memory ? ["", memory] : []),
     ...(mind ? ["", mind] : []),
+    ...recentSelfBlock(recentSelf),
     "",
     `React to the SITUATION below -- it's happening in THIS hand, so make it land: gloat, needle, tilt, or get in their head.${targetName ? " If you use a name at all, it's theirs -- but only if it sharpens the jab." : ""}`,
   ].join("\n");

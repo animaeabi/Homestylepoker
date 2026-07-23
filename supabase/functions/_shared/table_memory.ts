@@ -55,6 +55,7 @@ export type TableMemory = {
   human: Record<string, HumanRead>;   // by display name
   rel: Record<string, Relation>;      // by "fromName>toName"
   seeded?: string[];                  // characterIds whose chemistry is planted
+  lastNeedle?: { target: string; at: number } | null; // repetition guard: who just got heat
 };
 
 const MAX_EVENTS = 24;
@@ -74,7 +75,23 @@ export function normalizeTableMemory(raw: unknown): TableMemory {
     human: m.human && typeof m.human === "object" ? m.human as Record<string, HumanRead> : {},
     rel: m.rel && typeof m.rel === "object" ? m.rel as Record<string, Relation> : {},
     seeded: Array.isArray(m.seeded) ? m.seeded : [],
+    lastNeedle: m.lastNeedle && typeof m.lastNeedle === "object" ? m.lastNeedle : null,
   };
+}
+
+// Target-recency guard: the same player shouldn't take heat from the table
+// twice in quick succession (real pressure comes in waves, not a drone).
+// Returns true when this target just got needled and should usually be spared.
+export function needledTooRecently(mem: TableMemory, targetName: string, windowMs = 100000): boolean {
+  return Boolean(
+    mem.lastNeedle
+    && mem.lastNeedle.target === targetName
+    && Date.now() - Number(mem.lastNeedle.at || 0) < windowMs,
+  );
+}
+
+export function noteNeedle(mem: TableMemory, targetName: string) {
+  mem.lastNeedle = { target: targetName, at: Date.now() };
 }
 
 // ---------------------------------------------------------------------------
