@@ -3309,7 +3309,7 @@ const chatVoice = {
           if (!data || !data.audio) { clearTimeout(timer); finish(); return; }
           const a = this.ensureAudio();
           a.onplaying = () => { clearTimeout(timer); finish(); };
-          a.src = "data:audio/wav;base64," + data.audio;
+          a.src = "data:" + (data.mime || "audio/wav") + ";base64," + data.audio;
           Promise.resolve(a.play()).catch(() => { clearTimeout(timer); finish(); });
         }).catch(() => { clearTimeout(timer); finish(); });
       });
