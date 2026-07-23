@@ -1590,6 +1590,7 @@ function cardFwip(gain = 0.09, dur = 0.075, hi = 6500, lo = 1300, snap = false) 
 const SFX_URLS = {
   allin: "online/sfx_allin.mp3?v=1",
   shuffle: "online/sfx_shuffle.mp3?v=1",
+  raise: "online/sfx_raise.mp3?v=1",
 };
 const sfxBuffers = {};
 function loadSfxSample(name) {
@@ -1623,7 +1624,7 @@ const sounds = {
   check: () => { const ctx = getAudioCtx(); if (state.config.soundOn && ctx) { noiseBurst(ctx, { t: ctx.currentTime, dur: 0.05, gain: 0.09, type: "lowpass", freq: 900, q: 0.6 }); } }, // knuckle rap
   call: () => chipStack(2, 0.1),
   bet: () => chipStack(3, 0.11),
-  raise: () => chipStack(4, 0.12),
+  raise: () => { if (!playSfxSample("raise", 0.55)) chipStack(4, 0.12); }, // recorded chip placement (synth fallback)
   fold: () => cardFwip(0.08, 0.11, 5200, 900),          // muck toss
   allIn: () => { if (!playSfxSample("allin", 0.6)) { chipStack(8, 0.13); setTimeout(() => chipStack(4, 0.1), 130); } }, // recorded chip shove (synth fallback)
   win: () => { chipStack(6, 0.12); setTimeout(() => chipStack(6, 0.11), 150); setTimeout(() => chipStack(4, 0.1), 300); }, // raking the pot
