@@ -29,7 +29,7 @@ const GEMINI_DEFAULT = "Charon";
 // Azure "ShortName"s. Locale is parsed from the prefix. Chosen for character fit;
 // several support emotion styles (see AZURE_STYLES) for express-as delivery.
 const AZURE_VOICE: Record<string, string> = {
-  negranope: "en-US-DavisNeural",              // warm, chatty
+  negranope: "en-US-Grant:MAI-Voice-1",        // Grant, excited (per cast)
   donk:      "en-US-KaiNeural",                // flat, conversational
   holes:     "en-US-AndrewMultilingualNeural", // calm, empathetic
   haxxon:    "en-US-JasonNeural",              // measured, dry
@@ -61,9 +61,27 @@ const AZURE_STYLES: Record<string, string[]> = {
 const GROQ_VOICE: Record<string, string> = {
   negranope: "austin", donk: "daniel", holes: "austin", haxxon: "daniel",
   eyev: "daniel", hellsmouth: "troy", sydell: "austin", hunger: "troy",
-  grease: "daniel", pony: "troy",
+  grease: "daniel", pony: "austin",
 };
 const GROQ_DEFAULT = "daniel";
+
+// Google Cloud Chirp3-HD voices (free tier). These share the SAME prebuilt voice
+// names as Gemini, so a character's free everyday voice and its paid win-laugh
+// voice are the same timbre -- no shift between tiers. Default is derived from the
+// character's Gemini voice name so any character can fall back to a matching one.
+const CHIRP_VOICE: Record<string, string> = {
+  negranope: "en-US-Chirp3-HD-Fenrir",
+};
+function chirpVoiceFor(characterId: string): string {
+  return CHIRP_VOICE[characterId] || `en-US-Chirp3-HD-${GEMINI_VOICE[characterId] || GEMINI_DEFAULT}`;
+}
+
+// Characters whose everyday (small + medium) voice should come from a specific
+// provider instead of the tier default. Negranope uses Chirp3-HD Fenrir so he
+// matches his Gemini Fenrir win-voice exactly.
+const CHARACTER_PROVIDER: Record<string, "chirp"> = {
+  negranope: "chirp",
+};
 
 // ---------------------------------------------------------------------------
 // Delivery direction.
@@ -101,9 +119,17 @@ const AZURE_MOOD_STYLE: Record<string, string[]> = {
   regret: ["sad", "regret", "regretful", "hopeful"],
 };
 
-function pickAzureStyle(voice: string, mood: string): string | null {
+// A character can force one Azure style regardless of mood (e.g. Negranope is
+// always the excited chatterbox on Grant).
+const CHARACTER_AZURE_STYLE: Record<string, string> = {
+  negranope: "excitement",
+};
+
+function pickAzureStyle(characterId: string, voice: string, mood: string): string | null {
   const supported = AZURE_STYLES[voice];
   if (!supported || !supported.length) return null;
+  const forced = CHARACTER_AZURE_STYLE[characterId];
+  if (forced && supported.includes(forced)) return forced;
   const prefs = AZURE_MOOD_STYLE[mood] || AZURE_MOOD_STYLE.banter;
   for (const s of prefs) if (supported.includes(s)) return s;
   return null;
@@ -217,7 +243,7 @@ async function geminiTts(characterId: string, clean: string, mood: string, apiKe
 async function azureTts(characterId: string, clean: string, mood: string, key: string, region: string): Promise<SpeechClip | null> {
   const voice = AZURE_VOICE[characterId] || AZURE_DEFAULT;
   const locale = voice.split("-").slice(0, 2).join("-"); // en-US / en-GB
-  const style = pickAzureStyle(voice, mood);
+  const style = pickAzureStyle(characterId, voice, mood);
   const inner = xmlEscape(clean);
   const body = style
     ? `<mstts:express-as style="${style}" styledegree="1.6">${inner}</mstts:express-as>`
@@ -273,6 +299,29 @@ async function groqTts(characterId: string, clean: string, mood: string, apiKey:
 }
 
 // ---------------------------------------------------------------------------
+// Provider: Google Cloud Chirp3-HD (free tier, natural). Shares Gemini's voice
+// names for cross-tier consistency. No SSML/emotion -- plain, natural read.
+// Google returns base64 MP3 directly in audioContent.
+// ---------------------------------------------------------------------------
+async function chirpTts(characterId: string, clean: string, apiKey: string): Promise<SpeechClip | null> {
+  const voice = chirpVoiceFor(characterId);
+  const locale = voice.split("-").slice(0, 2).join("-"); // en-US / en-GB
+  const resp = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize?key=${apiKey}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      input: { text: clean },
+      voice: { languageCode: locale, name: voice },
+      audioConfig: { audioEncoding: "MP3" },
+    }),
+  });
+  if (!resp.ok) throw new Error(`chirp ${resp.status}: ${(await resp.text()).slice(0, 140)}`);
+  const data = await resp.json();
+  if (!data?.audioContent) return null;
+  return { audio: data.audioContent, mime: "audio/mpeg" };
+}
+
+// ---------------------------------------------------------------------------
 // Public entry: pick the provider by moment, with graceful fallback so a flaky
 // or unconfigured tier never leaves the line silent.
 // ---------------------------------------------------------------------------
@@ -281,7 +330,8 @@ export interface TtsKeys {
   azureKey?: string | null;
   azureRegion?: string | null;
   groq?: string | null;
-  model?: string | null; // Gemini model override
+  google?: string | null; // Google Cloud TTS (Chirp3-HD) key
+  model?: string | null;  // Gemini model override
 }
 
 export async function generateSpeech({
@@ -300,11 +350,19 @@ export async function generateSpeech({
   const gemini = () => keys.gemini ? geminiTts(characterId, clean, m, keys.gemini, keys.model) : Promise.resolve(null);
   const azure = () => (keys.azureKey && keys.azureRegion) ? azureTts(characterId, clean, m, keys.azureKey, keys.azureRegion) : Promise.resolve(null);
   const groq = () => keys.groq ? groqTts(characterId, clean, m, keys.groq) : Promise.resolve(null);
+  const chirp = () => keys.google ? chirpTts(characterId, clean, keys.google) : Promise.resolve(null);
+
+  // A character can pin its everyday (small/medium) voice to a specific provider
+  // (e.g. Negranope on Chirp3-HD so he matches his Gemini win-voice exactly).
+  const override = CHARACTER_PROVIDER[characterId];
+  const pinned = override === "chirp" ? chirp : null;
 
   // Primary by tier, then fall back to the free/reliable providers, then Gemini.
-  const order = tier === "high" ? [gemini, azure, groq]
-    : tier === "medium" ? [groq, azure, gemini]
-    : [azure, groq, gemini];
+  // High moments always lead with Gemini (real laughs); a pinned character still
+  // falls back to its everyday provider so its win-line stays on-voice.
+  const order = tier === "high" ? [gemini, ...(pinned ? [pinned] : []), chirp, azure, groq]
+    : tier === "medium" ? [...(pinned ? [pinned] : []), groq, azure, chirp, gemini]
+    : [...(pinned ? [pinned] : []), azure, chirp, groq, gemini];
 
   let lastErr: unknown = null;
   for (const provider of order) {
