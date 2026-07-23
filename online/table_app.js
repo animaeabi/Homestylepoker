@@ -3240,10 +3240,20 @@ async function presentSpeechBubble(item) {
     tick();
   });
 
-  // Re-clamp once fully typed (final size), then hold long enough to read.
+  // Re-clamp once fully typed (final size).
   clampSpeechBubbles();
-  const holdMs = Math.min(SPEECH_MAX_HOLD_MS, Math.max(SPEECH_MIN_HOLD_MS, full.length * SPEECH_READ_MS_PER_CHAR));
-  await wait(holdMs);
+
+  // Let this character's VOICE finish before the queue moves on, so the next
+  // speaker never talks over them (all lines share one audio element, so an
+  // early handoff would cut this clip off). Text was paced to the audio, so
+  // this is normally just a short tail. Then a brief read-hold.
+  if (spoken) {
+    await chatVoice.whenEnded(9000);
+    await wait(700);
+  } else {
+    const holdMs = Math.min(SPEECH_MAX_HOLD_MS, Math.max(SPEECH_MIN_HOLD_MS, full.length * SPEECH_READ_MS_PER_CHAR));
+    await wait(holdMs);
+  }
 
   // Fade + remove, then a short gap so bubbles never visually collide. The
   // fade is driven by an overlay flag (not a raw DOM class) so a re-render
@@ -3293,6 +3303,27 @@ const chatVoice = {
   currentDurationMs() {
     const d = this._audio && this._audio.duration;
     return (typeof d === "number" && isFinite(d) && d > 0) ? d * 1000 : null;
+  },
+
+  // Resolve when the clip currently playing finishes (or a safety cap), so the
+  // speech queue can hold a speaker's turn until their voice is fully done.
+  whenEnded(maxWaitMs = 9000) {
+    const a = this._audio;
+    if (!a || !this._playing || a.ended || a.paused) return Promise.resolve();
+    return new Promise((resolve) => {
+      let done = false;
+      const fin = () => {
+        if (done) return;
+        done = true;
+        a.removeEventListener("ended", fin);
+        a.removeEventListener("error", fin);
+        clearTimeout(timer);
+        resolve();
+      };
+      const timer = setTimeout(fin, maxWaitMs);
+      a.addEventListener("ended", fin, { once: true });
+      a.addEventListener("error", fin, { once: true });
+    });
   },
 
   // Play a tiny silent clip inside a user gesture so iOS unlocks audio for the
@@ -3358,10 +3389,12 @@ const chatVoice = {
           }
           if (!data || !data.audio) { ttsDbg("no audio (" + (data?.reason || data?.error || "empty") + ")"); clearTimeout(timer); finish(); return; }
           const a = this.ensureAudio();
-          a.onplaying = () => { ttsDbg("playing " + Math.round(String(data.audio).length / 1024) + "kb"); clearTimeout(timer); finish(); };
-          a.onerror = () => { ttsDbg("audio element error"); };
+          this._playing = false;
+          a.onplaying = () => { this._playing = true; ttsDbg("playing " + Math.round(String(data.audio).length / 1024) + "kb"); clearTimeout(timer); finish(); };
+          a.onended = () => { this._playing = false; };
+          a.onerror = () => { this._playing = false; ttsDbg("audio element error"); clearTimeout(timer); finish(); };
           a.src = "data:" + (data.mime || "audio/wav") + ";base64," + data.audio;
-          Promise.resolve(a.play()).catch((e) => { ttsDbg("play() blocked: " + String(e?.name || e).slice(0, 40)); clearTimeout(timer); finish(); });
+          Promise.resolve(a.play()).catch((e) => { this._playing = false; ttsDbg("play() blocked: " + String(e?.name || e).slice(0, 40)); clearTimeout(timer); finish(); });
         }).catch((e) => { ttsDbg("invoke threw: " + String(e?.message || e).slice(0, 60)); clearTimeout(timer); finish(); });
       });
     } finally {
