@@ -1711,28 +1711,29 @@ const ambience = {
     master.gain.setValueAtTime(0.0001, now);
     master.gain.exponentialRampToValueAtTime(0.16, now + 3); // gentle fade-in
     master.connect(ctx.destination);
-
-    // Room tone: brown noise, heavily low-passed -> the "hum" of the room.
-    const room = ctx.createBufferSource(); room.buffer = this._noise(ctx, "brown"); room.loop = true;
-    const rlp = ctx.createBiquadFilter(); rlp.type = "lowpass"; rlp.frequency.value = 380; rlp.Q.value = 0.4;
-    const rg = ctx.createGain(); rg.gain.value = 0.55;
-    room.connect(rlp).connect(rg).connect(master);
-
-    // Crowd murmur: pink noise band-passed to voice range, no words -> babble.
-    const crowd = ctx.createBufferSource(); crowd.buffer = this._noise(ctx, "pink"); crowd.loop = true;
-    const cbp = ctx.createBiquadFilter(); cbp.type = "bandpass"; cbp.frequency.value = 1000; cbp.Q.value = 0.5;
-    const cg = ctx.createGain(); cg.gain.value = 0.14;
-    crowd.connect(cbp).connect(cg).connect(master);
-    // Slow tremolo so the crowd "breathes".
-    const lfo = ctx.createOscillator(); lfo.type = "sine"; lfo.frequency.value = 0.12;
-    const lfoG = ctx.createGain(); lfoG.gain.value = 0.07;
-    lfo.connect(lfoG).connect(cg.gain);
-
-    room.start(); crowd.start(); lfo.start();
     this.master = master;
-    this.nodes = { room, crowd, lfo };
     this.running = true;
-    this._scheduleEvent(ctx);
+    this._startBed(ctx, master); // the recorded poker-room loop
+  },
+
+  // Fetch + loop the real room recording. Gain 1.19 through the 0.16 master lands
+  // it at the same level (~ -37 dBFS RMS) as the synth bed it replaced.
+  _startBed(ctx, master) {
+    const startSrc = (buf) => {
+      if (!this.running || this.master !== master) return;
+      const src = ctx.createBufferSource();
+      src.buffer = buf; src.loop = true;
+      const g = ctx.createGain(); g.gain.value = 1.19;
+      src.connect(g).connect(master);
+      try { src.start(); } catch { /* ignore */ }
+      this.nodes = { src };
+    };
+    if (this._bedBuf) { startSrc(this._bedBuf); return; }
+    fetch("online/room_ambience.mp3?v=1")
+      .then((r) => r.arrayBuffer())
+      .then((ab) => ctx.decodeAudioData(ab))
+      .then((buf) => { this._bedBuf = buf; startSrc(buf); })
+      .catch(() => { /* no bed if the file fails to load */ });
   },
 
   // A crowd reaction layered onto the room: "ooh" (a big all-in) or a lower
@@ -1769,7 +1770,7 @@ const ambience = {
     try {
       if (ctx && this.master) this.master.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.8);
       const n = this.nodes;
-      setTimeout(() => { try { n.room.stop(); n.crowd.stop(); n.lfo.stop(); } catch { /* ignore */ } }, 900);
+      setTimeout(() => { try { if (n && n.src) n.src.stop(); } catch { /* ignore */ } }, 900);
     } catch { /* ignore */ }
     this.nodes = null; this.master = null;
   },
