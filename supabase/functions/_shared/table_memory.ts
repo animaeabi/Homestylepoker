@@ -54,6 +54,7 @@ export type TableMemory = {
   emo: Record<string, CharEmotion>;   // by characterId
   human: Record<string, HumanRead>;   // by display name
   rel: Record<string, Relation>;      // by "fromName>toName"
+  seeded?: string[];                  // characterIds whose chemistry is planted
 };
 
 const MAX_EVENTS = 24;
@@ -72,7 +73,65 @@ export function normalizeTableMemory(raw: unknown): TableMemory {
     emo: m.emo && typeof m.emo === "object" ? m.emo as Record<string, CharEmotion> : {},
     human: m.human && typeof m.human === "object" ? m.human as Record<string, HumanRead> : {},
     rel: m.rel && typeof m.rel === "object" ? m.rel as Record<string, Relation> : {},
+    seeded: Array.isArray(m.seeded) ? m.seeded : [],
   };
+}
+
+// ---------------------------------------------------------------------------
+// Chemistry: the roster arrives already knowing each other. These seeds plant
+// the starting biases from the pairing map -- noise vs silence, eruption vs
+// composure, theory vs chaos, scarcity vs abundance -- as mild (+/-1) leanings
+// that real session events then confirm, invert, or bury. Directional on
+// purpose; earned feelings are never overwritten.
+// ---------------------------------------------------------------------------
+const CHEMISTRY: Array<{ from: string; to: string; score: number; why: string }> = [
+  // Pony vs Finn: noise against silence.
+  { from: "pony", to: "eyev", score: -1, why: "his silence gives you NOTHING to push against -- no reaction, no respect, and it eats at you" },
+  { from: "eyev", to: "pony", score: -1, why: "he is noise. Endless noise. You answer him in four words or none" },
+  // Fill vs Sydell: eruption against composure.
+  { from: "hellsmouth", to: "sydell", score: -1, why: "his calm feels like a quiet judgment of every one of your eruptions" },
+  { from: "sydell", to: "hellsmouth", score: 1, why: "you've watched brats melt down for forty years -- his tantrums are almost nostalgic" },
+  // Haxxon vs Donk: theory against chaos.
+  { from: "haxxon", to: "donk", score: -1, why: "his chaos breaks your models and he doesn't even notice he's doing it" },
+  { from: "donk", to: "haxxon", score: 1, why: "the math guy keeps trying to solve you. it's sort of funny" },
+  // Grease vs Holes: scarcity against abundance.
+  { from: "grease", to: "holes", score: -1, why: "he burns money like incense and calls it growth -- it offends your ledger personally" },
+  { from: "holes", to: "grease", score: 1, why: "his scarcity mindset is a beautiful case study -- you'd love to coach him. For a fee" },
+  // Dandy vs Finn: constant interpretation against unreadability.
+  { from: "negranope", to: "eyev", score: -1, why: "he's the ONE player at this table you cannot read, and it itches" },
+  { from: "eyev", to: "negranope", score: -1, why: "he narrates reads all night. Noise pretending to be signal" },
+  // Hunger vs Grease: speed against caution.
+  { from: "hunger", to: "grease", score: -1, why: "he takes a full minute to fold and it is stealing your LIFE" },
+  { from: "grease", to: "hunger", score: -1, why: "that pace is how mistakes happen. You wrote it down, with the date" },
+  // Pony vs Fill: two players competing to control the room.
+  { from: "pony", to: "hellsmouth", score: -1, why: "two loud kings, one room -- and he keeps grabbing YOUR spotlight" },
+  { from: "hellsmouth", to: "pony", score: -1, why: "he yells like he's earned it. NINETEEN titles say otherwise" },
+  // Sydell vs Hunger: patience against impatience.
+  { from: "sydell", to: "hunger", score: 1, why: "the kid's fearless -- reminds you of somebody, about forty years ago" },
+  { from: "hunger", to: "sydell", score: -1, why: "he plays at the speed limit and the whole table treats it like wisdom" },
+];
+
+// Plant chemistry for any newly seated characters (idempotent, late-join safe).
+// Returns true if the memory changed and should be saved.
+export function seedChemistry(mem: TableMemory, bots: { characterId: string; name: string }[]): boolean {
+  const seeded = new Set(mem.seeded || []);
+  const nameByChar = new Map(bots.map((b) => [b.characterId, b.name]));
+  let changed = false;
+  for (const c of CHEMISTRY) {
+    const fromName = nameByChar.get(c.from);
+    const toName = nameByChar.get(c.to);
+    if (!fromName || !toName) continue;
+    if (seeded.has(c.from) && seeded.has(c.to)) continue; // pair already planted
+    const key = `${fromName}>${toName}`;
+    if (mem.rel[key]) continue; // never stomp feelings the session has earned
+    mem.rel[key] = { score: c.score, why: c.why, hand: 0 };
+    changed = true;
+  }
+  for (const b of bots) {
+    if (!seeded.has(b.characterId)) { seeded.add(b.characterId); changed = true; }
+  }
+  mem.seeded = [...seeded];
+  return changed;
 }
 
 function bumpRelation(mem: TableMemory, from: string, to: string, delta: number, why: string, hand: number) {

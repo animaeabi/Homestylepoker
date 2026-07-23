@@ -15,6 +15,7 @@ import {
   mindLineFor,
   noteHumanTank,
   saveTableMemory,
+  seedChemistry,
   updateEmotions,
   updateHumanReads,
   updateRelationships,
@@ -844,6 +845,11 @@ async function runBotExpressions({
 
     // --- Memory pass (every settled hand, even tiny ones: fold streaks count).
     const mem = await loadTableMemory(onlineClient.client, tableId);
+    // First contact (or a late join): plant the roster's starting chemistry so
+    // the characters arrive already knowing each other.
+    seedChemistry(mem, botSeats
+      .filter((b) => b.botCharacter && b.name)
+      .map((b) => ({ characterId: String(b.botCharacter), name: String(b.name) })));
     mem.hands += 1;
     const handNo = mem.hands;
     const settlePlayers: SettlePlayer[] = players
@@ -1719,6 +1725,7 @@ async function prepareBotsForNextHand({
   for (const bot of bots) {
     if (Number(bot.chip_stack || 0) > 0) continue;
     const rebuys = Number(bot.bot_rebuy_count || 0);
+    const botName = String(bot.group_players?.name || "A player");
     if (rebuys >= 5) {
       if (bot.group_player_id && bot.seat_token) {
         await onlineClient.leaveTable({
@@ -1726,6 +1733,13 @@ async function prepareBotsForNextHand({
           groupPlayerId: bot.group_player_id,
           seatToken: bot.seat_token
         });
+        // The table remembers a bust-out. No line needed -- the empty chair
+        // says it, and later banter can reference it from memory.
+        try {
+          const mem = await loadTableMemory(onlineClient.client, tableId);
+          mem.events.push({ t: "busted", hand: mem.hands, w: 2.5, note: `${botName} went broke ${rebuys + 1} buy-ins deep and left the game` });
+          saveTableMemory(onlineClient.client, tableId, mem);
+        } catch { /* memory is flavor */ }
       }
       continue;
     }
@@ -1740,6 +1754,45 @@ async function prepareBotsForNextHand({
         seatId: bot.id,
         patch: { bot_rebuy_count: rebuys + 1 }
       });
+
+      // A rebuy is a social event: pride took a hit and everyone saw the
+      // reload. Record it, and sometimes one character says what the table
+      // is thinking ("fresh ammunition"). Best-effort, never blocks dealing.
+      try {
+        const mem = await loadTableMemory(onlineClient.client, tableId);
+        const buyIn = rebuys + 2; // original buy-in + this reload
+        mem.events.push({ t: "rebuy", hand: mem.hands, w: 1.5, note: `${botName} went broke and reloaded -- buy-in number ${buyIn}` });
+        saveTableMemory(onlineClient.client, tableId, mem);
+
+        if (Math.random() < 0.35 && await onlineClient.aiRateHit({ tableId, kind: "chat", limit: AI_CHAT_PER_MIN })) {
+          const identities = await onlineClient.listSeatIdentities({ tableId });
+          const speakers = identities.filter((s: any) =>
+            s.isBot && s.botCharacter && hasBanter(s.botCharacter)
+            && s.groupPlayerId !== String(bot.group_player_id));
+          if (speakers.length) {
+            const sp = speakers[Math.floor(Math.random() * speakers.length)];
+            const recent = await onlineClient.listRecentChatLines({ tableId, limit: 10 });
+            const nameByGpid = new Map(identities.map((s: any) => [s.groupPlayerId, s.name || "Player"]));
+            const history = recent.slice().reverse().map((r) => ({ name: String(nameByGpid.get(r.groupPlayerId) || "Player"), text: r.message }));
+            const line = await mixedHandBanter({
+              speaker: { characterId: String(sp.botCharacter), name: String(sp.name || "Bot") },
+              situation: `${botName} just went broke and re-bought -- that's buy-in number ${buyIn} tonight. React: fresh ammunition, a dry welcome-back, or quiet accounting. Rebuys sting; make it land without piling on.`,
+              targetName: botName,
+              roster: identities.map((s: any) => String(s.name || "Player")).filter(Boolean),
+              chatHistory: history,
+              memory: memoryPromptBlock(mem, { speakerCharacterId: String(sp.botCharacter), speakerName: String(sp.name || "Bot") }),
+              mind: mindLineFor(mem, String(sp.botCharacter)),
+              canned: () => null,
+            });
+            if (line) {
+              await onlineClient.postBotChat({
+                tableId, groupPlayerId: sp.groupPlayerId, message: line,
+                voice: true, character: String(sp.botCharacter), mood: "banter",
+              });
+            }
+          }
+        }
+      } catch { /* rebuy chatter is cosmetic */ }
     }
   }
 }
@@ -2335,6 +2388,11 @@ async function handleTableTalk({
   } catch { /* hush check is best-effort */ }
 
   const tableMem = await loadTableMemory(onlineClient.client, tableId);
+  // Ambient chatter can fire before the first settle -- make sure the starting
+  // chemistry is planted so even hand-one table talk has relationships.
+  if (seedChemistry(tableMem, bots.map((b) => ({ characterId: b.characterId, name: b.name })))) {
+    saveTableMemory(onlineClient.client, tableId, tableMem);
+  }
   const roster = identities.map((s: any) => String(s.name || "Player")).filter(Boolean);
   const { data: recent } = await onlineClient.client
     .from("online_table_chat_messages")
@@ -2407,6 +2465,101 @@ async function handleTableTalk({
   }
 
   return json({ ok: true, talked: true, by: opener.name });
+}
+
+// A human joined or left mid-session. Real tables mark these moments -- a
+// sized-up welcome, a farewell jab -- and the table remembers them. Seat-token
+// authed (the subject proves their own presence); one speaker max; quiet at
+// session start so the table doesn't greet every arrival during setup.
+async function handleSessionEvent({
+  onlineClient,
+  payload,
+  kind
+}: {
+  onlineClient: ReturnType<typeof createOnlineRpcClient>;
+  payload: Record<string, unknown>;
+  kind: "player_joined" | "player_left";
+}) {
+  const tableId = asText(payload?.table_id);
+  const groupPlayerId = asText(payload?.group_player_id);
+  const seatToken = asText(payload?.seat_token);
+  if (!tableId || !groupPlayerId || !seatToken) {
+    return json({ ok: false, error: "session_event_requires_table_player_token" }, 400);
+  }
+
+  // Prove the caller is really this seated human (for a leave poke, the seat
+  // is still live -- the client fires this just before online_leave_table).
+  const { data: subjSeat, error: seatErr } = await onlineClient.client
+    .from("online_table_seats")
+    .select("seat_no, is_bot")
+    .eq("table_id", tableId)
+    .eq("group_player_id", groupPlayerId)
+    .eq("seat_token", seatToken)
+    .is("left_at", null)
+    .maybeSingle();
+  if (seatErr || !subjSeat || subjSeat.is_bot) {
+    return json({ ok: false, error: "session_event_seat_not_found" }, 403);
+  }
+
+  const mem = await loadTableMemory(onlineClient.client, tableId);
+  // During table setup everyone is arriving -- greeting each one is noise.
+  // These moments only matter once the session has a life to interrupt.
+  if (mem.hands < 1) return json({ ok: true, talked: false, reason: "session_not_started" });
+  if (!(await onlineClient.aiRateHit({ tableId, kind: "chat", limit: AI_CHAT_PER_MIN }))) {
+    return json({ ok: true, talked: false, reason: "rate_limited" });
+  }
+
+  const identities = await onlineClient.listSeatIdentities({ tableId });
+  const subject = identities.find((s: any) => s.groupPlayerId === groupPlayerId);
+  const subjectName = String(subject?.name || "Someone");
+  const bots = identities
+    .filter((s: any) => s.isBot && s.botCharacter && hasBanter(s.botCharacter))
+    .map((s: any) => {
+      const ch = resolveCharacterStyle(s.botCharacter);
+      return {
+        characterId: String(s.botCharacter),
+        groupPlayerId: String(s.groupPlayerId),
+        name: String(s.name || "Bot"),
+        expressiveness: ch && typeof ch.expressiveness === "number" ? ch.expressiveness : 1,
+      };
+    });
+  if (!bots.length) return json({ ok: true, talked: false, reason: "no_characters" });
+
+  // Record the moment either way -- later banter can call back to it.
+  mem.events.push(kind === "player_joined"
+    ? { t: "join", hand: mem.hands, w: 1.5, note: `${subjectName} sat down mid-session` }
+    : { t: "left", hand: mem.hands, w: 1.5, note: `${subjectName} cashed out and left the game` });
+  saveTableMemory(onlineClient.client, tableId, mem);
+
+  // One speaker, weighted by chattiness.
+  const totalW = bots.reduce((s, b) => s + Math.max(0.3, b.expressiveness), 0);
+  let roll = Math.random() * totalW;
+  let speaker = bots[0];
+  for (const b of bots) { roll -= Math.max(0.3, b.expressiveness); if (roll <= 0) { speaker = b; break; } }
+
+  const recent = await onlineClient.listRecentChatLines({ tableId, limit: 10 });
+  const nameByGpid = new Map(identities.map((s: any) => [s.groupPlayerId, s.name || "Player"]));
+  const history = recent.slice().reverse().map((r) => ({ name: String(nameByGpid.get(r.groupPlayerId) || "Player"), text: r.message }));
+  const situation = kind === "player_joined"
+    ? `${subjectName} just sat down at the table mid-session. Mark the moment IN CHARACTER -- size them up, mock-warn them what they've walked into, or offer fake hospitality. One line.`
+    : `${subjectName} just got up and left the game. React in character -- a farewell jab, a dry "smart move", or noting what leaves with them. One line, no pile-on.`;
+  const line = await mixedHandBanter({
+    speaker: { characterId: speaker.characterId, name: speaker.name },
+    situation,
+    targetName: subjectName,
+    roster: identities.map((s: any) => String(s.name || "Player")).filter(Boolean),
+    chatHistory: history,
+    memory: memoryPromptBlock(mem, { speakerCharacterId: speaker.characterId, speakerName: speaker.name }),
+    mind: mindLineFor(mem, speaker.characterId),
+    canned: () => null,
+  });
+  if (!line) return json({ ok: true, talked: false, reason: "no_line" });
+  await new Promise((resolve) => setTimeout(resolve, 250 + Math.floor(Math.random() * 350)));
+  await onlineClient.postBotChat({
+    tableId, groupPlayerId: speaker.groupPlayerId, message: line,
+    voice: true, character: speaker.characterId, mood: "banter",
+  });
+  return json({ ok: true, talked: true, by: speaker.name });
 }
 
 // On-demand character voice. The client calls this (seat-token authed) for the
@@ -2671,6 +2824,13 @@ Deno.serve(async (req) => {
     if (mode === "table_talk") {
       const onlineClient = createOnlineRpcClient();
       return await handleTableTalk({ onlineClient, payload });
+    }
+
+    // Session events (a human joining or leaving mid-session) are also
+    // client-initiated and seat-token authed.
+    if (mode === "player_joined" || mode === "player_left") {
+      const onlineClient = createOnlineRpcClient();
+      return await handleSessionEvent({ onlineClient, payload, kind: mode });
     }
 
     // Character voice: client-initiated per-line TTS, seat-token authed.

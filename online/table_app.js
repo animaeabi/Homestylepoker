@@ -5138,7 +5138,20 @@ async function joinExistingTable(tableId) {
       groupPlayerId: id.groupPlayerId,
     });
   }
-  if (seat?.seat_token) setSeatToken(tableId, id.groupPlayerId, seat.seat_token);
+  if (seat?.seat_token) {
+    setSeatToken(tableId, id.groupPlayerId, seat.seat_token);
+    // Mid-session arrivals get marked by the table -- a character sizes up the
+    // newcomer. Fire-and-forget; the server ignores pokes during initial setup
+    // (before the first hand has settled) so table creation stays quiet.
+    supabase.functions.invoke("online-runtime-tick", {
+      body: {
+        mode: "player_joined",
+        table_id: tableId,
+        group_player_id: id.groupPlayerId,
+        seat_token: seat.seat_token,
+      },
+    }).catch(() => { /* greeting is best-effort */ });
+  }
   await requestMicrophonePermissionOnJoin();
   enterTable(tableId);
 }
@@ -8009,6 +8022,18 @@ function bindEvents() {
     const token = getSeatToken();
     if (!token) { toast("Not seated.", "error"); return; }
     stopSeatHeartbeat();
+    // Let the table mark the exit (a farewell jab from a character): poke the
+    // runtime while the seat token is still valid, give its seat check a beat
+    // to pass, then actually leave. Fire-and-forget either way.
+    supabase.functions.invoke("online-runtime-tick", {
+      body: {
+        mode: "player_left",
+        table_id: state.tableId,
+        group_player_id: state.identity.groupPlayerId,
+        seat_token: token,
+      },
+    }).catch(() => { /* farewell is best-effort */ });
+    await new Promise((resolve) => setTimeout(resolve, 250));
     try {
       await online.leaveTable({
         tableId: state.tableId,
