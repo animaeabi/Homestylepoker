@@ -87,6 +87,54 @@ async function mixedHandBanter(opts: {
   return opts.canned();
 }
 
+// How long a human must stall on their decision before a bot starts needling
+// them to sweat the clock.
+const INTIMIDATE_AFTER_SECS = 8;
+
+// A human has gone into the tank on their turn. A seated character gets in their
+// head to rush/rattle them -- rate-limited so it's a needle, not a pile-on every
+// tick. Best-effort; never throws into the tick loop.
+async function maybeIntimidateTankingPlayer({
+  onlineClient, tableId, actingSeat,
+}: {
+  onlineClient: ReturnType<typeof createOnlineRpcClient>;
+  tableId: string;
+  actingSeat: any;
+}): Promise<void> {
+  if (Math.random() > 0.7) return; // not every tank gets heat
+  if (!(await onlineClient.aiRateHit({ tableId, kind: "intimidate", limit: 2 }))) return;
+  const identities = await onlineClient.listSeatIdentities({ tableId });
+  const bots = identities.filter((s: any) => s.isBot && s.botCharacter && hasBanter(s.botCharacter));
+  if (!bots.length) return;
+  const target = identities.find((s: any) => s.groupPlayerId === String(actingSeat.group_player_id));
+  const targetName = String(target?.name || "you");
+  const speaker = bots[Math.floor(Math.random() * bots.length)];
+  const recent = await onlineClient.listRecentChatLines({ tableId, limit: 12 });
+  const nameByGpid = new Map(identities.map((s: any) => [s.groupPlayerId, s.name || "Player"]));
+  const history = recent.slice().reverse().map((r) => ({ name: String(nameByGpid.get(r.groupPlayerId) || "Player"), text: r.message }));
+  const roster = identities.map((s: any) => String(s.name || "Player")).filter(Boolean);
+  const situation = `${targetName} has gone deep into the tank, stalling on their decision while the whole table waits. Get in their head -- rush them, rattle them, make them feel the clock.`;
+  const line = await mixedHandBanter({
+    speaker: { characterId: String(speaker.botCharacter), name: String(speaker.name || "Bot") },
+    situation,
+    targetName,
+    roster,
+    chatHistory: history,
+    canned: () => pickBanterLine({
+      characterId: String(speaker.botCharacter),
+      context: "bully",
+      targetName,
+      avoid: recent.filter((r) => r.groupPlayerId === String(speaker.groupPlayerId)).map((r) => r.message),
+    }),
+  });
+  if (line) {
+    await onlineClient.postBotChat({
+      tableId, groupPlayerId: speaker.groupPlayerId, message: line,
+      voice: true, character: String(speaker.botCharacter), mood: "needle",
+    });
+  }
+}
+
 function hasValidRuntimeDispatchSecret(req: Request) {
   const expected = asText(Deno.env.get("ONLINE_RUNTIME_DISPATCH_SECRET"));
   if (!expected) {
@@ -1443,6 +1491,13 @@ async function processHandForRuntime({
         actorGroupPlayerId,
         settleNote
       });
+    }
+
+    // A human who's tanking on their decision -- a seated character needles them
+    // to sweat the clock (best-effort; must never break the tick).
+    if (actingSeat?.group_player_id && elapsedSecs >= INTIMIDATE_AFTER_SECS && elapsedSecs < turnTimeoutSecs) {
+      try { await maybeIntimidateTankingPlayer({ onlineClient, tableId: hand.table_id, actingSeat }); }
+      catch (error) { console.error("[intimidate] failed", error instanceof Error ? error.message : String(error)); }
     }
 
     // A player who enabled "auto-check when available" checks immediately
