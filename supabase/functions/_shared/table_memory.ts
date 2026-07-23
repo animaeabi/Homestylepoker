@@ -22,6 +22,7 @@ export type MemEvent = {
   hand: number;   // hand number when it happened
   note: string;   // prompt-ready line, names inlined
   w: number;      // weight: 3 = table legend, 1 = footnote
+  who?: string;   // the player the moment is ABOUT (joke ownership)
 };
 
 export type CharEmotion = {
@@ -41,6 +42,9 @@ export type HumanRead = {
   sdWon: number;
   sdLost: number;
   tanks: number;
+  rebuys?: number;       // reloads this session (pride has a ledger)
+  jams?: number;         // big preflop open-shoves (>= ~18bb committed as aggressor)
+  jamStreak?: number;    // consecutive hands doing it -- the hostage-taking meter
   labels?: string[];     // engine-profile reads (nit/lag/station/trapper/...)
 };
 
@@ -101,6 +105,7 @@ export type TableMemory = {
   lastNeedle?: { target: string; at: number } | null; // repetition guard: who just got heat
   hush?: { until: number; kind: string; note: string } | null; // designed table silence
   lastMoment?: { at: number; pr: number } | null; // director gate: last line's priority
+  joke?: { note: string; owner: string; hand: number; uses: number; retired: boolean } | null; // active running joke
 };
 
 const MAX_EVENTS = 24;
@@ -123,7 +128,27 @@ export function normalizeTableMemory(raw: unknown): TableMemory {
     lastNeedle: m.lastNeedle && typeof m.lastNeedle === "object" ? m.lastNeedle : null,
     hush: m.hush && typeof m.hush === "object" ? m.hush : null,
     lastMoment: m.lastMoment && typeof m.lastMoment === "object" ? m.lastMoment : null,
+    joke: m.joke && typeof m.joke === "object" ? m.joke : null,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Running-joke lifecycle: creation -> evolution -> retirement, as STATE rather
+// than a prompt suggestion. A table-legend event (w >= 3) becomes the active
+// joke; it stays callback fuel for a handful of hands (each retelling should
+// escalate), then retires before it wears out. A newer legend supersedes an
+// aging one. Retired jokes vanish from prompts -- a joke that had its payoff
+// stays dead unless a genuinely new legend takes its place.
+// ---------------------------------------------------------------------------
+export function advanceRunningJoke(mem: TableMemory, freshEvents: MemEvent[], handNo: number) {
+  if (mem.joke && !mem.joke.retired) {
+    mem.joke.uses += 1;
+    if (mem.joke.uses >= 6) mem.joke.retired = true; // had its run; let it rest
+  }
+  const candidate = (freshEvents || []).find((e) => e.w >= 3);
+  if (candidate && (!mem.joke || mem.joke.retired || handNo - mem.joke.hand >= 3)) {
+    mem.joke = { note: candidate.note, owner: candidate.who || "the table", hand: handNo, uses: 0, retired: false };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -384,13 +409,13 @@ export function classifySettle({
       if (winner && winnerDesc && winnerDesc.classRank <= 1) {
         aftermath.kind = "hero_call";
         events.push({
-          t: "hero_call", hand: handNo, w: 3,
+          t: "hero_call", hand: handNo, w: 3, who: winner.name,
           note: `${winner.name} hero-called ${aggressor.name} with just ${winnerDesc.label} -- and was right`,
         });
       } else {
         aftermath.kind = "bluff_called";
         events.push({
-          t: "bluff_called", hand: handNo, w: 3,
+          t: "bluff_called", hand: handNo, w: 3, who: aggressor.name,
           note: `${aggressor.name} got caught bluffing a ${pot}bb pot -- the table saw everything`,
         });
       }
@@ -398,20 +423,20 @@ export function classifySettle({
       // Lost big WITH a real hand: cooler / bad beat territory.
       aftermath.kind = "cooler";
       events.push({
-        t: "cooler", hand: handNo, w: 3,
+        t: "cooler", hand: handNo, w: 3, who: loserAtShowdown.name,
         note: `${loserAtShowdown.name} lost a ${pot}bb pot holding ${loserDesc.label} -- brutal beat`,
       });
     } else if (potBb >= 24 && winner) {
       aftermath.kind = "big_showdown";
       events.push({
-        t: "big_pot", hand: handNo, w: 2,
+        t: "big_pot", hand: handNo, w: 2, who: winner.name,
         note: `${winner.name} dragged a ${pot}bb pot${winnerDesc ? ` with ${winnerDesc.label}` : ""}`,
       });
     }
   } else if (winner && potBb >= 10) {
     aftermath.kind = "steal";
     events.push({
-      t: "steal", hand: handNo, w: 1.5,
+      t: "steal", hand: handNo, w: 1.5, who: winner.name,
       note: `${winner.name} bet everyone off a ${pot}bb pot -- nobody paid to see it`,
     });
   }
@@ -552,7 +577,7 @@ export function updateEmotions(mem: TableMemory, players: SettlePlayer[], afterm
 }
 
 // Human reads, updated once per settle from the finished hand.
-export function updateHumanReads(mem: TableMemory, players: SettlePlayer[], showdown: boolean) {
+export function updateHumanReads(mem: TableMemory, players: SettlePlayer[], showdown: boolean, handNo = 0) {
   for (const p of players) {
     if (p.isBot) continue;
     const h: HumanRead = mem.human[p.name] || { hands: 0, vpip: 0, pfFoldStreak: 0, sdWon: 0, sdLost: 0, tanks: 0 };
@@ -564,8 +589,40 @@ export function updateHumanReads(mem: TableMemory, players: SettlePlayer[], show
     if (showdown && !p.folded) {
       if (p.netBb > 0) h.sdWon += 1; else h.sdLost += 1;
     }
+    // Jam-spam meter: a big open-shove as the aggressor. One is a play;
+    // a streak is hostage-taking -- the engine widens its calls off this
+    // read, and the table starts saying so out loud.
+    const jammed = p.wasAggressor && p.committedBb >= 18;
+    if (jammed) {
+      h.jams = Number(h.jams || 0) + 1;
+      h.jamStreak = Number(h.jamStreak || 0) + 1;
+      if (h.jamStreak === 3 || h.jamStreak === 6 || h.jamStreak === 9) {
+        mem.events.push({
+          t: "jam_spam", hand: handNo, w: 2.5, who: p.name,
+          note: `${p.name} has open-shoved ${h.jamStreak} hands in a row -- holding the table hostage`,
+        });
+      }
+    } else if (played) {
+      h.jamStreak = 0; // a normal played hand breaks the pattern; folds don't
+    }
     mem.human[p.name] = h;
   }
+}
+
+// A shown steal ("look what I had") is a targeted insult: everyone who folded
+// takes it personally. Plants revenge in a witness.
+export function noteRubIn(mem: TableMemory, shower: string, witness: string, handNo: number) {
+  bumpRelation(mem, witness, shower, -1, `${shower} showed you the bluff after you folded (hand ${handNo}) -- rubbing it in`, handNo, "revenge");
+}
+
+// The engine's read on a specific opponent's shove habit (for call widening).
+export function jammerReadFor(mem: TableMemory, name: string): { jams: number; jamStreak: number } | null {
+  const h = mem.human[name];
+  if (!h) return null;
+  const jams = Number(h.jams || 0);
+  const jamStreak = Number(h.jamStreak || 0);
+  if (jams <= 0) return null;
+  return { jams, jamStreak };
 }
 
 export function noteHumanTank(mem: TableMemory, name: string) {
@@ -609,6 +666,7 @@ export function memoryPromptBlock(
     // Engine-profile reputation: the table's professional read on their game.
     const phrased = (h.labels || []).map((l) => LABEL_PHRASES[l]).filter(Boolean);
     if (phrased.length) lines.push(`- ${name} ${phrased.join(", and ")}`);
+    if (Number(h.jamStreak || 0) >= 3) lines.push(`- ${name} keeps open-shoving every hand (${h.jamStreak} straight) -- the table is being held hostage, everyone knows it, and patience is GONE`);
   }
 
   // Everyone can see who's steaming (except your own state -- that's `mind`).
@@ -622,6 +680,9 @@ export function memoryPromptBlock(
     for (const rl of relationLinesFor(mem, speakerName)) lines.push(`- ${rl}`);
   }
 
+  if (mem.joke && !mem.joke.retired) {
+    lines.push(`- RUNNING JOKE (the table's, born hand ${mem.joke.hand}, at ${mem.joke.owner}'s expense): ${mem.joke.note}. Callbacks to this are gold -- each retelling should ESCALATE or twist it, never repeat it flat.`);
+  }
   const arc = sessionArcLine(mem);
   const hush = hushLine(mem);
   if (!lines.length) return [arc, ...(hush ? [hush] : [])].join("\n");

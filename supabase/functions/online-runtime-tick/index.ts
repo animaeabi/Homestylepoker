@@ -8,9 +8,11 @@ import { hasBanter, pickBanterLine, pickComebackLine } from "../_shared/bot_bant
 import { AMBIENT_BEATS, cannedReply, generateAmbientLine, generateGeminiReply, generateHandBanter, generateInnerThought, generateLlmReply, isPass, pickResponder } from "../_shared/bot_chat_reply.ts";
 import { generateSpeech } from "../_shared/bot_tts.ts";
 import {
+  advanceRunningJoke,
   classifySettle,
   grudgeWeight,
   hushActive,
+  jammerReadFor,
   loadTableMemory,
   maybeStartHush,
   memoryPromptBlock,
@@ -19,6 +21,7 @@ import {
   noteHumanTank,
   noteMoment,
   noteNeedle,
+  noteRubIn,
   saveTableMemory,
   seedChemistry,
   setHumanLabels,
@@ -58,6 +61,20 @@ function parseNumber(value: unknown, fallback: number, min: number, max: number)
 function asText(value: unknown) {
   const text = String(value || "").trim();
   return text || null;
+}
+
+// Run narrative work (banter, thoughts, reactions, memory writes) WITHOUT
+// blocking the gameplay pipeline. LLM latency must never become poker latency:
+// the hand advances immediately and the dialogue catches up on its own clock.
+// EdgeRuntime.waitUntil keeps the isolate alive until the background work
+// finishes; if unavailable, the promise still runs detached with errors eaten.
+function detach(work: Promise<unknown>) {
+  const guarded = work.catch((error) => {
+    console.error("[detached narrative]", error instanceof Error ? error.message : String(error));
+  });
+  try {
+    (globalThis as { EdgeRuntime?: { waitUntil?: (p: Promise<unknown>) => void } }).EdgeRuntime?.waitUntil?.(guarded);
+  } catch { /* best-effort */ }
 }
 
 // Which LLM backend to use for banter, or null if no key is configured.
@@ -201,6 +218,14 @@ async function generateAndPostThought({
     return false;
   }
 }
+
+// Character pacing profiles: how fast each personality acts relative to the
+// weighted think time. Hunger snaps decisions off; Grease deliberates over
+// every chip; Finn's stillness IS his delay; the rest sit near neutral.
+const CHARACTER_PACE: Record<string, number> = {
+  hunger: 0.6, donk: 0.8, pony: 0.85, negranope: 0.95, hellsmouth: 1.0,
+  holes: 1.05, sydell: 1.15, eyev: 1.2, haxxon: 1.3, grease: 1.5,
+};
 
 // How long a human must stall on their decision before a bot starts needling
 // them to sweat the clock.
@@ -952,7 +977,7 @@ async function runBotExpressions({
     // reactions; event callbacks come from PREVIOUS hands only (this hand is
     // already described by the situation itself), hence the snapshot.
     updateEmotions(mem, settlePlayers, aftermath, handNo);
-    updateHumanReads(mem, settlePlayers, aftermath.showdown);
+    updateHumanReads(mem, settlePlayers, aftermath.showdown, handNo);
     updateRelationships(mem, settlePlayers, aftermath, handNo);
 
     // Engine reads become social reputations: the poker engine already
@@ -996,8 +1021,42 @@ async function runBotExpressions({
     const memForBlocks = { ...mem, events: mem.events.slice() };
     const memBlocksBuilt = (cid: string | null, name?: string | null) =>
       memoryPromptBlock(memForBlocks, { speakerCharacterId: cid, speakerName: name ?? null });
+    advanceRunningJoke(mem, memEvents, handNo);
     mem.events.push(...memEvents);
     saveTableMemory(onlineClient.client, tableId, mem);
+
+    // The table turns on a hostage-taker: when the jam-spam meter crosses a
+    // threshold, one character says what everyone is thinking -- angry, on
+    // notice, and backed by the engine actually widening its calls.
+    try {
+      const jamSpam = memEvents.find((e) => e.t === "jam_spam");
+      if (jamSpam && jamSpam.who && await onlineClient.aiRateHit({ tableId, kind: "chat", limit: AI_CHAT_PER_MIN })) {
+        const callers = botSeats.filter((b) => b.botCharacter && hasBanter(b.botCharacter));
+        if (callers.length) {
+          const sp = callers[Math.floor(Math.random() * callers.length)];
+          const streakNow = Number(mem.human[jamSpam.who]?.jamStreak || 3);
+          const recentJs = await onlineClient.listRecentChatLines({ tableId, limit: 10 });
+          const histJs = recentJs.slice().reverse().map((r) => ({ name: String(nameByGpid.get(r.groupPlayerId) || "Player"), text: r.message }));
+          const line = await mixedHandBanter({
+            speaker: { characterId: String(sp.botCharacter), name: String(sp.name || "Bot") },
+            situation: `${jamSpam.who} has now open-shoved ${streakNow} hands in a row -- stealing the blinds over and over, never showing a real hand. The table's patience is GONE. Call it out BY NAME: everyone sees the pattern, and someone is about to look them up with any two decent cards.`,
+            targetName: jamSpam.who,
+            roster: identities.map((s: any) => String(s.name || "Player")).filter(Boolean),
+            chatHistory: histJs,
+            memory: memBlocksBuilt(String(sp.botCharacter), String(sp.name || "Bot")),
+            mind: mindLineFor(mem, String(sp.botCharacter)),
+            recentSelf: recentJs.filter((r) => r.groupPlayerId === String(sp.groupPlayerId)).map((r) => r.message),
+            canned: () => pickBanterLine({ characterId: String(sp.botCharacter), context: "bully", targetName: jamSpam.who || null, avoid: [] }),
+          });
+          if (line) {
+            await onlineClient.postBotChat({
+              tableId, groupPlayerId: sp.groupPlayerId, message: line,
+              voice: true, character: String(sp.botCharacter), mood: "anger", priority: 2,
+            });
+          }
+        }
+      }
+    } catch { /* callout is cosmetic; the engine adaptation is the real answer */ }
 
     if (potBb >= 3) {
       // Candidate speakers, by how personally the hand touched them. The
@@ -1128,11 +1187,25 @@ async function runBotExpressions({
       if (nvPick && nvPick.characterId && Math.random() < tune.nonverbal) {
         const bot = botSeats.find((b) => b.botCharacter === nvPick.characterId);
         if (bot) {
-          const NONVERBALS = ["*long exhale*", "*sighs*", "*mutters under his breath*", "*groans quietly*"];
-          const nv = NONVERBALS[Math.floor(Math.random() * NONVERBALS.length)];
+          // The gesture matches the feeling: embarrassment sounds different
+          // from tilt, which sounds different from an ordinary stuck sigh.
+          const nvEmo = mem.emo[nvPick.characterId];
+          const flavor = nvEmo?.moment === "embarrassed" ? "embarrassed"
+            : (nvEmo?.s === "tilted" || nvEmo?.moment === "desperate") ? "tilted"
+            : "neutral";
+          const NV_BANKS: Record<string, string[]> = {
+            embarrassed: ["*a laugh that dies halfway*", "*starts to say something. stops.*", "*stares at the felt*"],
+            tilted: ["*riffles chips hard*", "*mutters something ugly under his breath*", "*sharp exhale through the nose*", "*drums fingers, then stops abruptly*"],
+            neutral: ["*long exhale*", "*sighs*", "*groans quietly*", "*tongue click*"],
+          };
+          const bank = NV_BANKS[flavor];
+          const nv = bank[Math.floor(Math.random() * bank.length)];
+          // Only genuinely VOCAL gestures get a voice pass; silent body
+          // language (staring, drumming, riffling) stays a subtitle.
+          const vocal = /laugh|exhale|sigh|groan|mutter/i.test(nv);
           await onlineClient.postBotChat({
             tableId, groupPlayerId: bot.groupPlayerId, message: nv,
-            voice: true, character: nvPick.characterId, mood: "nonverbal", priority: 3,
+            voice: vocal, character: nvPick.characterId, mood: "nonverbal", priority: 3,
           });
         }
       }
@@ -1212,15 +1285,12 @@ async function settleShowdownFromState({
     actorGroupPlayerId,
     note
   });
-  // Bots emote once the hand is in the books. Best-effort and isolated so a
-  // reaction/show-cards hiccup never blocks settlement.
-  try {
-    const tableId = state?.hand?.table_id;
-    if (tableId) {
-      await runBotExpressions({ onlineClient, handId, tableId });
-    }
-  } catch (error) {
-    console.error("[settleShowdownFromState] bot expression failed", error instanceof Error ? error.message : String(error));
+  // Bots emote once the hand is in the books -- DETACHED: reactions, memory
+  // updates and settle banter run on their own clock so LLM latency never
+  // delays the settlement result or the next hand's scheduling.
+  const settledTableId = state?.hand?.table_id;
+  if (settledTableId) {
+    detach(runBotExpressions({ onlineClient, handId, tableId: settledTableId }));
   }
   // Bluff bandit: score any bluffs fired this hand.
   try {
@@ -1444,12 +1514,20 @@ async function processBotAction({
     Number(table?.decision_time_secs || hand.decision_time_secs || DEFAULT_TURN_TIMEOUT_SECS)
   ) * 1000;
   const toCall = Math.max(0, Number(liveHand?.current_bet || 0) - Number(botPlayer.street_contribution || 0));
+  const facingAllInNow = toCall > 0 && players.some((p: any) =>
+    !p.folded && p.all_in && Number(p.seat_no) !== Number(botPlayer.seat_no));
+  const characterForPace = resolveCharacterStyle(actingSeat?.bot_character);
   const thinkMs = botThinkTimeMs({
     street: liveHand?.state || hand.state,
     toCall,
     pot: Number(liveHand?.pot_total || 0),
     currentBet: Number(liveHand?.current_bet || 0),
     activeSeatCount: players.filter((player: any) => !player.folded).length,
+    bigBlind: Number(table?.big_blind || 2),
+    stack: Number(botPlayer.stack_end || 0),
+    raiseCount: streetActionShape.aggressionCount,
+    facingAllIn: facingAllInNow,
+    paceMul: CHARACTER_PACE[String(actingSeat?.bot_character || "")] ?? (characterForPace ? 1 : 1),
   });
   const shouldForceTimeoutAction = elapsedMs >= turnTimeoutMs;
 
@@ -1457,7 +1535,11 @@ async function processBotAction({
     // Sleep out the remaining think time (bounded) instead of discarding the
     // dispatch — the discard meant the fast post-action nudge never acted and
     // bots waited for the next 10s cron tick, making bot-vs-bot streets crawl.
-    const waitMs = Math.min(Math.max(0, thinkMs - elapsedMs), 2500);
+    // Genuinely heavy decisions (all-in faced, big call) earn a longer visible
+    // tank than routine actions.
+    const bbForCap = Math.max(1, Number(table?.big_blind || 2));
+    const heavyDecision = facingAllInNow || toCall / bbForCap >= 10;
+    const waitMs = Math.min(Math.max(0, thinkMs - elapsedMs), heavyDecision ? 4200 : 2500);
     if (waitMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, waitMs));
     }
@@ -1496,6 +1578,29 @@ async function processBotAction({
   // per-character style overrides into the engine.
   const character = resolveCharacterStyle(actingSeat.bot_character);
 
+  // Anti-exploit read: facing a big preflop shove, pull the table's memory of
+  // the aggressor's jam habit so the engine can widen its calling range. Only
+  // queried in the exact spot it matters (big preflop all-in from a human).
+  let jammerRead: { jams: number; jamStreak: number } | null = null;
+  try {
+    const streetForRead = String(liveHand?.state || hand.state || "preflop");
+    const bbForRead = Math.max(1, Number(table?.big_blind || 2));
+    const toCallForRead = Math.max(0, Number(liveHand?.current_bet || 0) - Number(botPlayer.street_contribution || 0));
+    if (streetForRead === "preflop" && toCallForRead / bbForRead >= 15) {
+      const aggressor = players
+        .filter((p: any) => !p.folded && p.group_player_id && String(p.group_player_id) !== String(actingSeat.group_player_id))
+        .sort((a: any, b: any) => Number(b.street_contribution || 0) - Number(a.street_contribution || 0))[0];
+      if (aggressor?.group_player_id) {
+        const idsForRead = await onlineClient.listSeatIdentities({ tableId: hand.table_id });
+        const aggrId = idsForRead.find((s: any) => s.groupPlayerId === String(aggressor.group_player_id));
+        if (aggrId && !aggrId.isBot && aggrId.name) {
+          const memForRead = await loadTableMemory(onlineClient.client, hand.table_id);
+          jammerRead = jammerReadFor(memForRead, String(aggrId.name));
+        }
+      }
+    }
+  } catch { /* the read is optional; the engine has sane defaults */ }
+
   if (!shouldForceTimeoutAction) {
     try {
       decision = decideBotAction({
@@ -1532,6 +1637,7 @@ async function processBotAction({
           && (toNumber(player.stack_end, 0) + toNumber(player.street_contribution, 0)) > Number(liveHand?.current_bet || 0)
         ).length,
         raiseLocked: String(botPlayer.raise_locked_street || "") === String(liveHand?.state || hand.state || ""),
+        jammerRead,
       });
     } catch (_error) {
       decision = timeoutFallbackDecision;
@@ -1588,10 +1694,12 @@ async function processBotAction({
     });
   }
 
-  // Mid-hand table talk: characters occasionally flash an in-character line
-  // over their seat after a notable action (jam, big raise, big call/fold).
-  // Cosmetic and best-effort -- a broadcast hiccup never blocks the game.
-  try {
+  // Mid-hand table talk -- DETACHED: characters flash lines/thoughts after a
+  // notable action, but dialogue generation runs on its own clock. The poker
+  // pipeline continues immediately; a slow LLM can only ever delay a LINE,
+  // never a street. Lines that arrive too late for their moment are dropped.
+  detach((async () => {
+    const narrativeStartedAt = Date.now();
     const bbForTalk = Math.max(1, Number(table?.big_blind || 2));
     const talk = decideMidHandExpression({
       actionType: decision.actionType,
@@ -1674,7 +1782,7 @@ async function processBotAction({
               avoid: avoidFor(actingSeat.group_player_id),
             }),
           });
-          if (line) {
+          if (line && Date.now() - narrativeStartedAt <= 8000) {
             noteNeedle(memMid, String(target.name));
             saveTableMemory(onlineClient.client, tableId, memMid);
             await onlineClient.postBotChat({
@@ -1760,9 +1868,7 @@ async function processBotAction({
         mind: mindLineFor(mem, String(actingSeat.bot_character)),
       });
     }
-  } catch (_error) {
-    // table talk is cosmetic
-  }
+  })());
 
   // Bluff bandit: if the action that went in was postflop aggression with weak
   // equity, log it as a bluff/semibluff attempt to be scored at settle.
@@ -1872,7 +1978,7 @@ async function prepareBotsForNextHand({
         // says it, and later banter can reference it from memory.
         try {
           const mem = await loadTableMemory(onlineClient.client, tableId);
-          mem.events.push({ t: "busted", hand: mem.hands, w: 2.5, note: `${botName} went broke ${rebuys + 1} buy-ins deep and left the game` });
+          mem.events.push({ t: "busted", hand: mem.hands, w: 2.5, who: botName, note: `${botName} went broke ${rebuys + 1} buy-ins deep and left the game` });
           saveTableMemory(onlineClient.client, tableId, mem);
         } catch { /* memory is flavor */ }
       }
@@ -1896,11 +2002,11 @@ async function prepareBotsForNextHand({
       try {
         const mem = await loadTableMemory(onlineClient.client, tableId);
         const buyIn = rebuys + 2; // original buy-in + this reload
-        mem.events.push({ t: "rebuy", hand: mem.hands, w: 1.5, note: `${botName} went broke and reloaded -- buy-in number ${buyIn}` });
+        mem.events.push({ t: "rebuy", hand: mem.hands, w: 1.5, who: botName, note: `${botName} went broke and reloaded -- buy-in number ${buyIn}` });
         saveTableMemory(onlineClient.client, tableId, mem);
 
         const rebuyTune = await getIntensity(onlineClient.client, tableId);
-        if (Math.random() < rebuyTune.rebuyNeedle && await onlineClient.aiRateHit({ tableId, kind: "chat", limit: AI_CHAT_PER_MIN })) {
+        if (Math.random() < rebuyTune.rebuyNeedle && await onlineClient.aiRateHit({ tableId, kind: "chat", limit: AI_CHAT_PER_MIN })) detach((async () => {
           const identities = await onlineClient.listSeatIdentities({ tableId });
           const speakers = identities.filter((s: any) =>
             s.isBot && s.botCharacter && hasBanter(s.botCharacter)
@@ -1928,7 +2034,7 @@ async function prepareBotsForNextHand({
               });
             }
           }
-        }
+        })());
       } catch { /* rebuy chatter is cosmetic */ }
     }
   }
@@ -1991,7 +2097,7 @@ async function processHandForRuntime({
     // A human who's tanking on their decision -- a seated character needles them
     // to sweat the clock (best-effort; must never break the tick).
     if (actingSeat?.group_player_id && elapsedSecs >= INTIMIDATE_AFTER_SECS && elapsedSecs < turnTimeoutSecs) {
-      try { await maybeIntimidateTankingPlayer({ onlineClient, tableId: hand.table_id, actingSeat }); }
+      try { detach(maybeIntimidateTankingPlayer({ onlineClient, tableId: hand.table_id, actingSeat })); }
       catch (error) { console.error("[intimidate] failed", error instanceof Error ? error.message : String(error)); }
     }
 
@@ -2641,7 +2747,7 @@ async function handleSessionEvent({
 }: {
   onlineClient: ReturnType<typeof createOnlineRpcClient>;
   payload: Record<string, unknown>;
-  kind: "player_joined" | "player_left";
+  kind: "player_joined" | "player_left" | "player_rebuy" | "player_returned";
 }) {
   const tableId = asText(payload?.table_id);
   const groupPlayerId = asText(payload?.group_player_id);
@@ -2688,10 +2794,20 @@ async function handleSessionEvent({
     });
   if (!bots.length) return json({ ok: true, talked: false, reason: "no_characters" });
 
-  // Record the moment either way -- later banter can call back to it.
-  mem.events.push(kind === "player_joined"
-    ? { t: "join", hand: mem.hands, w: 1.5, note: `${subjectName} sat down mid-session` }
-    : { t: "left", hand: mem.hands, w: 1.5, note: `${subjectName} cashed out and left the game` });
+  // Record the moment either way -- later banter can call back to it. A human
+  // rebuy also lands on their pride ledger (Grease counts, always).
+  let humanRebuys = 0;
+  if (kind === "player_rebuy") {
+    const h = mem.human[subjectName] || { hands: 0, vpip: 0, pfFoldStreak: 0, sdWon: 0, sdLost: 0, tanks: 0 };
+    h.rebuys = Number(h.rebuys || 0) + 1;
+    mem.human[subjectName] = h;
+    humanRebuys = h.rebuys;
+  }
+  mem.events.push(
+    kind === "player_joined" ? { t: "join", hand: mem.hands, w: 1.5, who: subjectName, note: `${subjectName} sat down mid-session` }
+    : kind === "player_left" ? { t: "left", hand: mem.hands, w: 1.5, who: subjectName, note: `${subjectName} cashed out and left the game` }
+    : kind === "player_rebuy" ? { t: "rebuy", hand: mem.hands, w: 1.5, who: subjectName, note: `${subjectName} went broke and re-bought -- reload number ${humanRebuys}` }
+    : { t: "returned", hand: mem.hands, w: 1, who: subjectName, note: `${subjectName} came back after stepping away` });
   saveTableMemory(onlineClient.client, tableId, mem);
 
   // One speaker, weighted by chattiness.
@@ -2705,7 +2821,11 @@ async function handleSessionEvent({
   const history = recent.slice().reverse().map((r) => ({ name: String(nameByGpid.get(r.groupPlayerId) || "Player"), text: r.message }));
   const situation = kind === "player_joined"
     ? `${subjectName} just sat down at the table mid-session. Mark the moment IN CHARACTER -- size them up, mock-warn them what they've walked into, or offer fake hospitality. One line.`
-    : `${subjectName} just got up and left the game. React in character -- a farewell jab, a dry "smart move", or noting what leaves with them. One line, no pile-on.`;
+    : kind === "player_left"
+      ? `${subjectName} just got up and left the game. React in character -- a farewell jab, a dry "smart move", or noting what leaves with them. One line, no pile-on.`
+    : kind === "player_rebuy"
+      ? `${subjectName} just went broke and re-bought${humanRebuys > 1 ? ` -- reload number ${humanRebuys} tonight` : ""}. That stings and everyone saw it. One line -- fresh ammunition, a dry welcome back to the felt, or quiet accounting. Rebuys hurt pride; make it land WITHOUT piling on.`
+      : `${subjectName} just came back to the table after stepping away for a while. Mark it lightly in character -- what they missed, whether the seat went cold, a mock catch-up. One line.`;
   const line = await mixedHandBanter({
     speaker: { characterId: speaker.characterId, name: speaker.name },
     situation,
@@ -2906,7 +3026,7 @@ async function handleCardsShown({
     return json({ ok: false, error: "cards_shown_requires_table_player_token" }, 400);
   }
 
-  if (Math.random() < 0.45) return json({ ok: true, replied: false, reason: "chose_silence" });
+  if (Math.random() < 0.3) return json({ ok: true, replied: false, reason: "chose_silence" });
 
   const ctx = await authSeatAndListCharacters(onlineClient, { tableId, groupPlayerId, seatToken });
   if (!ctx) return json({ ok: false, error: "cards_shown_seat_not_found" }, 403);
@@ -2922,15 +3042,27 @@ async function handleCardsShown({
   let folded = false;
   let won = false;
   let cardStr = "";
+  let wonUncontested = false;
+  let junk = false;
   if (handId) {
     try {
       const hs = await onlineClient.getHandState({ handId, sinceSeq: null });
-      const me = (hs?.players || []).find((p: any) => String(p.group_player_id) === groupPlayerId);
+      const hsPlayers = Array.isArray(hs?.players) ? hs.players : [];
+      const me = hsPlayers.find((p: any) => String(p.group_player_id) === groupPlayerId);
       if (me) {
         folded = !!me.folded;
         won = Number(me.result_amount || 0) > 0;
         const cards = Array.isArray(me.hole_cards) ? me.hole_cards : [];
         cardStr = cards.map((c: any) => String(c)).join(" ");
+        // Won with everyone folding, then showed: that's a rub-it-in. Junk
+        // makes it an insult ("I had NOTHING and you all ran").
+        wonUncontested = won && hsPlayers.filter((p: any) => !p.folded).length <= 1;
+        const rankOf = (c: string) => "23456789TJQKA".indexOf(String(c || "").toUpperCase().replace(/10/, "T")[0]) + 2;
+        if (cards.length >= 2) {
+          const r1 = rankOf(String(cards[0]));
+          const r2 = rankOf(String(cards[1]));
+          junk = r1 !== r2 && Math.max(r1, r2) <= 12; // unpaired, queen-high or worse
+        }
       }
     } catch { /* best-effort; fall back to a generic reaction */ }
   }
@@ -2945,12 +3077,30 @@ async function handleCardsShown({
   const avoid = recent.filter((r) => r.groupPlayerId === String(responder.groupPlayerId)).map((r) => r.message);
 
   const shown = cardStr ? `their ${cardStr}` : "their cards";
-  const situation = folded
-    ? `${playerName} just voluntarily SHOWED the hand they FOLDED (${shown}). React in character: was it a great laydown, a nit fold, or were they bluffing? Rib them or respect it.`
-    : won
-      ? `${playerName} just SHOWED their winning hand (${shown}) after taking the pot. React in character to what they were holding.`
-      : `${playerName} just voluntarily SHOWED their cards (${shown}). React in character to what they chose to reveal.`;
-  const mood = folded ? "needle" : "banter";
+  const rubIn = wonUncontested && junk;
+  const situation = rubIn
+    ? `${playerName} just stole the pot with NO showdown and then SHOWED the table the junk they did it with (${shown}). That's rubbing it in -- a deliberate insult to everyone who folded. React: burned, angry, or coldly noting it for later. The table does NOT find this cute.`
+    : folded
+      ? `${playerName} just voluntarily SHOWED the hand they FOLDED (${shown}). React in character: was it a great laydown, a nit fold, or were they bluffing? Rib them or respect it.`
+      : won
+        ? `${playerName} just SHOWED their winning hand (${shown}) after taking the pot. React in character to what they were holding.`
+        : `${playerName} just voluntarily SHOWED their cards (${shown}). React in character to what they chose to reveal.`;
+  const mood = rubIn ? "anger" : folded ? "needle" : "banter";
+
+  // A rubbed-in steal is REMEMBERED: it goes on the table's history and plants
+  // revenge in the character who answers (and their next calls get personal --
+  // the engine's jam meter is doing the strategic half of this).
+  if (rubIn) {
+    try {
+      const mem = await loadTableMemory(onlineClient.client, tableId);
+      mem.events.push({
+        t: "rub_in", hand: mem.hands, w: 2.5, who: playerName,
+        note: `${playerName} showed the table the ${cardStr || "junk"} bluff after stealing the pot -- rubbing it in`,
+      });
+      noteRubIn(mem, playerName, responder.name, mem.hands);
+      saveTableMemory(onlineClient.client, tableId, mem);
+    } catch { /* memory is flavor */ }
+  }
 
   const line = await mixedHandBanter({
     speaker: { characterId: responder.characterId, name: responder.name },
@@ -2962,7 +3112,7 @@ async function handleCardsShown({
   });
   if (!line) return json({ ok: true, replied: false, reason: "no_line" });
   await new Promise((resolve) => setTimeout(resolve, 220 + Math.floor(Math.random() * 360)));
-  await onlineClient.postBotChat({ tableId, groupPlayerId: responder.groupPlayerId, message: line, voice: true, character: responder.characterId, mood });
+  await onlineClient.postBotChat({ tableId, groupPlayerId: responder.groupPlayerId, message: line, voice: true, character: responder.characterId, mood, priority: 2 });
   return json({ ok: true, replied: true, by: responder.name });
 }
 
@@ -2992,7 +3142,7 @@ Deno.serve(async (req) => {
 
     // Session events (a human joining or leaving mid-session) are also
     // client-initiated and seat-token authed.
-    if (mode === "player_joined" || mode === "player_left") {
+    if (mode === "player_joined" || mode === "player_left" || mode === "player_rebuy" || mode === "player_returned") {
       const onlineClient = createOnlineRpcClient();
       return await handleSessionEvent({ onlineClient, payload, kind: mode });
     }
