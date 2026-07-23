@@ -5015,6 +5015,10 @@ function initLobby() {
 
   el.lobbyForm.addEventListener("submit", async (e) => {
     e.preventDefault();
+    // The table this ?table id points to is closed/gone — the form is now a
+    // "Back to Lobby" button, not a join. Drop the stale id and reload into the
+    // create-a-table lobby instead of firing a join that would just fail.
+    if (state.joinTableEnded) { returnToLobbyDeadTable(); return; }
     const name = el.lobbyName.value.trim();
     if (!name) { setLobbyStatus("Please enter your name.", "error"); return; }
     localStorage.setItem("online_player_name", name);
@@ -5041,14 +5045,34 @@ async function loadJoinTableInfo() {
   try {
     const tableId = getUrlTableId();
     const info = await online.getTableInfo(tableId);
-    if (info) {
-      el.joinTableName.textContent = info.name;
-      const seatedCount = await countSeated(tableId);
-      el.joinTableDetail.textContent = `Blinds ${info.small_blind}/${info.big_blind} · ${seatedCount}/${info.max_seats} seated · Stack ${fmtShort(info.starting_stack)}`;
-    } else {
-      el.joinTableName.textContent = "Table not found";
+    // A table isn't deleted when it empties out — it flips to status='closed'
+    // (online_leave_table does this when the last player leaves). getTableInfo
+    // still returns the closed row, so without this check we'd offer a JOIN
+    // button for a dead table that the join RPC would only reject
+    // (online_table_closed). Show an "ended" state that routes back to the
+    // lobby instead.
+    if (!info || info.status === "closed") {
+      showJoinTableEnded(Boolean(info));
+      return;
     }
+    el.joinTableName.textContent = info.name;
+    const seatedCount = await countSeated(tableId);
+    el.joinTableDetail.textContent = `Blinds ${info.small_blind}/${info.big_blind} · ${seatedCount}/${info.max_seats} seated · Stack ${fmtShort(info.starting_stack)}`;
   } catch { /* ignore */ }
+}
+
+// Repurpose the join form into a single "Back to Lobby" action when the target
+// table is closed or missing. Hides the name field so there's no broken join to
+// attempt; the submit handler routes to a fresh lobby via state.joinTableEnded.
+function showJoinTableEnded(existed) {
+  state.joinTableEnded = true;
+  el.joinTableName.textContent = existed ? "This table has ended" : "Table not found";
+  el.joinTableDetail.textContent = existed
+    ? "It closed when the last player left."
+    : "This table no longer exists.";
+  try { el.lobbyName.closest(".form-group")?.classList.add("hidden"); } catch { /* ignore */ }
+  el.lobbySubmit.textContent = "Back to Lobby";
+  el.lobbySubmit.disabled = false;
 }
 
 async function countSeated(tableId) {
