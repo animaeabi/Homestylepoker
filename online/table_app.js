@@ -1596,6 +1596,29 @@ const sounds = {
   win: () => { chipStack(6, 0.12); setTimeout(() => chipStack(6, 0.11), 150); setTimeout(() => chipStack(4, 0.1), 300); }, // raking the pot
   deal: () => cardFwip(0.07, 0.05, 7000, 2000, true),   // quick flick off the deck
   streetFlip: () => cardFwip(0.1, 0.08, 6800, 1500, true), // board card snap
+  // Riffle shuffle at the start of a hand: dense card-edge clicks + a bridge snap.
+  shuffle: () => {
+    if (!state.config.soundOn) return;
+    const ctx = getAudioCtx();
+    if (!ctx) return;
+    let t = ctx.currentTime;
+    for (let i = 0; i < 22; i += 1) {
+      noiseBurst(ctx, { t, dur: 0.012, gain: 0.05 + Math.random() * 0.03, type: "bandpass", freq: 4200 + Math.random() * 2600, q: 3 });
+      t += 0.010 + Math.random() * 0.009;
+    }
+    noiseBurst(ctx, { t: t + 0.03, dur: 0.07, gain: 0.09, type: "bandpass", freq: 3000, q: 1, sweepTo: 1100 });
+  },
+  // Pushing/raking the pot: a chip slide across the felt + chips settling.
+  potPush: () => {
+    if (!state.config.soundOn) return;
+    const ctx = getAudioCtx();
+    if (!ctx) return;
+    const t0 = ctx.currentTime;
+    noiseBurst(ctx, { t: t0, dur: 0.34, gain: 0.09, type: "bandpass", freq: 1700, q: 0.7, sweepTo: 650 });
+    for (let i = 0; i < 6; i += 1) {
+      chipClink(ctx, t0 + 0.12 + Math.random() * 0.3, 0.09 * (0.7 + Math.random() * 0.5), 0.9 + Math.random() * 0.25);
+    }
+  },
   tick: () => playTone(1000, 0.02, 0.04, "square"),
   ring: () => { playTone(760, 0.09, 0.08, "sine"); setTimeout(() => playTone(980, 0.09, 0.07, "sine"), 140); },
 };
@@ -1712,6 +1735,32 @@ const ambience = {
     this._scheduleEvent(ctx);
   },
 
+  // A crowd reaction layered onto the room: "ooh" (a big all-in) or a lower
+  // "swell" (the murmur rising at showdown). Vowel-ish formants on pink noise
+  // with a swell envelope; routes through the ambience bus if it's running.
+  react(kind = "ooh") {
+    if (!state.config.soundOn) return;
+    const ctx = getAudioCtx();
+    if (!ctx) return;
+    if (ctx.state === "suspended") { try { ctx.resume(); } catch { /* ignore */ } }
+    const dest = this.master || ctx.destination;
+    const t = ctx.currentTime;
+    const dur = kind === "ooh" ? 1.1 : 1.7;
+    const peak = kind === "ooh" ? 0.16 : 0.11;
+    const src = ctx.createBufferSource(); src.buffer = this._noise(ctx, "pink"); src.loop = true;
+    const f1 = ctx.createBiquadFilter(); f1.type = "bandpass"; f1.frequency.value = kind === "ooh" ? 520 : 640; f1.Q.value = 4;
+    const f2 = ctx.createBiquadFilter(); f2.type = "bandpass"; f2.frequency.value = kind === "ooh" ? 950 : 1300; f2.Q.value = 5;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(peak, t + dur * 0.33);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    if (kind === "ooh") f1.frequency.exponentialRampToValueAtTime(700, t + dur * 0.5); // rising "oo -> ah"
+    src.connect(f1).connect(g);
+    src.connect(f2).connect(g);
+    g.connect(dest);
+    src.start(t); src.stop(t + dur + 0.1);
+  },
+
   stop() {
     if (!this.running) return;
     this.running = false;
@@ -1795,7 +1844,7 @@ function playActionAnnouncementSound(kind) {
     case "bet": sounds.bet(); break;
     case "raise": sounds.raise(); break;
     case "fold": sounds.fold(); break;
-    case "all_in": sounds.allIn(); break;
+    case "all_in": sounds.allIn(); ambience.react("ooh"); break;
     default: break;
   }
 }
@@ -4395,6 +4444,8 @@ function maybeLaunchDealFx(hand = getLatestHand()) {
     }
   }
 
+  if (readQueue.length) sounds.shuffle(); // riffle once as the hand is dealt
+
   for (const { seatNo, cardIndex, target, targetRect } of readQueue) {
     const delayMs = getDealCardDelayMs(anim, seatNo, cardIndex);
     if (delayMs == null) continue;
@@ -5774,7 +5825,7 @@ function handleSettlementFx(hand, { revealDelayMs = 0 } = {}) {
       cleanupTimer: null,
     } : null;
 
-    if (netWinners.length > 0 || payoutRecipients.length > 0) sounds.win();
+    if (netWinners.length > 0 || payoutRecipients.length > 0) { sounds.win(); sounds.potPush(); ambience.react("swell"); }
     renderAll();
   };
 
