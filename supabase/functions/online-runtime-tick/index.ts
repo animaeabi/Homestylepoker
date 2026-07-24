@@ -59,6 +59,23 @@ function parseNumber(value: unknown, fallback: number, min: number, max: number)
   return Math.max(min, Math.min(max, n));
 }
 
+// People at a table talk about how a pot FEELS, not what it measures. All
+// situation prompts use these phrases instead of "43bb" so the characters
+// never turn into stat-sheet commentators.
+function potFeel(potBb: number): string {
+  if (potBb >= 120) return "a monster pot";
+  if (potBb >= 60) return "a huge pot";
+  if (potBb >= 25) return "a big pot";
+  if (potBb >= 10) return "a decent pot";
+  return "a small pot";
+}
+function betFeel(betBb: number): string {
+  if (betBb >= 60) return "a massive bet";
+  if (betBb >= 25) return "a huge bet";
+  if (betBb >= 10) return "a big bet";
+  return "a bet";
+}
+
 function asText(value: unknown) {
   const text = String(value || "").trim();
   return text || null;
@@ -1031,12 +1048,12 @@ async function runBotExpressions({
     const { events: memEvents, aftermath } = classifySettle({ players: settlePlayers, boardCards, potBb, handNo });
     const sourceEventSeq = events.reduce((max: number, event: any) => Math.max(max, Number(event?.seq || 0)), 0);
     const settleSummary = aftermath.kind === "hero_call"
-      ? `${aftermath.winnerName || "the caller"}'s hero call on ${aftermath.caughtName || "the bluffer"} in a ${Math.round(potBb)}bb pot`
+      ? `${aftermath.winnerName || "the caller"}'s hero call on ${aftermath.caughtName || "the bluffer"} in ${potFeel(potBb)}`
       : aftermath.kind === "bluff_called"
-        ? `${aftermath.caughtName || "the bluffer"}'s bluff getting shown in a ${Math.round(potBb)}bb pot`
+        ? `${aftermath.caughtName || "the bluffer"}'s bluff getting shown in ${potFeel(potBb)}`
         : aftermath.kind === "cooler"
-          ? `${aftermath.winnerName || "the winner"} cooling ${aftermath.loserName || "the loser"} in a ${Math.round(potBb)}bb pot`
-          : `${aftermath.winnerName || "the winner"} taking a ${Math.round(potBb)}bb pot`;
+          ? `${aftermath.winnerName || "the winner"} cooling ${aftermath.loserName || "the loser"} in ${potFeel(potBb)}`
+          : `${aftermath.winnerName || "the winner"} taking ${potFeel(potBb)}`;
     const settleMoment = freezeNarrativeMoment({
       sourceHandId: handId,
       sourceEventSeq,
@@ -1199,17 +1216,17 @@ async function runBotExpressions({
             mood = potBb >= 12 ? "allin" : "win";
             break;
           case "coolered":
-            situation = `You just lost a ${pot}bb pot holding ${aftermath.loserLabel || "a monster"} -- a genuine cooler. That one HURTS and everyone saw it.`;
+            situation = `You just lost ${potFeel(potBb)} holding ${aftermath.loserLabel || "a monster"} -- a genuine cooler. That one HURTS and everyone saw it.`;
             mood = potBb >= 12 ? "badbeat" : "lose";
             break;
           case "cooler_win":
-            situation = `You just dragged a ${pot}bb pot by cracking ${aftermath.loserName || "their"}'s ${aftermath.loserLabel || "big hand"}. You got there. Celebrate -- or twist the knife politely.`;
+            situation = `You just dragged ${potFeel(potBb)} by cracking ${aftermath.loserName || "their"}'s ${aftermath.loserLabel || "big hand"}. You got there. Celebrate -- or twist the knife politely.`;
             mood = potBb >= 12 ? "allin" : "win";
             break;
           case "win":
             situation = aftermath.kind === "steal"
-              ? `You just bet everyone off a ${pot}bb pot -- no showdown, nobody knows what you had. Enjoy that.`
-              : `You just WON a ${pot}bb pot${aftermath.showdown ? " at showdown" : ""}. Gloat / react to the table in character.`;
+              ? `You just bet everyone off ${potFeel(potBb)} -- no showdown, nobody knows what you had. Enjoy that.`
+              : `You just WON ${potFeel(potBb)}${aftermath.showdown ? " at showdown" : ""}. Gloat / react to the table in character.`;
             mood = aftermath.showdown && potBb >= 12 ? "allin" : "win";
             break;
           default:
@@ -1875,10 +1892,10 @@ async function processBotAction({
           const midHandMoment = freezeNarrativeMoment({
             ...midHandMomentBase,
             opponent: { name: target.name },
-            contextSummary: `${narrativeActorName}'s ${decision.actionType} on ${target.name} on the ${narrativeStreet} into a ${Math.round(narrativePotBb)}bb pot`,
+            contextSummary: `${narrativeActorName}'s ${decision.actionType} on ${target.name} on the ${narrativeStreet} into ${potFeel(narrativePotBb)}`,
           }, { now: midHandMomentBase.createdAt, immediateMs: 8_000, callbackMs: 60_000 });
           const priceBb = Math.max(raiseToBbForChat, 0);
-          const situation = `You just ${decision.actionType === "all_in" ? "shoved ALL IN" : `made a big ${decision.actionType} to ${priceBb.toFixed(0)}bb`} into a ${potBbForChat.toFixed(0)}bb pot. ${target.name} is still in the hand facing your bet. Pressure ${target.name} to fold.`;
+          const situation = `You just ${decision.actionType === "all_in" ? "shoved ALL IN" : `put in ${betFeel(priceBb)}`} into ${potFeel(potBbForChat)}. ${target.name} is still in the hand facing your bet. Pressure ${target.name} to fold.`;
           const line = await mixedHandBanter({
             speaker: { characterId: String(actingSeat.bot_character), name: String(character.name || "Bot") },
             situation,
@@ -1970,7 +1987,7 @@ async function processBotAction({
       const streetForThought = String(liveHand?.state || hand.state || "the hand");
       const thoughtMoment = freezeNarrativeMoment({
         ...midHandMomentBase,
-        contextSummary: `${narrativeActorName}'s ${decision.actionType} on the ${narrativeStreet} in a ${Math.round(narrativePotBb)}bb pot`,
+        contextSummary: `${narrativeActorName}'s ${decision.actionType} on the ${narrativeStreet} in ${potFeel(narrativePotBb)}`,
         callbackEligible: false,
       }, { now: midHandMomentBase.createdAt, immediateMs: 8_000, callbackMs: 8_000 });
       const actionWord = decision.actionType === "all_in" ? "moved all in"
@@ -1986,7 +2003,7 @@ async function processBotAction({
           groupPlayerId: String(actingSeat.group_player_id),
           name: String(character.name || "Bot"),
         },
-        situation: `Facing ${toCallBbForThought.toFixed(0)}bb on the ${streetForThought}, you just ${actionWord}. The action is done and public. The private thought you had while deciding -- the read, the doubt, the self-coaching, or the thing you'd never admit.`,
+        situation: `Facing ${betFeel(toCallBbForThought)} on the ${streetForThought}, you just ${actionWord}. The action is done and public. The private thought you had while deciding -- the read, the doubt, the self-coaching, or the thing you'd never admit.`,
         memory: memoryPromptBlock(mem, { speakerCharacterId: String(actingSeat.bot_character), speakerName: String(character.name || "Bot") }),
         mind: mindLineFor(mem, String(actingSeat.bot_character)),
         moment: thoughtMoment,

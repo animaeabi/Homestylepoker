@@ -160,6 +160,11 @@ function tierForMood(mood: string): "high" | "medium" | "small" {
 function stripForSpeech(text: string): string {
   return String(text || "")
     .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}\u{FE0F}\u{1F900}-\u{1F9FF}]/gu, "")
+    // Poker shorthand reads fine but SOUNDS robotic ("two hundred b b"):
+    // expand it so any jargon that slips past the prompts is still spoken
+    // like a human would say it.
+    .replace(/(\d+)\s*bbs?\b/gi, "$1 big blinds")
+    .replace(/\bbbs?\b/gi, "big blinds")
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 240);
