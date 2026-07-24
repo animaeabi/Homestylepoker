@@ -3490,7 +3490,17 @@ function syncVictoryPopup({ oldHand, hand, hadPriorTableState = false, shouldDel
   }
 
   if (!oldHand || hand.id !== oldHand.id) {
-    clearVictoryPopup();
+    // The NEXT hand's data arriving must not swallow a result still being
+    // presented: authoritative state is allowed to run ahead of presentation
+    // everywhere else, and this is the beat the player cares about most. If a
+    // popup for the previous hand is pending or on screen, its own timers
+    // finish and hide it; only stale leftovers clear here.
+    const prevPopupLive = Boolean(
+      (state.victoryPopupTimer || state.victoryPopup?.visible)
+      && state.victoryPopupScheduledForHandId
+      && state.victoryPopupScheduledForHandId !== hand.id
+    );
+    if (!prevPopupLive) clearVictoryPopup();
     return;
   }
 
@@ -3539,8 +3549,11 @@ function syncVictoryPopup({ oldHand, hand, hadPriorTableState = false, shouldDel
   state.victoryPopupTimer = setTimeout(() => {
     state.victoryPopupTimer = null;
     const latestHand = getLatestHand();
-    if (!latestHand || latestHand.id !== handId || latestHand.state !== "settled") return;
-    const popupVisibleUntilMs = Date.now() + getShowdownTimeMs();
+    // The data layer may already hold the NEXT hand -- the settle still
+    // happened and the payload was computed from settled data, so the result
+    // ALWAYS shows. It just runs tighter when the table has moved on.
+    const handMovedOn = !latestHand || latestHand.id !== handId || latestHand.state !== "settled";
+    const popupVisibleUntilMs = Date.now() + (handMovedOn ? 2400 : getShowdownTimeMs());
     state.victoryPopup = {
       ...payload,
       handId,
@@ -3549,17 +3562,21 @@ function syncVictoryPopup({ oldHand, hand, hadPriorTableState = false, shouldDel
     state.victoryPopupVisibleUntilMs = popupVisibleUntilMs;
     // A big pot deciding draws an audible table-wide reaction as the result
     // lands (weight already encodes pot size + all-in + showdown).
-    if (currentPresentationWeight(latestHand, { showdown: true }) >= 1.25) {
+    if (!handMovedOn && currentPresentationWeight(latestHand, { showdown: true }) >= 1.25) {
       chorus.play(["wow", "noway", "brutal"], { count: 2, minGapMs: 6000 });
     }
-    const hideAtMs = Math.max(getWinnerPresentationEndsAtMs(latestHand), popupVisibleUntilMs);
+    const hideAtMs = handMovedOn
+      ? popupVisibleUntilMs
+      : Math.max(getWinnerPresentationEndsAtMs(latestHand), popupVisibleUntilMs);
     const hideDelayMs = Math.max(0, hideAtMs - Date.now());
     state.victoryPopupHideTimer = setTimeout(() => {
       state.victoryPopupHideTimer = null;
-      const currentHand = getLatestHand();
-      if (!currentHand || currentHand.id !== handId || currentHand.state !== "settled") return;
-      clearVictoryPopup({ preserveKey: true });
-      renderAll();
+      // Always retire OUR popup -- the old current-hand guard left it
+      // stranded (or killed early) whenever the next hand had already begun.
+      if (state.victoryPopup?.handId === handId) {
+        clearVictoryPopup({ preserveKey: true });
+        renderAll();
+      }
     }, hideDelayMs);
     renderVictoryPopup();
     renderAll();
