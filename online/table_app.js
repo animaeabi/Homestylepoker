@@ -4106,6 +4106,29 @@ const VOX_VARIANTS = {
   groan: ["groan", "groan2"],
 };
 
+// Vox clips decode into WebAudio buffers (same pattern as the recorded SFX):
+// buffer sources are immune to the per-element autoplay blocking that silences
+// fresh `new Audio()` on mobile, and they overlap freely with everything.
+const voxBuffers = {};
+function loadVoxClip(file) {
+  if (voxBuffers[file] !== undefined) return;
+  const ctx = getAudioCtx();
+  if (!ctx) return;
+  voxBuffers[file] = "loading";
+  fetch(`online/vox/${file}.mp3`)
+    .then((r) => r.arrayBuffer())
+    .then((ab) => ctx.decodeAudioData(ab))
+    .then((buf) => { voxBuffers[file] = buf; })
+    .catch(() => { voxBuffers[file] = null; });
+}
+function preloadVoxSamples() {
+  for (const voice of ["austin", "daniel", "troy"]) {
+    for (const kind of Object.keys(VOX_KIND_EMOJI)) {
+      for (const clip of (VOX_VARIANTS[kind] || [kind])) loadVoxClip(`${voice}_${clip}`);
+    }
+  }
+}
+
 const chorus = {
   _lastAt: 0,
   _lastClip: new Map(), // `${seatNo}:${kind}` -> last variant played
@@ -4140,9 +4163,10 @@ const chorus = {
   },
 
   _playOne(seat, kind, handId) {
-    // Audio only when character voices are on (same master toggle); the visible
-    // emote below fires regardless so muted players still see the table react.
-    if (chatVoice.enabled && chatVoice.supported()) {
+    // These are table SOUND EFFECTS more than speech, so they follow the game
+    // sound toggle too, not only the voice toggle. The visible emote below
+    // fires regardless so fully-muted players still see the table react.
+    if (state.config.soundOn || chatVoice.enabled) {
       try {
         const variants = VOX_VARIANTS[kind] || [kind];
         const memoKey = `${seat.seat_no}:${kind}`;
@@ -4150,10 +4174,35 @@ const chorus = {
         const pool = variants.length > 1 ? variants.filter((v) => v !== last) : variants;
         const clip = pool[Math.floor(Math.random() * pool.length)];
         this._lastClip.set(memoKey, clip);
-        const a = new Audio(`online/vox/${this.voiceFor(seat)}_${clip}.mp3`);
-        a.volume = 0.42 + Math.random() * 0.3;      // under the main voice, never over it
-        a.playbackRate = 0.92 + Math.random() * 0.16; // same take never sounds identical twice
-        a.play().catch(() => { /* autoplay-blocked: emote still shows */ });
+        const file = `${this.voiceFor(seat)}_${clip}`;
+        const ctx = getAudioCtx();
+        const buf = voxBuffers[file];
+        if (ctx && buf && typeof buf === "object") {
+          if (ctx.state === "suspended") { try { ctx.resume(); } catch { /* ignore */ } }
+          const src = ctx.createBufferSource();
+          src.buffer = buf;
+          src.playbackRate.value = 0.92 + Math.random() * 0.16; // same take never sounds identical twice
+          const g = ctx.createGain();
+          g.gain.value = 0.5 + Math.random() * 0.32;            // under the main voice, never over it
+          src.connect(g).connect(ctx.destination);
+          src.start();
+          // A chorus beat is a beat, not a monologue: long takes fade out at
+          // ~3.5s so no laugh outstays the moment it's reacting to.
+          if (buf.duration > 3.6) {
+            const t = ctx.currentTime;
+            g.gain.setValueAtTime(g.gain.value, t + 3.1);
+            g.gain.exponentialRampToValueAtTime(0.001, t + 3.55);
+            src.stop(t + 3.6);
+          }
+        } else {
+          // Not decoded yet: kick the load for next time and try an element
+          // (works on desktop; on mobile the emote still carries the beat).
+          loadVoxClip(file);
+          const a = new Audio(`online/vox/${file}.mp3`);
+          a.volume = 0.42 + Math.random() * 0.3;
+          a.playbackRate = 0.92 + Math.random() * 0.16;
+          a.play().catch(() => { /* autoplay-blocked */ });
+        }
       } catch { /* sound is flavor */ }
     }
     const seatNo = Number(seat.seat_no || 0);
@@ -8597,6 +8646,7 @@ function bindEvents() {
   document.addEventListener("pointerdown", function ambienceFirstGesture() {
     document.removeEventListener("pointerdown", ambienceFirstGesture);
     preloadSfxSamples();
+    preloadVoxSamples();
     if (state.config.soundOn) ambience.start();
   }, { once: true });
 
