@@ -3310,6 +3310,9 @@ async function setHeroShowCards(show) {
   state.heroShowCardsPending = true;
   state.heroShowCardsOverride = { handId, shown: Boolean(show) };
   renderAll();
+  // React the INSTANT the cards flip -- locally, before the server even hears
+  // about it. The considered spoken line still arrives via the cards_shown poke.
+  if (show) chorusForHeroReveal(hand, hp);
   try {
     await online.setHandCardsVisibility({
       handId: hand.id,
@@ -3544,6 +3547,11 @@ function syncVictoryPopup({ oldHand, hand, hadPriorTableState = false, shouldDel
       visible: true
     };
     state.victoryPopupVisibleUntilMs = popupVisibleUntilMs;
+    // A big pot deciding draws an audible table-wide reaction as the result
+    // lands (weight already encodes pot size + all-in + showdown).
+    if (currentPresentationWeight(latestHand, { showdown: true }) >= 1.25) {
+      chorus.play(["wow", "noway", "brutal"], { count: 2, minGapMs: 6000 });
+    }
     const hideAtMs = Math.max(getWinnerPresentationEndsAtMs(latestHand), popupVisibleUntilMs);
     const hideDelayMs = Math.max(0, hideAtMs - Date.now());
     state.victoryPopupHideTimer = setTimeout(() => {
@@ -3825,6 +3833,12 @@ async function presentSpeechBubble(item) {
   if (chatVoice.wouldSpeak(item.voice)) {
     try { await chatVoice.speakGated(characterId, item.text, { mood: item.mood, maxWaitMs: 2500 }); spoken = true; }
     catch { /* fall through to showing text */ }
+    // People laugh TOGETHER: when a character's line is itself a vocalization
+    // (a laugh, a groan), one or two others join in over it -- overlapping,
+    // never waiting their turn in the queue.
+    if (spoken && String(item.mood || "") === "nonverbal" && Math.random() < 0.65) {
+      chorus.play(["chuckle", "laugh"], { count: 1 + (Math.random() < 0.5 ? 1 : 0), excludePlayerIds: [item.playerId], minGapMs: 6000 });
+    }
   } else if (TTS_DEBUG) {
     ttsDbg(`skip [voice=${item.voice} on=${chatVoice.enabled} inflight=${chatVoice._inflight} tok=${!!getSeatToken()} vis=${typeof document !== "undefined" ? document.visibilityState : "?"} gap=${Date.now() - chatVoice._lastAt}]`);
   }
@@ -3903,6 +3917,11 @@ async function presentSpeechBubble(item) {
   // this is normally just a short tail. Then a brief read-hold.
   if (spoken) {
     await chatVoice.whenEnded(9000);
+    // A landed zinger sometimes draws a chuckle from around the table -- the
+    // laugh-track moment that makes a needle feel HEARD instead of broadcast.
+    if (!item.thought && ["needle", "win", "anger"].includes(String(item.mood || "")) && Math.random() < 0.35) {
+      chorus.play(["chuckle", "laugh"], { count: 1 + (Math.random() < 0.4 ? 1 : 0), excludePlayerIds: [item.playerId], minGapMs: 9000 });
+    }
     await wait(700);
   } else {
     const holdMs = Math.min(SPEECH_MAX_HOLD_MS, Math.max(SPEECH_MIN_HOLD_MS, full.length * SPEECH_READ_MS_PER_CHAR));
@@ -4066,6 +4085,97 @@ function characterIdForPlayer(playerId) {
   return seat?.bot_character || null;
 }
 
+// ============ REACTION CHORUS (pre-baked local vocalizations) ============
+// The one thing a serialized TTS queue can never do is have the table laugh
+// TOGETHER. These are tiny pre-rendered clips (online/vox/) played on their own
+// audio elements with staggered starts, so two or three characters audibly
+// react at once. Overlap is allowed ONLY for laughs and one-word reactions --
+// sentences stay in the serialized speech queue where they belong. Clips are
+// local files, so the reaction is INSTANT: no LLM, no TTS render, no network.
+const VOX_KIND_EMOJI = {
+  laugh: "😂", chuckle: "😏", groan: "😖", gasp: "😱",
+  wow: "🤯", noway: "🙅", ooh: "👀", brutal: "🥶",
+};
+
+const chorus = {
+  _lastAt: 0,
+
+  // A character keeps ONE vocal identity for the whole session.
+  voiceFor(seat) {
+    const key = String(seat?.bot_character || seat?.group_player_id || seat?.seat_no || "x");
+    let h = 0;
+    for (let i = 0; i < key.length; i += 1) h = (h * 31 + key.charCodeAt(i)) >>> 0;
+    return ["austin", "daniel", "troy"][h % 3];
+  },
+
+  // Fire an overlapping reaction from 2-3 seated characters. `kinds` is the
+  // palette for THIS moment (a bluff reveal mixes groans with dark laughter; a
+  // shove gets gasps); each reactor draws their own clip from it.
+  play(kinds, { count = null, excludePlayerIds = [], minGapMs = 4500 } = {}) {
+    const now = Date.now();
+    if (now - this._lastAt < minGapMs) return;
+    const excluded = new Set(excludePlayerIds.filter(Boolean));
+    const botSeats = getSeats().filter((s) => s.is_bot && !s.left_at && s.group_player_id && !excluded.has(s.group_player_id));
+    if (!botSeats.length) return;
+    this._lastAt = now;
+    const want = count || (2 + (Math.random() < 0.45 ? 1 : 0));
+    const picked = botSeats.slice().sort(() => Math.random() - 0.5).slice(0, Math.min(want, botSeats.length));
+    const kindList = Array.isArray(kinds) ? kinds : [kinds];
+    const handId = getLatestHand()?.id || null;
+    picked.forEach((seat, i) => {
+      const kind = kindList[Math.floor(Math.random() * kindList.length)];
+      const delay = i === 0 ? 60 : 140 * i + Math.floor(Math.random() * 260);
+      setTimeout(() => this._playOne(seat, kind, handId), delay);
+    });
+  },
+
+  _playOne(seat, kind, handId) {
+    // Audio only when character voices are on (same master toggle); the visible
+    // emote below fires regardless so muted players still see the table react.
+    if (chatVoice.enabled && chatVoice.supported()) {
+      try {
+        const a = new Audio(`online/vox/${this.voiceFor(seat)}_${kind}.mp3`);
+        a.volume = 0.42 + Math.random() * 0.3;      // under the main voice, never over it
+        a.playbackRate = 0.92 + Math.random() * 0.16; // same clip never sounds identical twice
+        a.play().catch(() => { /* autoplay-blocked: emote still shows */ });
+      } catch { /* sound is flavor */ }
+    }
+    const seatNo = Number(seat.seat_no || 0);
+    if (seatNo && !state.reactionOverlays.get(seatNo)) {
+      state.reactionOverlays.set(seatNo, {
+        handId, seatNo, playerId: seat.group_player_id,
+        emoji: VOX_KIND_EMOJI[kind] || "😮", text: "",
+        self: false, until: Date.now() + 1700,
+      });
+      scheduleReactionCleanup();
+      renderSeats();
+    }
+  },
+};
+
+// Instant table reaction the moment the HUMAN's cards hit the felt -- fired
+// locally on the tap, before any server round-trip, so the table gasps WHILE
+// the cards flip instead of four seconds later. What they react WITH depends
+// on what the reveal means: junk shown after stealing the pot stings (groans,
+// disbelief, dark laughter); a shown fold draws curiosity; a shown winner awe.
+function chorusForHeroReveal(hand, hp) {
+  try {
+    const cards = Array.isArray(hp?.hole_cards) ? hp.hole_cards : [];
+    const rankOf = (c) => "23456789TJQKA".indexOf(String(c || "").toUpperCase().replace("10", "T")[0]) + 2;
+    const junk = cards.length >= 2
+      && rankOf(cards[0]) !== rankOf(cards[1])
+      && Math.max(rankOf(cards[0]), rankOf(cards[1])) <= 12;
+    const wonUncontested = getUncontestedWinner(hand)?.group_player_id === hp?.group_player_id;
+    let kinds;
+    let count = 2;
+    if (wonUncontested && junk) { kinds = ["noway", "groan", "brutal", "laugh"]; count = 3; }
+    else if (wonUncontested) kinds = ["ooh", "chuckle"];
+    else if (hp?.folded) kinds = ["ooh", "chuckle", "wow"];
+    else kinds = ["wow", "ooh"];
+    chorus.play(kinds, { count, minGapMs: 1500 });
+  } catch { /* flavor */ }
+}
+
 function updateVoiceToggleUi() {
   if (!el.chatVoiceToggle) return;
   const on = Boolean(chatVoice.enabled);
@@ -4140,6 +4250,17 @@ async function sendReaction(reactionKey) {
   addReactionOverlay(payload, { self: true });
   renderReactionTray();
 
+  // Instant audible take on the emoji, before the spoken comeback arrives.
+  // Each emoji lands differently: an unproven "I bluffed" brag draws audible
+  // DOUBT, being laughed at draws bristling, visible tilt draws a snicker.
+  const instantChorus = {
+    ha_bluffed: ["noway", "groan"],
+    laugh: ["groan", "brutal"],
+    angry: ["ooh", "chuckle"],
+    nice_bluff: ["ooh", "chuckle"],
+  }[reactionKey];
+  if (instantChorus) chorus.play(instantChorus, { count: 2, minGapMs: 5000 });
+
   try {
     if (!state.chatChannel || !state.chatHealthy) throw new Error("Reaction channel unavailable.");
     const status = await state.chatChannel.send({
@@ -4166,6 +4287,8 @@ async function sendReaction(reactionKey) {
         seat_token: seatToken,
         emoji: reaction.emoji,
         text: reaction.text,
+        reaction_key: reaction.key,
+        hand_id: hand.id,
       },
     }).catch(() => { /* best-effort banter */ });
   }
@@ -8127,6 +8250,9 @@ async function submitTurnAction(label, actionType) {
   renderSeats();
   renderMyHand();
   renderActions();
+  // A human shove earns an audible table-wide intake of breath -- immediately,
+  // not after the server confirms it.
+  if (actionType === "all_in") chorus.play(["gasp", "ooh", "noway"], { count: 2, minGapMs: 8000 });
   state.loading = true;
   try {
     // Retry once on the 500ms per-hand rate limit (fast legit play can trip it).
