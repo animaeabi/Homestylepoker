@@ -1420,6 +1420,8 @@ function addChatMessage(message, { self = false } = {}) {
         character: message?.character || null,
         mood: message?.mood || null,
         thought: isThought,
+        sourceHandId: message?.sourceHandId || null,
+        deliveryMode: message?.deliveryMode || null,
       });
     }
     return;
@@ -1451,6 +1453,8 @@ function addChatMessage(message, { self = false } = {}) {
       character: message?.character || null,
       mood: message?.mood || null,
       thought: isThought,
+      sourceHandId: message?.sourceHandId || null,
+      deliveryMode: message?.deliveryMode || null,
     });
   }
   renderChatUi();
@@ -2278,11 +2282,15 @@ const presentation = {
       case "hand_start":
         this.visible.handId = ev.handId;
         return 0;
-      case "action":
+      case "action": {
         // The banner queue keeps its own cadence; waiting the same cadence here
-        // keeps board/showdown events from starting under a live banner.
+        // keeps board/showdown events from starting under a live banner. An
+        // all-in holds the stage longer than a routine check (weight, #6).
         queueActionAnnouncement(ev.raw);
-        return PRESENTATION_PACING.actionBannerMs;
+        const t = String(ev.raw?.payload?.action_type || "");
+        const mul = t === "all_in" ? 1.35 : (t === "raise" || t === "bet") ? 1.1 : 1;
+        return Math.round(PRESENTATION_PACING.actionBannerMs * mul);
+      }
       case "street_close": {
         const base = ev.aggressive
           ? PRESENTATION_PACING.streetClose.aggressiveMs
@@ -3730,6 +3738,12 @@ function enqueueSpeechBubble(message) {
   const playerId = message?.playerId || null;
   const text = String(message?.text || "").trim();
   if (!playerId || !text) return;
+  // Anchor to the hand that GENERATED the line (server-frozen sourceHandId),
+  // not whatever hand happens to be current when a detached LLM line finally
+  // arrives. Callback-mode lines are between-hands remarks and belong to now.
+  const anchoredHandId = (message?.sourceHandId && message?.deliveryMode !== "callback")
+    ? message.sourceHandId
+    : (getLatestHand()?.id || null);
   state.speechQueue.push({
     playerId,
     text: text.slice(0, 160),
@@ -3737,10 +3751,7 @@ function enqueueSpeechBubble(message) {
     character: message?.character || null,
     mood: message?.mood || null,
     thought: Boolean(message?.thought),
-    // Gameplay anchoring: which hand this line belongs to and when it was
-    // queued -- stale lines are dropped instead of leaking into a newer hand,
-    // and result speech briefly holds the next hand's presentation.
-    handId: getLatestHand()?.id || null,
+    handId: anchoredHandId,
     enqueuedAt: Date.now(),
   });
   // Keep the queue short: if lines arrive faster than they can be read, drop the
@@ -5891,11 +5902,16 @@ async function loadTableState() {
   state.loading = true;
   try {
     const hadPriorTableState = Boolean(state.tableState);
+    const actionEpochAtFetch = state.actionEpoch || 0;
     const ts = await online.getTableState({
       tableId: state.tableId,
       viewerGroupPlayerId: state.identity?.groupPlayerId || null,
       viewerSeatToken: getSeatToken() || null,
     });
+    // A player action was submitted while this fetch was in flight: this
+    // snapshot is stale by definition. Drop it -- the post-action reload
+    // carries the truth (monotonic supersede, audit race fix).
+    if ((state.actionEpoch || 0) !== actionEpochAtFetch) return;
     const oldHand = getLatestHand();
     state.tableState = ts;
     captureServerClock(ts?.server_now);
@@ -6007,6 +6023,7 @@ async function loadGameState({ forceFull = false } = {}) {
   if (!state.tableState || !gameStateRpcAvailable) return loadTableState();
   state.loading = true;
   try {
+    const actionEpochAtGsFetch = state.actionEpoch || 0;
     const previousTableState = state.tableState;
     const previousLatestHand = previousTableState?.latest_hand || null;
     const oldHand = previousLatestHand?.hand || null;
@@ -6055,6 +6072,7 @@ async function loadGameState({ forceFull = false } = {}) {
     };
     // Delegate to the same processing path as loadTableState
     const hadPriorTableState = Boolean(previousTableState);
+    if ((state.actionEpoch || 0) !== (actionEpochAtGsFetch || 0)) return;
     state.tableState = merged;
     captureServerClock(gs?.server_now);
     const hand = getLatestHand();
@@ -8099,6 +8117,10 @@ async function submitTurnAction(label, actionType) {
     return;
   }
   clearHeroPreaction();
+  // Supersede any in-flight background fetch: a snapshot fetched BEFORE this
+  // action must not install itself afterwards (it would briefly revert the
+  // table and re-enable controls mid-submit).
+  state.actionEpoch = (state.actionEpoch || 0) + 1;
   state.optimisticSeatAction = buildOptimisticSeatAction(payload, hand, hp);
   state.pendingAction = true;
   state.landscapeRaisePanelOpen = false;
