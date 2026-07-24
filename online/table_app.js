@@ -4097,8 +4097,18 @@ const VOX_KIND_EMOJI = {
   wow: "🤯", noway: "🙅", ooh: "👀", brutal: "🥶",
 };
 
+// Not all laughs are the same laugh: the frequent kinds ship multiple distinct
+// recorded takes per voice, and a seat never plays the same take twice in a
+// row -- so the table can laugh often without ever sounding like a sample pad.
+const VOX_VARIANTS = {
+  laugh: ["laugh", "laugh2", "laugh3"],
+  chuckle: ["chuckle", "chuckle2"],
+  groan: ["groan", "groan2"],
+};
+
 const chorus = {
   _lastAt: 0,
+  _lastClip: new Map(), // `${seatNo}:${kind}` -> last variant played
 
   // A character keeps ONE vocal identity for the whole session.
   voiceFor(seat) {
@@ -4134,9 +4144,15 @@ const chorus = {
     // emote below fires regardless so muted players still see the table react.
     if (chatVoice.enabled && chatVoice.supported()) {
       try {
-        const a = new Audio(`online/vox/${this.voiceFor(seat)}_${kind}.mp3`);
+        const variants = VOX_VARIANTS[kind] || [kind];
+        const memoKey = `${seat.seat_no}:${kind}`;
+        const last = this._lastClip.get(memoKey);
+        const pool = variants.length > 1 ? variants.filter((v) => v !== last) : variants;
+        const clip = pool[Math.floor(Math.random() * pool.length)];
+        this._lastClip.set(memoKey, clip);
+        const a = new Audio(`online/vox/${this.voiceFor(seat)}_${clip}.mp3`);
         a.volume = 0.42 + Math.random() * 0.3;      // under the main voice, never over it
-        a.playbackRate = 0.92 + Math.random() * 0.16; // same clip never sounds identical twice
+        a.playbackRate = 0.92 + Math.random() * 0.16; // same take never sounds identical twice
         a.play().catch(() => { /* autoplay-blocked: emote still shows */ });
       } catch { /* sound is flavor */ }
     }
