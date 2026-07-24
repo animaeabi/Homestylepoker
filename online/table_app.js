@@ -4,6 +4,14 @@ import { createOnlinePokerClient } from "./client.js?v=212";
 import { computeSidePots, describeSevenCardHand, resolveShowdownPayouts } from "./showdown.js?v=203";
 import { randomPersonality, randomBotName, OpponentTracker } from "./bot_engine.js";
 import { CHARACTERS, getCharacter, pickNextCharacter } from "./characters.js?v=211";
+import {
+  PACING as PRESENTATION_PACING,
+  createScheduledCursor,
+  createVisibleCursor,
+  fastForwardCursors,
+  derivePresentationEvents,
+  estimateQueueMs,
+} from "./presentation.js?v=1";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -2156,6 +2164,183 @@ function getDisplayedActionStreet(hand = getLatestHand()) {
 
 function isBoardStreet(stateName) {
   return ["flop", "turn", "river"].includes(String(stateName || ""));
+}
+
+// ============ PRESENTATION SCHEDULER ============
+// One ordered queue owns the visible sequence of a hand: action banners →
+// street-close breath → board reveals (street by street, even when the server
+// delivered a full runout in one snapshot) → showdown tension → hole-card
+// eligibility. Events derive from the gap between PRESENTED and AUTHORITATIVE
+// state (online/presentation.js), so duplicate refreshes, missed snapshots and
+// throttled tabs can neither lose nor replay a beat. Executors reuse the
+// existing render/animation machinery -- this layer replaces only the
+// derivation and ordering that used to be scattered across the load paths.
+const presentation = {
+  scheduled: createScheduledCursor(),
+  visible: createVisibleCursor(),
+  queue: [],
+  running: false,
+  timer: null,
+
+  active() { return this.running || this.queue.length > 0; },
+
+  // How many board cards renders may show for this hand. Hands the controller
+  // isn't tracking (fresh load fast-forward) are never withheld.
+  boardCountFor(hand) {
+    if (!hand || this.visible.handId !== hand.id) return Number.MAX_SAFE_INTEGER;
+    return this.visible.boardCount;
+  },
+
+  // Whether opponent hole cards may reveal for this hand yet.
+  showdownAllowedFor(hand) {
+    if (!hand || this.visible.handId !== hand.id) return true;
+    return this.visible.showdownAllowed;
+  },
+
+  _estimateBoardMs(ev) {
+    const scheduled = buildStreetRevealTimings(ev.indices || [], 0, Boolean(ev.runout));
+    return getStreetRevealTotalMs({ indices: ev.indices || [], timings: scheduled.timings });
+  },
+
+  remainingMs() {
+    const queued = estimateQueueMs(this.queue, (ev) => this._estimateBoardMs(ev));
+    return queued + (this.running ? 900 : 0);
+  },
+
+  // Ingest the newest authoritative snapshot. Fresh loads fast-forward (the
+  // explicit reconnect policy: skip the past, present the present); everything
+  // else becomes ordered events appended to the queue.
+  ingest({ hand, events, hadPriorTableState, contested }) {
+    if (!hadPriorTableState) {
+      this.queue = [];
+      if (this.timer) { clearTimeout(this.timer); this.timer = null; }
+      this.running = false;
+      fastForwardCursors(this.scheduled, this.visible, hand, events);
+      return { hasNewActions: false, latestActionRaw: null, remainingMs: 0 };
+    }
+    if (hand?.id !== this.scheduled.handId) {
+      // A new hand invalidates any stale queued presentation from the old one.
+      this.queue = this.queue.filter((ev) => ev.handId === hand?.id);
+    }
+    const fresh = derivePresentationEvents({
+      scheduled: this.scheduled,
+      visible: this.visible,
+      hand,
+      events,
+      contested,
+    });
+    const freshActions = fresh.filter((ev) => ev.type === "action");
+    if (fresh.length) {
+      this.queue.push(...fresh);
+      this.pump();
+    }
+    return {
+      hasNewActions: freshActions.length > 0,
+      latestActionRaw: freshActions.length ? freshActions[freshActions.length - 1].raw : null,
+      remainingMs: this.remainingMs(),
+    };
+  },
+
+  pump() {
+    if (this.running) return;
+    const ev = this.queue.shift();
+    if (!ev) {
+      checkQueuedRender();
+      return;
+    }
+    const hand = getLatestHand();
+    if (ev.handId && hand?.id && ev.handId !== hand.id) {
+      // Stale event from a hand that's gone -- skip without presenting.
+      this.pump();
+      return;
+    }
+    this.running = true;
+    let waitMs = 0;
+    try {
+      waitMs = this._execute(ev, hand);
+    } catch (err) {
+      console.warn("[presentation]", ev.type, err);
+    }
+    this.timer = setTimeout(() => {
+      this.timer = null;
+      this.running = false;
+      this.pump();
+    }, Math.max(0, Number(waitMs || 0)));
+  },
+
+  _execute(ev, hand) {
+    switch (ev.type) {
+      case "hand_start":
+        this.visible.handId = ev.handId;
+        return 0;
+      case "action":
+        // The banner queue keeps its own cadence; waiting the same cadence here
+        // keeps board/showdown events from starting under a live banner.
+        queueActionAnnouncement(ev.raw);
+        return PRESENTATION_PACING.actionBannerMs;
+      case "street_close": {
+        const ms = ev.aggressive
+          ? PRESENTATION_PACING.streetClose.aggressiveMs
+          : ev.hadActions
+            ? PRESENTATION_PACING.streetClose.passiveMs
+            : PRESENTATION_PACING.streetClose.defaultMs;
+        if (hand && ev.hadActions && ev.fromStreet) {
+          holdStreetActionLabels({
+            handId: hand.id,
+            fromStreet: ev.fromStreet,
+            toStreet: String(hand.state || ""),
+            durationMs: ms,
+          });
+        }
+        return ms;
+      }
+      case "board_reveal": {
+        this.visible.handId = ev.handId;
+        const totalMs = startBoardRevealForIndices(ev.indices, { runout: ev.runout });
+        this.visible.boardCount = Math.max(
+          this.visible.boardCount,
+          Math.max(...(ev.indices || [0])) + 1,
+        );
+        renderBoard();
+        return totalMs;
+      }
+      case "showdown_tension":
+        return PRESENTATION_PACING.showdownTensionMs;
+      case "showdown_ready":
+        this.visible.handId = ev.handId;
+        this.visible.showdownAllowed = true;
+        renderSeats();
+        renderMyHand();
+        return 0;
+      default:
+        return 0;
+    }
+  },
+};
+
+// Consolidated snapshot ingestion: both loadTableState and loadGameState feed
+// the same pipeline, so a full refresh and a lightweight realtime refresh can
+// never present the same transition differently (audit #13).
+function presentTransition({ oldHand, hand, hadPriorTableState }) {
+  const summary = presentation.ingest({
+    hand,
+    events: getHandEvents(),
+    hadPriorTableState,
+    contested: isContestedShowdown(hand, getHandPlayers()),
+  });
+  clearTimeout(state.deferredStreetRevealTimer);
+  state.deferredStreetRevealTimer = null;
+  syncVictoryPopup({
+    oldHand,
+    hand,
+    hadPriorTableState,
+    shouldDelayStreetReveal: false,
+    revealDelayMs: summary.remainingMs,
+  });
+  if (hand && oldHand && oldHand.state !== "settled" && hand.state === "settled") {
+    handleSettlementFx(hand, { revealDelayMs: summary.remainingMs });
+  }
+  return summary;
 }
 
 function isBettingStreet(stateName) {
@@ -4392,6 +4577,39 @@ function buildStreetRevealTimings(indices, baseStartMs, runout = false) {
   return { timings, endMs: cursorMs };
 }
 
+// Scheduler-driven board reveal: launch an animation for EXPLICIT indices,
+// handed down by the presentation queue -- no snapshot diffing, no append
+// races, no deferred-launch circularity. The scheduler serializes streets, so
+// each call is a fresh, self-contained reveal whose duration it awaits.
+// Returns the animation's total duration in ms.
+function startBoardRevealForIndices(indices, { runout = false } = {}) {
+  const hand = getLatestHand();
+  const sorted = [...new Set(indices || [])].sort((a, b) => a - b);
+  if (!hand || !sorted.length) return 0;
+  if (state.streetRevealSettled.handId !== hand.id) {
+    state.streetRevealSettled = { handId: hand.id, indices: new Set() };
+  }
+  const scheduled = buildStreetRevealTimings(sorted, 0, runout);
+  clearStreetRevealFx();
+  state.streetRevealAnimation = {
+    key: `${hand.id}|sched|${sorted.join(",")}|${Date.now()}`,
+    handId: hand.id,
+    street: hand.state,
+    board: [...(Array.isArray(hand.board_cards) ? hand.board_cards : [])],
+    indices: sorted,
+    pendingIndices: [...sorted],
+    launchedIndices: [],
+    startedAt: Date.now(),
+    startDelayMs: 0,
+    timings: scheduled.timings,
+    revealedIndices: [],
+    cleanupTimer: null,
+    soundTimers: [],
+    phaseTimers: [setTimeout(pumpStreetRevealLaunch, 0)],
+  };
+  return getStreetRevealTotalMs(state.streetRevealAnimation);
+}
+
 function maybeStartStreetRevealAnimation(oldHand, hand, hadPriorTableState = false, startDelayMs = 0) {
   if (!hand) return;
   if (state.streetRevealSettled.handId !== hand.id) {
@@ -5557,6 +5775,7 @@ function syncTableRuntimeConfig(table) {
 
 function getPresentationState() {
   const hand = getLatestHand();
+  if (presentation.active()) return "scheduled_presentation";
   if (state.actionAnnouncementCurrent != null || state.actionAnnouncementQueue.length > 0) return "action_announcement";
   if (state.streetActionLabelHoldTimer) return "street_breath";
   if (isStreetRevealPresentationActive(hand)) return "street_reveal";
@@ -5643,81 +5862,12 @@ async function loadTableState() {
     } else if (newPotTotal > oldPotTotal + 0.001) {
       state.potVisual.pulseUntil = Date.now() + POT_BUMP_MS;
     }
-    const announcementState = syncActionAnnouncements({ hadPriorTableState, oldHandId: oldHand?.id || null });
     maybeStartDealAnimation(oldHand, hand, hadPriorTableState);
-    const shouldDelayStreetReveal = Boolean(
-      announcementState?.hasNewActions &&
-      hand &&
-      oldHand &&
-      hand.id === oldHand.id &&
-      hand.state !== oldHand.state
-    );
-    const roundTransitionBreathMs = shouldDelayStreetReveal
-      ? getRoundTransitionBreathMs({
-        oldHand,
-        hand,
-        latestAction: announcementState?.latestAction || null,
-      })
-      : 0;
-    const streetRevealDelayMs = getStreetRevealDelayForTransition(oldHand, hand, {
-      deferred: shouldDelayStreetReveal
-    });
-    clearTimeout(state.deferredStreetRevealTimer);
-    state.deferredStreetRevealTimer = null;
-    // Only clear a street-label hold that is stale. Unconditionally clearing it
-    // meant any refresh landing inside the ~1s breath window killed the hold
-    // timer mid-flight: the labels flipped to the new street early and the
-    // timer's renderAll() (which launched the street reveal) never ran.
-    {
-      const hold = state.streetActionLabelHold;
-      const holdStillValid = Boolean(
-        hold
-        && state.streetActionLabelHoldTimer
-        && hand
-        && hold.handId === hand.id
-        && hold.toStreet === hand.state
-        && Date.now() < Number(hold.until || 0)
-      );
-      if (!holdStillValid) clearStreetActionLabelHold();
-    }
-    const shouldHoldClosingStreetLabels = Boolean(
-      announcementState?.hasNewActions &&
-      hand &&
-      oldHand &&
-      hand.id === oldHand.id &&
-      oldHand.state !== hand.state &&
-      (
-        (isBettingStreet(oldHand.state) && isBoardStreet(hand.state)) ||
-        (oldHand.state === "river" && ["showdown", "settled"].includes(String(hand.state || "")))
-      )
-    );
-    if (shouldHoldClosingStreetLabels && oldHand && hand) {
-      holdStreetActionLabels({
-        handId: hand.id,
-        fromStreet: oldHand.state,
-        toStreet: hand.state,
-        durationMs: isBoardStreet(hand.state)
-          ? (roundTransitionBreathMs + STREET_REVEAL_DEFER_MS)
-          : roundTransitionBreathMs,
-      });
-    }
-    maybeStartStreetRevealAnimation(
-      oldHand,
-      hand,
-      hadPriorTableState,
-      roundTransitionBreathMs + (shouldDelayStreetReveal ? STREET_REVEAL_DEFER_MS : 0)
-    );
-    syncVictoryPopup({
-      oldHand,
-      hand,
-      hadPriorTableState,
-      shouldDelayStreetReveal,
-      revealDelayMs: roundTransitionBreathMs + streetRevealDelayMs
-    });
+    // One consolidated presentation pipeline (ledger + scheduler): actions,
+    // street breaths, board reveals, showdown gating, and the popup/settlement
+    // delays all derive from the same ordered event queue.
+    presentTransition({ oldHand, hand, hadPriorTableState });
     if (hand && oldHand) {
-      if (oldHand.state !== "settled" && hand.state === "settled") {
-        handleSettlementFx(hand, { revealDelayMs: roundTransitionBreathMs + streetRevealDelayMs });
-      }
       if (hand.action_seat && hand.action_seat !== prevActionSeat) {
         const myHp = getMyHandPlayer();
         if (myHp && hand.action_seat === myHp.seat_no && getSeatToken() && !isStreetRevealPresentationActive(hand)) {
@@ -5863,81 +6013,12 @@ async function loadGameState({ forceFull = false } = {}) {
     } else if (newPotTotal > oldPotTotal + 0.001) {
       state.potVisual.pulseUntil = Date.now() + POT_BUMP_MS;
     }
-    const announcementState = syncActionAnnouncements({ hadPriorTableState, oldHandId: oldHand?.id || null });
     maybeStartDealAnimation(oldHand, hand, hadPriorTableState);
-    const shouldDelayStreetReveal = Boolean(
-      announcementState?.hasNewActions &&
-      hand &&
-      oldHand &&
-      hand.id === oldHand.id &&
-      hand.state !== oldHand.state
-    );
-    const roundTransitionBreathMs = shouldDelayStreetReveal
-      ? getRoundTransitionBreathMs({
-        oldHand,
-        hand,
-        latestAction: announcementState?.latestAction || null,
-      })
-      : 0;
-    const streetRevealDelayMs = getStreetRevealDelayForTransition(oldHand, hand, {
-      deferred: shouldDelayStreetReveal
-    });
-    clearTimeout(state.deferredStreetRevealTimer);
-    state.deferredStreetRevealTimer = null;
-    // Only clear a street-label hold that is stale. Unconditionally clearing it
-    // meant any refresh landing inside the ~1s breath window killed the hold
-    // timer mid-flight: the labels flipped to the new street early and the
-    // timer's renderAll() (which launched the street reveal) never ran.
-    {
-      const hold = state.streetActionLabelHold;
-      const holdStillValid = Boolean(
-        hold
-        && state.streetActionLabelHoldTimer
-        && hand
-        && hold.handId === hand.id
-        && hold.toStreet === hand.state
-        && Date.now() < Number(hold.until || 0)
-      );
-      if (!holdStillValid) clearStreetActionLabelHold();
-    }
-    const shouldHoldClosingStreetLabels = Boolean(
-      announcementState?.hasNewActions &&
-      hand &&
-      oldHand &&
-      hand.id === oldHand.id &&
-      oldHand.state !== hand.state &&
-      (
-        (isBettingStreet(oldHand.state) && isBoardStreet(hand.state)) ||
-        (oldHand.state === "river" && ["showdown", "settled"].includes(String(hand.state || "")))
-      )
-    );
-    if (shouldHoldClosingStreetLabels && oldHand && hand) {
-      holdStreetActionLabels({
-        handId: hand.id,
-        fromStreet: oldHand.state,
-        toStreet: hand.state,
-        durationMs: isBoardStreet(hand.state)
-          ? (roundTransitionBreathMs + STREET_REVEAL_DEFER_MS)
-          : roundTransitionBreathMs,
-      });
-    }
-    maybeStartStreetRevealAnimation(
-      oldHand,
-      hand,
-      hadPriorTableState,
-      roundTransitionBreathMs + (shouldDelayStreetReveal ? STREET_REVEAL_DEFER_MS : 0)
-    );
-    syncVictoryPopup({
-      oldHand,
-      hand,
-      hadPriorTableState,
-      shouldDelayStreetReveal,
-      revealDelayMs: roundTransitionBreathMs + streetRevealDelayMs
-    });
+    // One consolidated presentation pipeline (ledger + scheduler): actions,
+    // street breaths, board reveals, showdown gating, and the popup/settlement
+    // delays all derive from the same ordered event queue.
+    presentTransition({ oldHand, hand, hadPriorTableState });
     if (hand && oldHand) {
-      if (oldHand.state !== "settled" && hand.state === "settled") {
-        handleSettlementFx(hand, { revealDelayMs: roundTransitionBreathMs + streetRevealDelayMs });
-      }
       if (hand.action_seat && hand.action_seat !== prevActionSeat) {
         const myHp = getMyHandPlayer();
         if (myHp && hand.action_seat === myHp.seat_no && getSeatToken() && !isStreetRevealPresentationActive(hand)) {
@@ -6593,6 +6674,12 @@ function renderBoard() {
   }
 
   el.boardCards.innerHTML = "";
+  // Presented-state clamp: a card the scheduler hasn't authorized yet renders
+  // as an empty slot even though the authoritative board already holds it --
+  // the server can never make a card pop in ahead of its presentation event.
+  const presentedBoardCount = clearedSettledHand
+    ? Number.MAX_SAFE_INTEGER
+    : presentation.boardCountFor(hand);
   for (let i = 0; i < 5; i++) {
     const revealMeta = getStreetRevealMeta(i, clearedSettledHand ? null : hand);
     const settledRevealCard = Boolean(
@@ -6601,6 +6688,12 @@ function renderBoard() {
       && state.streetRevealSettled.handId === hand.id
       && state.streetRevealSettled.indices.has(i)
     );
+    if (board[i] && i >= presentedBoardCount && !revealMeta && !settledRevealCard) {
+      const withheld = document.createElement("div");
+      withheld.className = "card card-empty";
+      el.boardCards.appendChild(withheld);
+      continue;
+    }
     if (board[i]) {
       if (revealMeta && !settledRevealCard) {
         const slot = document.createElement("div");
@@ -6876,15 +6969,12 @@ function renderSeats() {
         const isShowdown = contestedShowdown;
         const manuallyShown = Boolean(hp?.manually_shown);
         let reveal = isMe;
-        // Presentation barrier: the server can flip to showdown while the
-        // final call's banner is still on screen. Opponent hole cards stay
-        // facedown until the actions that LED here have finished presenting
-        // (the announcement flush re-renders, releasing this gate) -- so the
-        // reveal always lands AFTER the call, never in the same frame.
-        const actionPresentationPending = Boolean(
-          state.actionAnnouncementQueue.length || state.actionAnnouncementCurrent
-        );
-        if (!actionPresentationPending
+        // Presentation barrier: opponent hole cards stay facedown until the
+        // scheduler's SHOWDOWN_READY event fires -- which by construction is
+        // after the final action banners, the street-close breath, the board
+        // reveal, and the tension beat. Server state alone can never flip a
+        // card here.
+        if (presentation.showdownAllowedFor(hand)
           && ((isShowdown && !isFolded) || (hand?.state === "settled" && manuallyShown))) {
           reveal = shouldRevealShowdownSeat({
             hand,
