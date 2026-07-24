@@ -3085,12 +3085,19 @@ async function handleReactionReply({
   const seatToken = asText(payload?.seat_token);
   const reactionText = String(payload?.text || "").trim().slice(0, 40);
   const emoji = String(payload?.emoji || "").trim().slice(0, 8);
+  const reactionKey = String(payload?.reaction_key || "").trim().slice(0, 24);
+  const handId = asText(payload?.hand_id);
   if (!tableId || !groupPlayerId || !seatToken) {
     return json({ ok: false, error: "reaction_reply_requires_table_player_token" }, 400);
   }
 
-  // Answer only sometimes -- a reaction shouldn't always summon a speech.
-  if (Math.random() < 0.55) return json({ ok: true, replied: false, reason: "chose_silence" });
+  // Answer only sometimes -- a reaction shouldn't always summon a speech. But a
+  // PROVOCATION (bragging about a bluff, laughing at the table) almost always
+  // deserves an answer; letting those slide is what feels robotic.
+  const provocation = ["ha_bluffed", "laugh", "nice_bluff"].includes(reactionKey);
+  if (Math.random() < (provocation ? 0.2 : 0.55)) {
+    return json({ ok: true, replied: false, reason: "chose_silence" });
+  }
 
   const ctx = await authSeatAndListCharacters(onlineClient, { tableId, groupPlayerId, seatToken });
   if (!ctx) return json({ ok: false, error: "reaction_reply_seat_not_found" }, 403);
@@ -3111,12 +3118,59 @@ async function handleReactionReply({
   const history = recent.slice().reverse().map((r) => ({ name: String(nameByGpid.get(r.groupPlayerId) || "Player"), text: r.message }));
   const avoid = recent.filter((r) => r.groupPlayerId === String(responder.groupPlayerId)).map((r) => r.message);
 
-  const moodByReaction: Record<string, string> = {
-    Laugh: "needle", Angry: "needle", "Nice bluff": "needle", "Ha!": "needle",
-    "Well played": "banter", "Good game": "banter", "Good fold": "banter",
-  };
-  const mood = moodByReaction[reactionText] || "banter";
-  const situation = `${playerName} just fired a "${emoji} ${reactionText}" emoji reaction at the table -- no words, just the reaction. React to ${playerName} in character: tease them, fire back, gloat, or play along. Do not describe the emoji; just respond to it.`;
+  // Each emoji is a DIFFERENT social move, so each gets its own standpoint --
+  // the table must not read "I bluffed" the same way it reads "good game".
+  let mood = "banter";
+  let standpoint = `React to ${playerName} in character: tease them, fire back, gloat, or play along.`;
+  switch (reactionKey) {
+    case "ha_bluffed": {
+      // "I bluffed" WITHOUT showing cards is an UNVERIFIED claim. Default to
+      // doubt; only an actual card-show (rare edge: shown then bragged)
+      // upgrades it to a confirmed insult.
+      let confirmedShow = false;
+      if (handId) {
+        try {
+          const hs = await onlineClient.getHandState({ handId, sinceSeq: null });
+          const me = (Array.isArray(hs?.players) ? hs.players : [])
+            .find((p: any) => String(p.group_player_id) === groupPlayerId);
+          confirmedShow = Boolean(me?.manually_shown);
+        } catch { /* stay doubtful */ }
+      }
+      if (confirmedShow) {
+        standpoint = `${playerName} bragged "I bluffed" right after SHOWING the table the junk they did it with. It's confirmed and it's a taunt. React stung and personal -- they moved you off pots with nothing and now they're gloating.`;
+        mood = "anger";
+      } else {
+        standpoint = `${playerName} claims they just BLUFFED everyone out -- but they never showed their cards, so there is ZERO proof. Be openly skeptical: maybe they had the goods and want free credit for a bluff that never happened. Doubt them out loud, demand they show next time, refuse to hand them the glory. Do NOT concede that they bluffed you.`;
+        mood = "needle";
+      }
+      break;
+    }
+    case "laugh":
+      standpoint = `${playerName} is laughing AT the table -- it reads condescending, not friendly. Take it personally in character: bristle, fire back, or coolly promise consequences. Do not laugh along with them.`;
+      mood = "needle";
+      break;
+    case "good_game":
+      standpoint = `${playerName} offered a sportsmanlike "good game" handshake. This one is genuinely friendly -- answer it gracious, or with grudging respect if they just took your chips. No venom.`;
+      mood = "banter";
+      break;
+    case "good_fold":
+      standpoint = `${playerName} patted the table with "good fold" -- a pat on the head to whoever laid their hand down, and it's backhanded. If YOU folded, it stings; take it as a needle dressed up as a compliment.`;
+      mood = "needle";
+      break;
+    case "well_played":
+      standpoint = `${playerName} tipped the cap with "well played". Accept the respect in character, or deflect it with a dry one-liner -- this one is not a fight.`;
+      mood = "banter";
+      break;
+    case "nice_bluff":
+      standpoint = `${playerName} just accused someone at this table of bluffing with a "nice bluff" jab. Either own it with a smirk (never confirm outright) or deny everything and turn it back on them.`;
+      mood = "needle";
+      break;
+    case "angry":
+      standpoint = `${playerName} slammed an angry emoji -- that is visible tilt. Pounce on it in character: poke the wound, or fake-soothe them. Tilted players pay off.`;
+      mood = "needle";
+      break;
+  }
+  const situation = `${playerName} just fired a "${emoji} ${reactionText}" emoji reaction at the table -- no words, just the reaction. ${standpoint} Do not describe the emoji; just respond to it.`;
 
   const line = await mixedHandBanter({
     speaker: { characterId: responder.characterId, name: responder.name },
@@ -3150,7 +3204,10 @@ async function handleCardsShown({
     return json({ ok: false, error: "cards_shown_requires_table_player_token" }, 400);
   }
 
-  if (Math.random() < 0.3) return json({ ok: true, replied: false, reason: "chose_silence" });
+  // Showing cards is always a deliberate social move -- it nearly always
+  // deserves an answer (the client's instant chorus covers the first beat;
+  // this is the considered spoken line that follows).
+  if (Math.random() < 0.12) return json({ ok: true, replied: false, reason: "chose_silence" });
 
   const ctx = await authSeatAndListCharacters(onlineClient, { tableId, groupPlayerId, seatToken });
   if (!ctx) return json({ ok: false, error: "cards_shown_seat_not_found" }, 403);
@@ -3168,10 +3225,19 @@ async function handleCardsShown({
   let cardStr = "";
   let wonUncontested = false;
   let junk = false;
+  // The characters who FOLDED to the reveal, with what they mucked -- the
+  // comeback belongs to a victim who knows exactly what they threw away.
+  const victims: Array<{ groupPlayerId: string; cards: string }> = [];
   if (handId) {
     try {
       const hs = await onlineClient.getHandState({ handId, sinceSeq: null });
       const hsPlayers = Array.isArray(hs?.players) ? hs.players : [];
+      const botGpids = new Set(ctx.bots.map((b) => String(b.groupPlayerId)));
+      for (const p of hsPlayers) {
+        if (!p?.folded || !botGpids.has(String(p.group_player_id))) continue;
+        const cards = Array.isArray(p.hole_cards) ? p.hole_cards.map((c: any) => String(c)).join(" ") : "";
+        victims.push({ groupPlayerId: String(p.group_player_id), cards });
+      }
       const me = hsPlayers.find((p: any) => String(p.group_player_id) === groupPlayerId);
       if (me) {
         folded = !!me.folded;
@@ -3191,9 +3257,16 @@ async function handleCardsShown({
     } catch { /* best-effort; fall back to a generic reaction */ }
   }
 
-  const responder = ctx.bots
+  // When the reveal is a rubbed-in steal, the comeback belongs to a VICTIM:
+  // a character who folded to it and knows exactly what they threw away.
+  const victimByGpid = new Map(victims.map((v) => [v.groupPlayerId, v]));
+  const victimBots = ctx.bots.filter((b) => victimByGpid.has(String(b.groupPlayerId)));
+  const pickWeighted = (pool: typeof ctx.bots) => pool
     .map((b) => ({ b, r: Math.random() / Math.max(0.2, b.expressiveness) }))
     .sort((a, z) => a.r - z.r)[0].b;
+  const preferVictim = wonUncontested && victimBots.length > 0;
+  const responder = pickWeighted(preferVictim ? victimBots : ctx.bots);
+  const responderMuck = victimByGpid.get(String(responder.groupPlayerId))?.cards || "";
   const roster = ctx.identities.map((s: any) => String(s.name || "Player")).filter(Boolean);
   const recent = await onlineClient.listRecentChatLines({ tableId, limit: 10 });
   const nameByGpid = new Map(ctx.identities.map((s: any) => [s.groupPlayerId, s.name || "Player"]));
@@ -3202,12 +3275,17 @@ async function handleCardsShown({
 
   const shown = cardStr ? `their ${cardStr}` : "their cards";
   const rubIn = wonUncontested && junk;
+  const victimContext = preferVictim && responderMuck
+    ? ` YOU personally folded ${responderMuck} to their aggression this very hand -- you know exactly what you threw away, so say so: name YOUR cards, name THEIRS, make it specific ("you moved me off ${responderMuck}... with THAT?").`
+    : "";
   const situation = rubIn
-    ? `${playerName} just stole the pot with NO showdown and then SHOWED the table the junk they did it with (${shown}). That's rubbing it in -- a deliberate insult to everyone who folded. React: burned, angry, or coldly noting it for later. The table does NOT find this cute.`
+    ? `${playerName} just stole the pot with NO showdown and then SHOWED the table the junk they did it with (${shown}). That's rubbing it in -- a deliberate insult to everyone who folded.${victimContext} React: burned, angry, or coldly noting it for later. The table does NOT find this cute.`
     : folded
       ? `${playerName} just voluntarily SHOWED the hand they FOLDED (${shown}). React in character: was it a great laydown, a nit fold, or were they bluffing? Rib them or respect it.`
       : won
-        ? `${playerName} just SHOWED their winning hand (${shown}) after taking the pot. React in character to what they were holding.`
+        ? wonUncontested
+          ? `${playerName} took the pot with no showdown, then SHOWED ${shown}.${victimContext} React in character to what they were actually holding -- relief, disgust, or respect, depending on whether the fold was right.`
+          : `${playerName} just SHOWED their winning hand (${shown}) after taking the pot. React in character to what they were holding.`
         : `${playerName} just voluntarily SHOWED their cards (${shown}). React in character to what they chose to reveal.`;
   const mood = rubIn ? "anger" : folded ? "needle" : "banter";
 
