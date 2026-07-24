@@ -25,9 +25,16 @@ jobs:
           fetch-depth: 0
 
       - name: Apply focused runtime patch
+        shell: bash
         run: |
-          git apply --recount --check .github/patches/frozen-narrative-delivery.patch
-          git apply --recount .github/patches/frozen-narrative-delivery.patch
+          set +e
+          git apply --recount --reject --whitespace=fix .github/patches/frozen-narrative-delivery.patch 2>&1 | tee /tmp/narrative-patch.log
+          apply_status=${PIPESTATUS[0]}
+          if [ "$apply_status" -ne 0 ]; then
+            echo "--- rejected hunks ---"
+            find . -name '*.rej' -print -exec sh -c 'echo "===== $1 ====="; cat "$1"' _ {} \;
+            exit "$apply_status"
+          fi
 
       - name: Validate classifier and patch
         run: |
