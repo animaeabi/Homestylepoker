@@ -149,3 +149,14 @@ const hand = (id, state, boardCards = [], extra = {}) => ({ id, state, board_car
 }
 
 console.log("presentation ledger tests passed");
+
+// --- 8) Presentation weight: importance scales pacing. ----------------------
+import { presentationWeight } from "../online/presentation.js";
+{
+  assert.equal(presentationWeight({ potBb: 1.5 }), 0.85);            // routine steal: brisk
+  assert.ok(presentationWeight({ potBb: 40 }) > 1.2);                // big river pot breathes
+  assert.ok(presentationWeight({ potBb: 80, allIn: true }) >= 1.7);  // all-in carries most weight
+  assert.ok(presentationWeight({ potBb: 80, allIn: true, showdown: true }) <= 1.8); // capped
+  assert.ok(presentationWeight({ potBb: 2, allIn: true }) > 1);      // tiny pot but all-in still weighs
+}
+console.log("weight tests passed");

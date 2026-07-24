@@ -11,6 +11,7 @@ import {
   fastForwardCursors,
   derivePresentationEvents,
   estimateQueueMs,
+  presentationWeight,
 } from "./presentation.js?v=1";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -1895,15 +1896,15 @@ function getActionCopy(ev) {
     case "check":
       return { actor, detail: "checks", sound: "check", actionType: "check", seatNo };
     case "call":
-      return { actor, detail: amountText ? `calls ${amountText}` : "calls", sound: "call", actionType: "call", seatNo };
+      return { actor, detail: amountText ? `calls ${amountText}` : "calls", sound: "call", actionType: "call", seatNo, amount: Number(p.amount || 0) };
     case "bet":
-      return { actor, detail: amountText ? `bets ${amountText}` : "bets", sound: "bet", actionType: "bet", seatNo };
+      return { actor, detail: amountText ? `bets ${amountText}` : "bets", sound: "bet", actionType: "bet", seatNo, amount: Number(p.amount || 0) };
     case "raise":
-      return { actor, detail: targetText ? `raises to ${targetText}` : amountText ? `raises by ${amountText}` : "raises", sound: "raise", actionType: "raise", seatNo };
+      return { actor, detail: targetText ? `raises to ${targetText}` : amountText ? `raises by ${amountText}` : "raises", sound: "raise", actionType: "raise", seatNo, amount: Number(p.raise_to ?? p.target_amount ?? p.amount ?? 0) };
     case "fold":
       return { actor, detail: "folds", sound: "fold", actionType: "fold", seatNo };
     case "all_in":
-      return { actor, detail: amountText ? `goes all-in for ${amountText}` : "goes all-in", sound: "all_in", actionType: "all_in", seatNo };
+      return { actor, detail: amountText ? `goes all-in for ${amountText}` : "goes all-in", sound: "all_in", actionType: "all_in", seatNo, amount: Number(p.amount || 0) };
     default:
       return { actor, detail: p.action_type || "acts", sound: null, actionType: p.action_type || "", seatNo };
   }
@@ -1961,6 +1962,10 @@ function flushActionAnnouncementQueue() {
   renderSeats();
   renderMyHand();
   playActionAnnouncementSound(next.sound);
+  // Chips physically travel seat -> pot as the action presents: the sound and
+  // the movement are the same beat (audit: sound attaches to motion, and a
+  // big raise now LOOKS heavier than a min-bet -- more chips, same flight).
+  launchBetChipsFx(next);
   state.actionAnnouncementHideTimer = setTimeout(hideActionAnnouncement, 760);
   state.actionAnnouncementNextTimer = setTimeout(() => {
     state.actionAnnouncementNextTimer = null;
@@ -2279,11 +2284,12 @@ const presentation = {
         queueActionAnnouncement(ev.raw);
         return PRESENTATION_PACING.actionBannerMs;
       case "street_close": {
-        const ms = ev.aggressive
+        const base = ev.aggressive
           ? PRESENTATION_PACING.streetClose.aggressiveMs
           : ev.hadActions
             ? PRESENTATION_PACING.streetClose.passiveMs
             : PRESENTATION_PACING.streetClose.defaultMs;
+        const ms = Math.round(base * currentPresentationWeight(hand));
         if (hand && ev.hadActions && ev.fromStreet) {
           holdStreetActionLabels({
             handId: hand.id,
@@ -2305,7 +2311,7 @@ const presentation = {
         return totalMs;
       }
       case "showdown_tension":
-        return PRESENTATION_PACING.showdownTensionMs;
+        return Math.round(PRESENTATION_PACING.showdownTensionMs * currentPresentationWeight(hand, { showdown: true }));
       case "showdown_ready":
         this.visible.handId = ev.handId;
         this.visible.showdownAllowed = true;
@@ -2341,6 +2347,87 @@ function presentTransition({ oldHand, hand, hadPriorTableState }) {
     handleSettlementFx(hand, { revealDelayMs: summary.remainingMs });
   }
   return summary;
+}
+
+// Weight of the current moment (stage 3): scales the scheduler's breaths so a
+// big pot breathes and a routine steal stays brisk.
+function currentPresentationWeight(hand = getLatestHand(), { showdown = false } = {}) {
+  const bb = Math.max(0.01, Number(getTable()?.big_blind || 1));
+  const potBb = Number(hand?.pot_total || 0) / bb;
+  const allIn = Boolean(hand && getHandPlayers().some((hp) => !hp.folded && hp.all_in));
+  return presentationWeight({ potBb, allIn, showdown });
+}
+
+// Stage 2: chips physically travel from the actor's seat to the pot as the
+// action presents. Reuses the pot-push flight CSS (direction is just from/to
+// vars). Chip count scales with the amount in big blinds, so a big raise
+// carries visible weight.
+function launchBetChipsFx(copy) {
+  try {
+    if (!copy || !copy.seatNo) return;
+    if (!["bet", "call", "raise", "all_in"].includes(String(copy.actionType || ""))) return;
+    if (!el.dealFxLayer || !el.tableSurface || !el.potStackArt) return;
+    const sourceEl = getSeatTargetElement(copy.seatNo);
+    if (!sourceEl) return;
+    const tableRect = el.tableSurface.getBoundingClientRect();
+    const fromRect = sourceEl.getBoundingClientRect();
+    const potRect = el.potStackArt.getBoundingClientRect();
+    if (!tableRect.width || !fromRect.width || !potRect.width) return;
+    const bb = Math.max(0.01, Number(getTable()?.big_blind || 1));
+    const amountBb = Number(copy.amount || 0) / bb;
+    const chips = copy.actionType === "all_in"
+      ? 7
+      : Math.min(6, Math.max(2, 1 + Math.round(Math.sqrt(Math.max(0.5, amountBb)))));
+    const colors = ["charcoal", "red", "green", "gold", "ivory"];
+    const fromX = fromRect.left + fromRect.width / 2 - tableRect.left;
+    const fromY = fromRect.top + fromRect.height / 2 - tableRect.top;
+    const toX = potRect.left + potRect.width / 2 - tableRect.left;
+    const toY = potRect.top + potRect.height / 2 - tableRect.top;
+    const flightMs = copy.actionType === "all_in" ? 520 : 400;
+    for (let i = 0; i < chips; i += 1) {
+      const chip = document.createElement("span");
+      chip.className = `pot-chip pot-chip--${colors[i % colors.length]} pot-push-chip`;
+      chip.style.setProperty("--chip-rot", `${[-9, 6, -4, 8, -6][i % 5]}deg`);
+      chip.style.setProperty("--from-x", `${fromX - 9 + ((i % 3) - 1) * 6}px`);
+      chip.style.setProperty("--from-y", `${fromY - 9 + Math.floor(i / 3) * 4}px`);
+      chip.style.setProperty("--to-x", `${toX - 9 + ((i % 2) ? 4 : -4)}px`);
+      chip.style.setProperty("--to-y", `${toY - 9 + (i % 3)}px`);
+      chip.style.setProperty("--delay-ms", `${i * 46}ms`);
+      chip.style.setProperty("--flight-ms", `${flightMs}ms`);
+      chip.addEventListener("animationend", () => chip.remove(), { once: true });
+      el.dealFxLayer.appendChild(chip);
+    }
+  } catch { /* cosmetic */ }
+}
+
+// Stage 2: displayed stacks must not teleport ahead of the pot push. While a
+// settled hand's payout presentation is still pending, a winner's stack shows
+// its pre-payout value; the authoritative number lands WITH the chips.
+function heldDisplayStack(hp, fallback) {
+  const base = (hp && hp.stack_end != null) ? hp.stack_end : fallback;
+  const hand = getLatestHand();
+  if (!hand || hand.state !== "settled" || !hp) return base;
+  const won = Number(hp.result_amount || 0);
+  if (won <= 0) return base;
+  const push = state.potPushAnimation;
+  const pushPending = Boolean(push && push.handId === hand.id && !push.launched);
+  const resultPending = pushPending || Boolean(state.settlementFxTimer) || presentation.active();
+  return resultPending ? Math.max(0, Number(base) - won) : base;
+}
+
+// Stage 4 (reconnect/slow-network policy): waking from a long background
+// throttle must not replay a backlog of stale animation. Snap the presented
+// cursors to the authoritative present, drop the queue and any pending
+// banners -- current moments (active board, showdown, winner) render from
+// authoritative state; expired routine actions are skipped silently.
+function snapPresentationToNow() {
+  presentation.queue = [];
+  if (presentation.timer) { clearTimeout(presentation.timer); presentation.timer = null; }
+  presentation.running = false;
+  fastForwardCursors(presentation.scheduled, presentation.visible, getLatestHand(), getHandEvents());
+  clearDisplayedActionAnnouncements();
+  state.queuedRenderState = false;
+  renderAll();
 }
 
 function isBettingStreet(stateName) {
@@ -6939,7 +7026,7 @@ function renderSeats() {
 
       const stackEl = document.createElement("div");
       stackEl.className = "seat-stack";
-      const displayStack = (hp && hp.stack_end != null) ? hp.stack_end : seat.chip_stack;
+      const displayStack = heldDisplayStack(hp, seat.chip_stack);
       stackEl.textContent = fmtShort(displayStack);
       node.appendChild(stackEl);
 
@@ -7205,7 +7292,7 @@ function renderMyHand() {
   const activeVoiceSpeakerId = getServerVoiceState().speakerPlayerId;
 
   nameEl.textContent = state.identity?.name || "You";
-  const displayStack = (hp && hp.stack_end != null) ? hp.stack_end : mySeat.chip_stack;
+  const displayStack = heldDisplayStack(hp, mySeat.chip_stack);
   stackEl.textContent = fmtShort(displayStack);
   el.myHandArea?.classList.toggle("folded", Boolean(!clearedSettledHand && hp?.folded));
   el.myHandArea?.classList.toggle("voice-speaking", Boolean(activeVoiceSpeakerId && mySeat.group_player_id === activeVoiceSpeakerId));
@@ -8353,6 +8440,16 @@ function bindEvents() {
   // tab is hidden / the app is backgrounded, resume when it comes back; and stop
   // it outright when the page is being torn down.
   document.addEventListener("visibilitychange", () => {
+    // Reconnect policy: a tab hidden long enough to be throttled must not
+    // replay a backlog of stale presentation on wake -- snap to the present.
+    if (document.visibilityState === "hidden") {
+      state.hiddenAt = Date.now();
+    } else if (state.hiddenAt && Date.now() - state.hiddenAt > 15000 && state.tableState) {
+      state.hiddenAt = 0;
+      try { snapPresentationToNow(); } catch { /* ignore */ }
+    } else {
+      state.hiddenAt = 0;
+    }
     const ctx = state.audioCtx;
     if (!ctx) return;
     if (document.visibilityState === "hidden") { try { ctx.suspend(); } catch { /* ignore */ } }

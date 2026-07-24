@@ -202,6 +202,22 @@ export function estimateEventMs(event, boardRevealEstimator = null) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Presentation weight (stage 3): pacing responds to the importance of the
+// moment. A 1.5bb preflop steal moves briskly; a 40bb river spot breathes; an
+// all-in carries the most weight. Executors multiply their durations by this.
+// ---------------------------------------------------------------------------
+export function presentationWeight({ potBb = 0, allIn = false, showdown = false } = {}) {
+  if (potBb < 4 && !allIn) return 0.85; // routine pots stay brisk
+  let w = 1;
+  if (potBb >= 12) w += 0.15;
+  if (potBb >= 30) w += 0.2;
+  if (potBb >= 60) w += 0.15;
+  if (allIn) w += 0.25;
+  if (showdown) w += 0.1;
+  return Math.min(1.8, w);
+}
+
 export function estimateQueueMs(queue, boardRevealEstimator = null) {
   let total = 0;
   for (const ev of queue || []) total += estimateEventMs(ev, boardRevealEstimator);
