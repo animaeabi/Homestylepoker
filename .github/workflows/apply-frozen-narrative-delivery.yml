@@ -25,6 +25,7 @@ jobs:
           fetch-depth: 0
 
       - name: Apply focused runtime patch
+        id: apply_patch
         shell: bash
         run: |
           set +e
@@ -35,6 +36,25 @@ jobs:
             find . -name '*.rej' -print -exec sh -c 'echo "===== $1 ====="; cat "$1"' _ {} \;
             exit "$apply_status"
           fi
+
+      - name: Commit reject diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          {
+            echo "Patch application log:"
+            cat /tmp/narrative-patch.log || true
+            echo
+            echo "Rejected hunks:"
+            find . -name '*.rej' -print -exec sh -c 'echo "===== $1 ====="; cat "$1"' _ {} \;
+          } > .github/patches/frozen-narrative-rejects.txt
+          git checkout -- supabase/functions/online-runtime-tick/index.ts || true
+          find . -name '*.rej' -delete
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/patches/frozen-narrative-rejects.txt
+          git commit -m "Capture narrative patch rejects"
+          git push origin HEAD:agent/frozen-narrative-delivery
 
       - name: Validate classifier and patch
         run: |
