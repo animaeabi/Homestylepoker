@@ -4143,7 +4143,10 @@ const chorus = {
 
   // Fire an overlapping reaction from 2-3 seated characters. `kinds` is the
   // palette for THIS moment (a bluff reveal mixes groans with dark laughter; a
-  // shove gets gasps); each reactor draws their own clip from it.
+  // shove gets gasps). Two rules keep it from sounding like an echo chamber:
+  // reactors never share a kind within one chorus, and at most ONE reactor
+  // gets a WORD clip ("no way", "wow", "brutal") -- two people blurting the
+  // same word in the same second is an echo, not a room.
   play(kinds, { count = null, excludePlayerIds = [], minGapMs = 4500 } = {}) {
     const now = Date.now();
     if (now - this._lastAt < minGapMs) return;
@@ -4152,11 +4155,30 @@ const chorus = {
     if (!botSeats.length) return;
     this._lastAt = now;
     const want = count || (2 + (Math.random() < 0.45 ? 1 : 0));
-    const picked = botSeats.slice().sort(() => Math.random() - 0.5).slice(0, Math.min(want, botSeats.length));
-    const kindList = Array.isArray(kinds) ? kinds : [kinds];
+    // Distinct VOICES only: two characters sharing a vox voice within one
+    // chorus is the same throat twice -- drop the duplicate instead.
+    const picked = [];
+    const usedVoices = new Set();
+    for (const seat of botSeats.slice().sort(() => Math.random() - 0.5)) {
+      if (picked.length >= want) break;
+      const v = this.voiceFor(seat);
+      if (usedVoices.has(v)) continue;
+      usedVoices.add(v);
+      picked.push(seat);
+    }
+    const WORD_KINDS = new Set(["wow", "noway", "brutal", "ooh"]);
+    const kindList = (Array.isArray(kinds) ? kinds : [kinds]).slice().sort(() => Math.random() - 0.5);
+    const wordless = kindList.filter((k) => !WORD_KINDS.has(k));
     const handId = getLatestHand()?.id || null;
+    let wordUsed = false;
     picked.forEach((seat, i) => {
-      const kind = kindList[Math.floor(Math.random() * kindList.length)];
+      // Deal kinds round-robin off the shuffled palette (no two alike)...
+      let kind = kindList[i % kindList.length];
+      // ...and demote any second word clip to a wordless sound.
+      if (WORD_KINDS.has(kind)) {
+        if (wordUsed) kind = wordless.length ? wordless[Math.floor(Math.random() * wordless.length)] : "gasp";
+        else wordUsed = true;
+      }
       const delay = i === 0 ? 60 : 140 * i + Math.floor(Math.random() * 260);
       setTimeout(() => this._playOne(seat, kind, handId), delay);
     });

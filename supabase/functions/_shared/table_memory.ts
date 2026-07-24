@@ -166,7 +166,7 @@ export function maybeStartHush(mem: TableMemory, aftermath: Aftermath): { kind: 
   const note =
     aftermath.kind === "hero_call" ? `${aftermath.winnerName}'s hero call on ${aftermath.caughtName}`
     : aftermath.kind === "bluff_called" ? `${aftermath.caughtName}'s bluff getting shown`
-    : `the ${Math.round(aftermath.potBb)}bb cooler that hit ${aftermath.loserName}`;
+    : `the brutal cooler that just hit ${aftermath.loserName}`;
   mem.hush = { until: Date.now() + 15000, kind, note };
   return { kind, note };
 }
@@ -373,7 +373,9 @@ export function classifySettle({
   const winner = byNet[0] && byNet[0].netBb > 0 ? byNet[0] : null;
   const loser = byNet[byNet.length - 1] && byNet[byNet.length - 1].netBb < 0
     ? byNet[byNet.length - 1] : null;
-  const pot = Math.round(potBb);
+  // Memory notes feed straight into speech prompts, so they talk like people
+  // ("a huge pot"), never like a hand history ("43bb pot").
+  const pot = potBb >= 120 ? "a monster pot" : potBb >= 60 ? "a huge pot" : potBb >= 25 ? "a big pot" : potBb >= 10 ? "a decent pot" : "a small pot";
 
   const describe = (p: SettlePlayer) => {
     if (!showdown || boardCards.length < 5 || !Array.isArray(p.holeCards) || p.holeCards.length < 2) return null;
@@ -416,7 +418,7 @@ export function classifySettle({
         aftermath.kind = "bluff_called";
         events.push({
           t: "bluff_called", hand: handNo, w: 3, who: aggressor.name,
-          note: `${aggressor.name} got caught bluffing a ${pot}bb pot -- the table saw everything`,
+          note: `${aggressor.name} got caught bluffing ${pot} -- the table saw everything`,
         });
       }
     } else if (loserAtShowdown && loserDesc && loserDesc.classRank >= 2 && loserAtShowdown.netBb <= -12) {
@@ -424,20 +426,20 @@ export function classifySettle({
       aftermath.kind = "cooler";
       events.push({
         t: "cooler", hand: handNo, w: 3, who: loserAtShowdown.name,
-        note: `${loserAtShowdown.name} lost a ${pot}bb pot holding ${loserDesc.label} -- brutal beat`,
+        note: `${loserAtShowdown.name} lost ${pot} holding ${loserDesc.label} -- brutal beat`,
       });
     } else if (potBb >= 24 && winner) {
       aftermath.kind = "big_showdown";
       events.push({
         t: "big_pot", hand: handNo, w: 2, who: winner.name,
-        note: `${winner.name} dragged a ${pot}bb pot${winnerDesc ? ` with ${winnerDesc.label}` : ""}`,
+        note: `${winner.name} dragged ${pot}${winnerDesc ? ` with ${winnerDesc.label}` : ""}`,
       });
     }
   } else if (winner && potBb >= 10) {
     aftermath.kind = "steal";
     events.push({
       t: "steal", hand: handNo, w: 1.5, who: winner.name,
-      note: `${winner.name} bet everyone off a ${pot}bb pot -- nobody paid to see it`,
+      note: `${winner.name} bet everyone off ${pot} -- nobody paid to see it`,
     });
   }
 
@@ -445,7 +447,7 @@ export function classifySettle({
   if (!events.length && loser && loser.netBb <= -15) {
     events.push({
       t: "big_loss", hand: handNo, w: 1.5,
-      note: `${loser.name} is stuck after dumping a ${pot}bb pot`,
+      note: `${loser.name} is stuck after dumping ${pot}`,
     });
   }
 
