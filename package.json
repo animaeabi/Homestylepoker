@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "check:runtime": "node scripts/check_online_runtime_health.mjs",
+    "test:narrative": "node scripts/test_narrative_moment.mjs",
     "smoke:web": "node scripts/web_smoke.mjs",
     "smoke:online-ui": "node scripts/online_ui_smoke.mjs",
     "smoke:all": "npm run check:runtime && npm run smoke:web && npm run smoke:online-ui"
