@@ -4890,7 +4890,11 @@ declare
   v_table online_tables%rowtype;
   v_hand_player online_hand_players%rowtype;
   v_active_seat online_table_seats%rowtype;
-  v_requested_secs int := greatest(1, least(coalesce(p_grace_secs, 3), 3));
+  v_is_bank boolean := coalesce(p_grace_secs, 3) > 3;
+  v_requested_secs int := case
+    when coalesce(p_grace_secs, 3) > 3 then least(coalesce(p_grace_secs, 30), 30)
+    else greatest(1, least(coalesce(p_grace_secs, 3), 3))
+  end;
   v_granted_secs int := 0;
   v_remaining_secs numeric := 0;
 begin
@@ -4961,14 +4965,23 @@ begin
     - floor(extract(epoch from greatest(interval '0 second', now() - coalesce(v_hand.last_action_at, now()))))
   );
 
-  if v_remaining_secs > 4 then
-    return v_hand;
+  if v_is_bank then
+    -- Time bank: ONE deliberate +30s think per turn, requestable any time on
+    -- the player's turn. Any prior bank spend blocks another.
+    if coalesce(v_hand.turn_grace_used_secs, 0) > 6 then
+      return v_hand;
+    end if;
+    v_granted_secs := v_requested_secs;
+  else
+    -- Micro-grace: last-second only, 6s lifetime cap (original behavior).
+    if v_remaining_secs > 4 then
+      return v_hand;
+    end if;
+    v_granted_secs := least(
+      v_requested_secs,
+      greatest(0, 6 - coalesce(v_hand.turn_grace_used_secs, 0))
+    );
   end if;
-
-  v_granted_secs := least(
-    v_requested_secs,
-    greatest(0, 6 - coalesce(v_hand.turn_grace_used_secs, 0))
-  );
 
   if v_granted_secs <= 0 then
     return v_hand;

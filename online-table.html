@@ -2338,6 +2338,15 @@
         filter: brightness(1.06);
       }
 
+      .astrip-time {
+        background: transparent;
+        color: rgba(236,178,86,0.85);
+        border: 1px solid rgba(236,178,86,0.32);
+        font-size: 11px;
+        padding: 8px 10px;
+      }
+      .astrip-time:hover { background: rgba(236,178,86,0.12); }
+
       .astrip-fold {
         background: transparent;
         color: var(--red);
@@ -5734,6 +5743,7 @@
       </div>
 
       <div class="action-strip hidden" id="actionStrip">
+        <button class="astrip-btn astrip-time hidden" id="timeBankBtn" type="button" title="Take extra time to think">⏳+30s</button>
         <button class="astrip-btn astrip-fold" id="foldBtn" type="button">Fold</button>
         <button class="astrip-btn astrip-call" id="callBtn" type="button">Check</button>
         <div class="astrip-raise-group">
@@ -5817,6 +5827,6 @@
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
     <script src="./online/table_fx_geometry.js?v=203"></script>
-    <script type="module" src="./online/table_app.js?v=279"></script>
+    <script type="module" src="./online/table_app.js?v=280"></script>
   </body>
 </html>
