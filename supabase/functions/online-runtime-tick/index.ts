@@ -11,10 +11,15 @@ import { freezeNarrativeMoment, prepareNarrativeDelivery, withNarrativeMoment } 
 import {
   advanceRunningJoke,
   classifySettle,
+  convoRepetitive,
+  deliveryCueFor,
   grudgeWeight,
   hushActive,
   jammerReadFor,
   loadTableMemory,
+  noteConvoLine,
+  tableBudgetBlocked,
+  targetFatigued,
   maybeStartHush,
   memoryPromptBlock,
   mindLineFor,
@@ -696,6 +701,7 @@ function createOnlineRpcClient() {
       mood,
       priority = 5,
       moment = null,
+      targetName = null,
     }: {
       tableId: string;
       groupPlayerId: string;
@@ -706,6 +712,7 @@ function createOnlineRpcClient() {
       mood?: string | null;   // emotional delivery hint for TTS (win/lose/needle/...)
       priority?: number;      // conversation-director rank (1 strongest .. 6 weakest)
       moment?: any;
+      targetName?: string | null; // who this line is aimed at (director rotates the heat)
     }) {
       const delivery = await resolveNarrativeDelivery({ tableId, message, mood, moment });
       if (delivery.mode === "memory_only") return "memory_only";
@@ -718,6 +725,16 @@ function createOnlineRpcClient() {
       // bluff kills the beat). Direct chains -- one rung apart -- flow through.
       const dirMem = await loadTableMemory(client, tableId);
       if (stepsOnMoment(dirMem, priority)) return "memory_only";
+      // Table speech budget: silence is the default state of a poker table --
+      // normally zero or one speaker per beat. Strong moments may chain
+      // quickly; weak ambient chatter waits its turn or dies here.
+      if (tableBudgetBlocked(dirMem, priority)) return "memory_only";
+      // Rotate the heat: the same player hammered line after line reads as
+      // scripted bullying, not table talk. When the target's fatigued, pass.
+      if (targetName && targetFatigued(dirMem, String(targetName))) return "memory_only";
+      // Semantic repeat: the same idea in different words is still a repeat.
+      // (Exact-text dedup against the chat table happens below as well.)
+      if (convoRepetitive(dirMem, String(character || groupPlayerId), trimmed)) return "memory_only";
       // Dedup safety net: no character should post text it (or the table) just
       // said. Catches every banter path in one place, on top of the per-pick
       // `avoid` re-roll. Compares against the last dozen table lines.
@@ -750,8 +767,16 @@ function createOnlineRpcClient() {
       if (error) throw normalizeSupabaseError("[postBotChat]", error);
 
       // This line IS now the table's latest moment; weaker lines yield to it.
+      // The director also logs it for the semantic-repeat and target-rotation
+      // checks above, and spends the table's speech budget.
       try {
         noteMoment(dirMem, priority);
+        noteConvoLine(dirMem, {
+          by: String(character || groupPlayerId),
+          text: trimmed,
+          hand: Number(dirMem.hands || 0),
+          target: targetName ? String(targetName) : null,
+        });
         saveTableMemory(client, tableId, dirMem);
       } catch { /* director bookkeeping is best-effort */ }
 
@@ -787,6 +812,10 @@ function createOnlineRpcClient() {
                 voice: Boolean(voice),
                 character: character || null,
                 mood: deliveryMood,
+                // Performance direction matched to the character's ACTUAL
+                // emotional state (post-loss cooldown -> deflated, not
+                // theatrical). The client hands it back to the TTS call.
+                deliveryCue: deliveryCueFor(dirMem, character, deliveryMood),
                 at: inserted?.created_at || new Date().toISOString(),
                 ...delivery.meta,
               }
@@ -1923,6 +1952,7 @@ async function processBotAction({
               mood: "needle",
               priority: 3,
               moment: midHandMoment,
+              targetName: target.name,
             });
             if (deliveryMode === "memory_only") return;
             noteNeedle(memMid, String(target.name));
@@ -2172,6 +2202,7 @@ async function prepareBotsForNextHand({
               await onlineClient.postBotChat({
                 tableId, groupPlayerId: sp.groupPlayerId, message: line,
                 voice: true, character: String(sp.botCharacter), mood: "banter", priority: 4,
+                targetName: botName,
               });
             }
           }
@@ -2770,7 +2801,7 @@ async function handleTableTalk({
   try {
     const { data: liveHand } = await onlineClient.client
       .from("online_hands")
-      .select("state, pot_total")
+      .select("id, state, pot_total")
       .eq("table_id", tableId)
       .order("hand_no", { ascending: false })
       .limit(1)
@@ -2781,6 +2812,19 @@ async function handleTableTalk({
       const street = String(liveHand.state || "");
       if ((street === "turn" || street === "river" || street === "showdown") && potBbHush >= tune.hushPotBb) {
         return json({ ok: true, talked: false, reason: "table_hushed" });
+      }
+      // Multi-way active hands are quiet by default: with three or more
+      // players still live, ambient chatter belongs BETWEEN hands, not over
+      // people's decisions. (Short-handed pots can carry a little talk.)
+      if (["preflop", "flop", "turn", "river"].includes(street)) {
+        const { count } = await onlineClient.client
+          .from("online_hand_players")
+          .select("id", { count: "exact", head: true })
+          .eq("hand_id", liveHand.id)
+          .eq("folded", false);
+        if (Number(count || 0) >= 3 && Math.random() < 0.85) {
+          return json({ ok: true, talked: false, reason: "multiway_quiet" });
+        }
       }
     }
   } catch { /* hush check is best-effort */ }
@@ -3004,6 +3048,7 @@ async function handleTts({
   const text = String(payload?.text || "").trim().slice(0, 240);
   const character = asText(payload?.character) || "";
   const mood = asText(payload?.mood) || "";
+  const deliveryCue = (asText(payload?.delivery) || "").slice(0, 24);
   if (!tableId || !groupPlayerId || !seatToken || !text) {
     return json({ ok: false, error: "tts_requires_table_player_token_text" }, 400);
   }
@@ -3036,6 +3081,7 @@ async function handleTts({
       characterId: character,
       text,
       mood,
+      delivery: deliveryCue || null,
       keys: {
         gemini: geminiKey || null,
         azureKey: azureKey || null,
@@ -3199,7 +3245,7 @@ async function handleReactionReply({
   });
   if (!line) return json({ ok: true, replied: false, reason: "no_line" });
   await new Promise((resolve) => setTimeout(resolve, 220 + Math.floor(Math.random() * 360)));
-  await onlineClient.postBotChat({ tableId, groupPlayerId: responder.groupPlayerId, message: line, voice: true, character: responder.characterId, mood });
+  await onlineClient.postBotChat({ tableId, groupPlayerId: responder.groupPlayerId, message: line, voice: true, character: responder.characterId, mood, targetName: playerName });
   return json({ ok: true, replied: true, by: responder.name });
 }
 
@@ -3331,7 +3377,7 @@ async function handleCardsShown({
   });
   if (!line) return json({ ok: true, replied: false, reason: "no_line" });
   await new Promise((resolve) => setTimeout(resolve, 220 + Math.floor(Math.random() * 360)));
-  await onlineClient.postBotChat({ tableId, groupPlayerId: responder.groupPlayerId, message: line, voice: true, character: responder.characterId, mood, priority: 2 });
+  await onlineClient.postBotChat({ tableId, groupPlayerId: responder.groupPlayerId, message: line, voice: true, character: responder.characterId, mood, priority: 2, targetName: playerName });
   return json({ ok: true, replied: true, by: responder.name });
 }
 
