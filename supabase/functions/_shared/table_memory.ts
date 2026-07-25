@@ -108,6 +108,7 @@ export type TableMemory = {
   joke?: { note: string; owner: string; hand: number; uses: number; retired: boolean } | null; // active running joke
   convo?: ConvoState | null; // conversation-director social state
   lastHandNo?: number; // highest DB hand_no already digested by the social pass
+  lastStory?: { handNo: number; text: string; own?: Record<string, string> } | null; // Hand Story of the latest digested hand
 };
 
 export type ConvoLine = { by: string; text: string; hand: number; t: number };
@@ -140,6 +141,7 @@ export function normalizeTableMemory(raw: unknown): TableMemory {
     joke: m.joke && typeof m.joke === "object" ? m.joke : null,
     convo: m.convo && typeof m.convo === "object" ? m.convo as ConvoState : null,
     lastHandNo: Number(m.lastHandNo || 0),
+    lastStory: m.lastStory && typeof m.lastStory === "object" ? m.lastStory as TableMemory["lastStory"] : null,
   };
 }
 
@@ -775,6 +777,14 @@ export function memoryPromptBlock(
 ): string | null {
   const lines: string[] = [];
 
+  // The Hand Story leads: hard facts about the LAST completed hand, available
+  // to every speech path so nobody improvises against visible reality.
+  if (mem.lastStory?.text) {
+    lines.push(`- LAST HAND (hard facts -- never contradict these, never misname cards listed here, never ask someone to prove a hand that is already face-up): ${mem.lastStory.text}`);
+    const ownLine = speakerName ? mem.lastStory.own?.[speakerName] : null;
+    if (ownLine) lines.push(`- ${ownLine}`);
+  }
+
   // Sharpest recent memories first; fresher wins ties. Dedupe near-identical
   // notes (routine repeats like "X dragged a 25bb pot" would read as a stutter).
   const seenNotes = new Set<string>();
@@ -822,7 +832,7 @@ export function memoryPromptBlock(
   if (!lines.length) return [arc, ...(hush ? [hush] : [])].join("\n");
   return [
     "TABLE MEMORY -- real history from this session. Interpret it through YOUR character's eyes (a bully reads folding as fear; a vet reads it as patience). Callback fuel: weave one in naturally when it fits -- running jokes get better the second time, but retire a joke once it's had its payoff. Never recite the list, never invent history that isn't here:",
-    ...lines.slice(0, 7),
+    ...lines.slice(0, 9),
     arc,
     ...(hush ? [hush] : []),
   ].join("\n");
