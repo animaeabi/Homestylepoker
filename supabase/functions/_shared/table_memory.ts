@@ -107,6 +107,7 @@ export type TableMemory = {
   lastMoment?: { at: number; pr: number } | null; // director gate: last line's priority
   joke?: { note: string; owner: string; hand: number; uses: number; retired: boolean } | null; // active running joke
   convo?: ConvoState | null; // conversation-director social state
+  lastHandNo?: number; // highest DB hand_no already digested by the social pass
 };
 
 export type ConvoLine = { by: string; text: string; hand: number; t: number };
@@ -138,6 +139,7 @@ export function normalizeTableMemory(raw: unknown): TableMemory {
     lastMoment: m.lastMoment && typeof m.lastMoment === "object" ? m.lastMoment : null,
     joke: m.joke && typeof m.joke === "object" ? m.joke : null,
     convo: m.convo && typeof m.convo === "object" ? m.convo as ConvoState : null,
+    lastHandNo: Number(m.lastHandNo || 0),
   };
 }
 
@@ -179,14 +181,29 @@ export function tooSimilar(a: string, b: string): boolean {
   return inter >= 2 && inter / Math.min(ta.size, tb.size) >= 0.6;
 }
 
-// Same line, same idea, or the same speaker circling the same words: reject.
+// Catchphrase shape: a signature TEMPLATE repeated with only the details
+// swapped ("that's queen-ten, right?" after "that's seven-deuce, right?") is
+// still a repeat, even though the words differ. Card ranks normalize to a
+// placeholder so the shape survives the swap.
+function openingShape(t: string): string {
+  return String(t || "").toLowerCase()
+    .replace(/\b(ace|king|queen|jack|ten|nine|eight|seven|six|five|four|three|deuce|two)\b/g, "#")
+    .replace(/[^a-z#\s]/g, " ")
+    .split(/\s+/).filter(Boolean).slice(0, 4).join(" ");
+}
+
+// Same line, same idea, or the same speaker running the same catchphrase
+// template again: reject. A signature move works once a night, not every hand.
 export function convoRepetitive(mem: TableMemory, by: string, text: string): boolean {
   const c = ensureConvo(mem);
   const now = Date.now();
+  const shape = openingShape(text);
   for (const line of c.lines.slice(-12)) {
-    if (now - Number(line.t || 0) > 6 * 60 * 1000) continue;
-    if (String(line.text || "").trim().toLowerCase() === String(text).trim().toLowerCase()) return true;
-    if (tooSimilar(line.text, text) && (line.by === by || now - Number(line.t || 0) < 2 * 60 * 1000)) return true;
+    if (now - Number(line.t || 0) > 10 * 60 * 1000) continue;
+    const fresh = now - Number(line.t || 0) <= 6 * 60 * 1000;
+    if (fresh && String(line.text || "").trim().toLowerCase() === String(text).trim().toLowerCase()) return true;
+    if (fresh && tooSimilar(line.text, text) && (line.by === by || now - Number(line.t || 0) < 2 * 60 * 1000)) return true;
+    if (line.by === by && shape.split(" ").length >= 3 && openingShape(line.text) === shape) return true;
   }
   return false;
 }

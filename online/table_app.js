@@ -2363,7 +2363,15 @@ function presentTransition({ oldHand, hand, hadPriorTableState }) {
 // big pot breathes and a routine steal stays brisk.
 function currentPresentationWeight(hand = getLatestHand(), { showdown = false } = {}) {
   const bb = Math.max(0.01, Number(getTable()?.big_blind || 1));
-  const potBb = Number(hand?.pot_total || 0) / bb;
+  // Settled hands weigh what was actually AWARDED -- pot_total includes any
+  // uncalled shove refunded to the bettor, which made a stolen-blinds hand
+  // read as a monster pot (slow pacing + big-pot chorus on a trivial steal).
+  let pot = Number(hand?.pot_total || 0);
+  if (hand && hand.state === "settled") {
+    const awarded = getHandPlayers().reduce((sum, hp) => sum + Number(hp?.result_amount || 0), 0);
+    if (awarded > 0) pot = awarded;
+  }
+  const potBb = pot / bb;
   const allIn = Boolean(hand && getHandPlayers().some((hp) => !hp.folded && hp.all_in));
   return presentationWeight({ potBb, allIn, showdown });
 }
@@ -3850,7 +3858,9 @@ async function presentSpeechBubble(item) {
   // until it begins (or a short cap) before revealing any text.
   const characterId = item.character || characterIdForPlayer(item.playerId);
   let spoken = false;
-  if (chatVoice.wouldSpeak(item.voice)) {
+  // Private thoughts are a silent visual layer -- never voiced (a whispered
+  // inner monologue that renders as ordinary speech is worse than silence).
+  if (!item.thought && chatVoice.wouldSpeak(item.voice)) {
     try { await chatVoice.speakGated(characterId, item.text, { mood: item.mood, deliveryCue: item.deliveryCue, maxWaitMs: 2500 }); spoken = true; }
     catch { /* fall through to showing text */ }
     // People laugh TOGETHER: when a character's line is itself a vocalization

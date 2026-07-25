@@ -32,6 +32,7 @@ export type BotExpression = {
   name?: string | null;
   reaction?: BotReaction;
   showCards?: boolean;
+  showReason?: "steal" | "fold_strong" | "fold_junk";
 };
 
 // Palette mirrors the human quick-chat reactions so bots read as native, plus a
@@ -184,12 +185,21 @@ export function decideBotExpressions({
       reaction = pick([R.ok, R.gg]);
     }
 
-    // Folded players occasionally flash the hand they let go once the pot is in
-    // the books -- the classic live-poker "look what I folded" move. Rare and
-    // flavor-only (never mid-hand; this runs at settle). Needs the cards to
-    // actually be present in the settled state.
-    if (!showCards && p.folded && Array.isArray(p.holeCards) && p.holeCards.length >= 2 && chance(0.06 * expr)) {
-      showCards = true;
+    // Folded players flash the hand they let go once the pot is in the books --
+    // the classic live-poker "look what I folded" move. WHAT they folded
+    // decides how often: a big laydown wants credit (shown fairly often), junk
+    // is a gag worth flashing after a big pot, ordinary mucks stay mucked.
+    let showReason: "steal" | "fold_strong" | "fold_junk" | null = showCards ? "steal" : null;
+    if (!showCards && p.folded && Array.isArray(p.holeCards) && p.holeCards.length >= 2) {
+      const rankVal = (c: string) => "23456789TJQKA".indexOf(String(c || "").toUpperCase().replace("10", "T")[0]) + 2;
+      const r1 = rankVal(String(p.holeCards[0]));
+      const r2 = rankVal(String(p.holeCards[1]));
+      const pairHigh = r1 === r2 && r1 >= 10;
+      const twoBig = r1 !== r2 && Math.min(r1, r2) >= 12;
+      const junk = r1 !== r2 && Math.max(r1, r2) <= 9;
+      if ((pairHigh || twoBig) && chance(0.28 * expr)) { showCards = true; showReason = "fold_strong"; }
+      else if (junk && bigPot && chance(0.1 * expr)) { showCards = true; showReason = "fold_junk"; }
+      else if (chance(0.04 * expr)) { showCards = true; showReason = "fold_junk"; }
     }
 
     const doReact = reaction != null && chance(reactP);
@@ -200,6 +210,7 @@ export function decideBotExpressions({
         name: bot.name ?? null,
         reaction: doReact ? reaction! : undefined,
         showCards: showCards || undefined,
+        showReason: showCards ? (showReason || "steal") : undefined,
       });
     }
   }

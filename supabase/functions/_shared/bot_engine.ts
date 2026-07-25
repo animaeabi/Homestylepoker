@@ -1531,9 +1531,13 @@ function decideStructuredPreflopAction({
   const facingBigJam = toCallBb >= 15 && Number(streetAggressionCount || 0) >= 1;
   if (facingBigJam && jammerRead && (jammerRead.jamStreak >= 2 || jammerRead.jams >= 3)) {
     const eqVsRandom = monteCarloEquity({ holeCards, boardCards: [], opponents: 1, samples: 220 });
-    const callAt = jammerRead.jamStreak >= 5 || jammerRead.jams >= 8 ? 0.52
+    // Depth matters: calling 30bb with any 55% hand punishes the spam; calling
+    // 200bb with king-high is a donation (the KQ-high 220bb call-off). The
+    // required edge climbs with what the call actually risks.
+    const depthPenalty = toCallBb >= 150 ? 0.10 : toCallBb >= 80 ? 0.06 : toCallBb >= 40 ? 0.03 : 0;
+    const callAt = (jammerRead.jamStreak >= 5 || jammerRead.jams >= 8 ? 0.52
       : jammerRead.jamStreak >= 3 || jammerRead.jams >= 5 ? 0.55
-      : 0.58;
+      : 0.58) + depthPenalty;
     if (eqVsRandom >= callAt) {
       return { actionType: "call", amount: null as number | null };
     }
@@ -1583,6 +1587,30 @@ function decideStructuredPreflopAction({
   // The jam rule used to be consulted only inside premium branches, so the
   // <=8.5bb "jam anything decent" clause could never fire.
   const shortStackJam = jamNow && effectiveStackBb <= 12 && features.tier !== "trash";
+
+  // Heads-up blind battles: folding a playable hand for a fraction of a blind
+  // is the one mistake real aggressive players never make -- and the logs
+  // showed the table maniac mucking A6o and K2s heads-up preflop for 1bb.
+  // With only two players and a tiny price, everything but true bottom junk
+  // continues (personality sets how deep "junk" goes; the aggressive types
+  // also raise instead of flatting a healthy chunk of the time).
+  if ((activeSeatCount || 2) <= 2 && toCall > 0 && toCallBb <= 2.5 && !shortStackJam) {
+    const junkBar = personality === "LAG" ? 0.35 : personality === "Rock" ? 1.45 : personality === "Station" ? 0.6 : 1.0;
+    const bottomJunk = features.tierScore <= junkBar && rawStrength < 0.34 && !features.paired && !features.suited && !features.aceHigh;
+    if (!bottomJunk) {
+      const raiseMix = clamp(
+        (personality === "LAG" ? 0.42 : personality === "TAG" ? 0.26 : 0.14) + style.openShift * 0.2 + (features.tier === "premium" || features.tier === "strong" ? 0.3 : 0),
+        0.08, 0.75,
+      );
+      if (coinFlip(raiseMix)) {
+        const targetAmount = raiseTargetAmount(
+          humanOpenRaiseTargetBb({ position, personality, limperCount: 0, handTier: features.tier }),
+        );
+        if (targetAmount != null) return { actionType: "raise", amount: targetAmount };
+      }
+      return { actionType: "call", amount: null as number | null };
+    }
+  }
 
   if (bucket === "unopened") {
     if (toCall <= 0) return { actionType: "check", amount: null as number | null };
