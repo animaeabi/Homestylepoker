@@ -1341,6 +1341,16 @@ async function runBotExpressions({
             mood = aftermath.showdown && potBb >= 12 ? "badbeat" : "lose";
         }
 
+        // Face-up cards are FACTS: hand the model exactly what was revealed at
+        // showdown so nobody "soul-reads" cards that are already on the table
+        // (and gets them wrong). Hidden hands stay guessable; shown ones don't.
+        const faceUp = settlePlayers
+          .filter((p) => !p.folded && Array.isArray(p.holeCards) && p.holeCards.length >= 2)
+          .map((p) => `${p.name} showed ${p.holeCards.map((c) => prettyCardName(String(c))).join(" and ")}`);
+        if (aftermath.showdown && faceUp.length) {
+          situation += ` FACE-UP FACTS: ${faceUp.join("; ")}. The board ran ${boardCards.join(" ") || "out"}. Never misname or guess at cards that are face-up -- they are known.`;
+        }
+
         const speakerMind = mindLineFor(mem, speaker.characterId);
         const line = await mixedHandBanter({
           speaker: { characterId: speaker.characterId, name: speakerName },
