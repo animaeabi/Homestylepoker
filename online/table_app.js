@@ -2363,7 +2363,15 @@ function presentTransition({ oldHand, hand, hadPriorTableState }) {
 // big pot breathes and a routine steal stays brisk.
 function currentPresentationWeight(hand = getLatestHand(), { showdown = false } = {}) {
   const bb = Math.max(0.01, Number(getTable()?.big_blind || 1));
-  const potBb = Number(hand?.pot_total || 0) / bb;
+  // Settled hands weigh what was actually AWARDED -- pot_total includes any
+  // uncalled shove refunded to the bettor, which made a stolen-blinds hand
+  // read as a monster pot (slow pacing + big-pot chorus on a trivial steal).
+  let pot = Number(hand?.pot_total || 0);
+  if (hand && hand.state === "settled") {
+    const awarded = getHandPlayers().reduce((sum, hp) => sum + Number(hp?.result_amount || 0), 0);
+    if (awarded > 0) pot = awarded;
+  }
+  const potBb = pot / bb;
   const allIn = Boolean(hand && getHandPlayers().some((hp) => !hp.folded && hp.all_in));
   return presentationWeight({ potBb, allIn, showdown });
 }

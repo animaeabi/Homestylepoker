@@ -107,6 +107,7 @@ export type TableMemory = {
   lastMoment?: { at: number; pr: number } | null; // director gate: last line's priority
   joke?: { note: string; owner: string; hand: number; uses: number; retired: boolean } | null; // active running joke
   convo?: ConvoState | null; // conversation-director social state
+  lastHandNo?: number; // highest DB hand_no already digested by the social pass
 };
 
 export type ConvoLine = { by: string; text: string; hand: number; t: number };
@@ -138,6 +139,7 @@ export function normalizeTableMemory(raw: unknown): TableMemory {
     lastMoment: m.lastMoment && typeof m.lastMoment === "object" ? m.lastMoment : null,
     joke: m.joke && typeof m.joke === "object" ? m.joke : null,
     convo: m.convo && typeof m.convo === "object" ? m.convo as ConvoState : null,
+    lastHandNo: Number(m.lastHandNo || 0),
   };
 }
 

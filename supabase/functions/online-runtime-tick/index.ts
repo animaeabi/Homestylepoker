@@ -992,11 +992,13 @@ function createOnlineRpcClient() {
 async function runBotExpressions({
   onlineClient,
   handId,
-  tableId
+  tableId,
+  quiet = false,
 }: {
   onlineClient: ReturnType<typeof createOnlineRpcClient>;
   handId: string;
   tableId: string;
+  quiet?: boolean; // catch-up mode: digest into memory, no late reactions
 }) {
   const state = await onlineClient.getHandState({ handId, sinceSeq: null });
   const hand = state?.hand || {};
@@ -1043,7 +1045,7 @@ async function runBotExpressions({
     bigBlind: Number(table?.big_blind || 2)
   });
 
-  for (const ex of expressions) {
+  for (const ex of quiet ? [] : expressions) {
     if (ex.reaction) {
       try {
         await onlineClient.broadcastReaction({
@@ -1120,7 +1122,11 @@ async function runBotExpressions({
   // their emotional state, with session history available for callbacks.
   try {
     const bb = Math.max(1, Number(table?.big_blind || 2));
-    const potBb = Number(hand?.pot_total || 0) / bb;
+    // HONEST pot: pot_total includes uncalled bets returned to the shover (a
+    // 628 open-jam that stole the blinds recorded a "631 pot"). Everything
+    // social keys on what was actually AWARDED.
+    const awardedPot = players.reduce((sum: number, p: any) => sum + Number(p.resultAmount || 0), 0);
+    const potBb = (awardedPot > 0 ? awardedPot : Number(hand?.pot_total || 0)) / bb;
     const identities = await onlineClient.listSeatIdentities({ tableId });
     const nameByGpid = new Map(identities.map((s: any) => [s.groupPlayerId, s.name || "Player"]));
     const isBotByGpid = new Map(identities.map((s: any) => [s.groupPlayerId, !!s.isBot]));
@@ -1128,12 +1134,20 @@ async function runBotExpressions({
 
     // --- Memory pass (every settled hand, even tiny ones: fold streaks count).
     const mem = await loadTableMemory(onlineClient.client, tableId);
+    // Idempotence: fold-wins settle inside SQL and reach this pass via the
+    // catch-up sweep, showdowns via the settle path -- a hand digests once.
+    const dbHandNo = Number(hand?.hand_no || 0);
+    if (dbHandNo && Number(mem.lastHandNo || 0) >= dbHandNo) return;
     // First contact (or a late join): plant the roster's starting chemistry so
     // the characters arrive already knowing each other.
     seedChemistry(mem, botSeats
       .filter((b) => b.botCharacter && b.name)
       .map((b) => ({ characterId: String(b.botCharacter), name: String(b.name) })));
-    mem.hands += 1;
+    // Memory hand numbers track the REAL hand_no -- the old private counter
+    // only advanced on processed settles, so weeks of moments aliased onto
+    // the same few hand numbers.
+    mem.hands = Math.max(mem.hands + 1, dbHandNo);
+    mem.lastHandNo = Math.max(Number(mem.lastHandNo || 0), dbHandNo);
     const handNo = mem.hands;
     const settlePlayers: SettlePlayer[] = players
       .filter((p: any) => p.groupPlayerId)
@@ -1239,7 +1253,7 @@ async function runBotExpressions({
     // notice, and backed by the engine actually widening its calls.
     try {
       const jamSpam = memEvents.find((e) => e.t === "jam_spam");
-      if (jamSpam && jamSpam.who && await onlineClient.aiRateHit({ tableId, kind: "chat", limit: AI_CHAT_PER_MIN })) {
+      if (!quiet && jamSpam && jamSpam.who && await onlineClient.aiRateHit({ tableId, kind: "chat", limit: AI_CHAT_PER_MIN })) {
         const callers = botSeats.filter((b) => b.botCharacter && hasBanter(b.botCharacter));
         if (callers.length) {
           const sp = callers[Math.floor(Math.random() * callers.length)];
@@ -1267,7 +1281,7 @@ async function runBotExpressions({
       }
     } catch { /* callout is cosmetic; the engine adaptation is the real answer */ }
 
-    if (potBb >= 3) {
+    if (!quiet && potBb >= 3) {
       // Candidate speakers, by how personally the hand touched them. The
       // aftermath principals (caught bluffer, cooler victim, hero caller)
       // outrank generic winners/losers -- the person the hand HAPPENED to
@@ -1468,6 +1482,45 @@ async function runBotExpressions({
   } catch (error) {
     console.error("[runBotExpressions] settle chat failed", error instanceof Error ? error.message : String(error));
   }
+}
+
+// Fold-wins settle inside SQL RPCs and never pass through the edge settle
+// path, so the social/memory layer used to skip them entirely -- the table's
+// brain only digested ~1/3 of hands (the showdowns) and its jam meter,
+// emotions and hand references ran on tape delay. This sweep digests every
+// settled hand memory hasn't seen: backlog quietly (memory only), the
+// freshest one with full expression if it JUST happened.
+async function socialCatchUp({
+  onlineClient,
+  tableId,
+}: {
+  onlineClient: ReturnType<typeof createOnlineRpcClient>;
+  tableId: string;
+}) {
+  try {
+    const mem = await loadTableMemory(onlineClient.client, tableId);
+    const last = Number(mem.lastHandNo || 0);
+    const { data: rows } = await onlineClient.client
+      .from("online_hands")
+      .select("id, hand_no, last_action_at")
+      .eq("table_id", tableId)
+      .eq("state", "settled")
+      .gt("hand_no", last)
+      .order("hand_no", { ascending: true })
+      .limit(5);
+    if (!rows || !rows.length) return;
+    for (let i = 0; i < rows.length; i += 1) {
+      const row = rows[i];
+      const newest = i === rows.length - 1;
+      const ageMs = Date.now() - new Date(row.last_action_at || 0).getTime();
+      const quiet = !newest || !(Number.isFinite(ageMs) && ageMs < 90_000);
+      try {
+        await runBotExpressions({ onlineClient, handId: String(row.id), tableId, quiet });
+      } catch (error) {
+        console.error("[socialCatchUp] hand digest failed", error instanceof Error ? error.message : String(error));
+      }
+    }
+  } catch { /* catch-up must never affect gameplay */ }
 }
 
 function buildShowdownPayoutsFromHandState(handState: any) {
@@ -1968,7 +2021,10 @@ async function processBotAction({
     // live opponent BY NAME in the table chat -- and sometimes another
     // character claps back, so the table argues with itself.
     const raiseToBbForChat = decision.amount != null ? Number(decision.amount) / bbForTalk : 0;
-    const potBbForChat = Number(liveHand?.pot_total || 0) / bbForTalk;
+    // The pot being ATTACKED, not including the attacker's own wager -- a
+    // naked 300bb jam at a 3bb pot is a huge BET at a small pot, not a
+    // "monster pot".
+    const potBbForChat = Math.max(1.5, Number(liveHand?.pot_total || 0) / bbForTalk - raiseToBbForChat);
     const isAggro = decision.actionType === "all_in"
       || decision.actionType === "bet" || decision.actionType === "raise";
     const isBigAggro = decision.actionType === "all_in"
@@ -2602,6 +2658,14 @@ async function runRuntimeTick({
         message: error instanceof Error ? error.message : String(error)
       });
     }
+  }
+
+  // Social catch-up per table seen this tick (fold-win settles never reach
+  // the edge settle path on their own).
+  const sweepTables = new Set<string>();
+  for (const hand of hands) if (hand?.table_id) sweepTables.add(String(hand.table_id));
+  for (const sweepId of sweepTables) {
+    detach(socialCatchUp({ onlineClient, tableId: sweepId }));
   }
 
   let dueTables: any[] = [];
@@ -3610,6 +3674,10 @@ Deno.serve(async (req) => {
         }
         break;
       }
+
+      // Digest any settled hands the social layer hasn't seen (fold-wins
+      // settle in SQL and would otherwise never reach the memory pass).
+      detach(socialCatchUp({ onlineClient, tableId: handRow.table_id }));
 
       return json({
         ok: true,
