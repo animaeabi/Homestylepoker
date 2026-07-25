@@ -1691,6 +1691,25 @@ async function settleShowdownFromState({
   return settleResult;
 }
 
+// Line read: does the aggressor's betting line tell a coherent story?
+// Passive-then-bomb (checked the turn, jammed the river) is a POLARIZED
+// line -- nuts or air. Pros lean on that; now the characters do.
+function deriveAggressorLineRead(events: any[], aggressorGpid: string, street: string): { pattern: string | null } {
+  if (!aggressorGpid) return { pattern: null };
+  let streetIdx = 0;
+  const acts: string[][] = [[], [], [], []];
+  for (const ev of events || []) {
+    if (ev?.event_type === "street_dealt") { streetIdx = Math.min(streetIdx + 1, 3); continue; }
+    if (ev?.event_type !== "action_taken") continue;
+    if (String(ev?.actor_group_player_id || "") !== aggressorGpid) continue;
+    acts[streetIdx].push(String(ev?.payload?.action_type || ""));
+  }
+  const bombed = (i: number) => acts[i].includes("all_in") || acts[i].includes("bet") || acts[i].includes("raise");
+  if (street === "river" && acts[2].includes("check") && bombed(3)) return { pattern: "checked_turn_river_bomb" };
+  if (street === "turn" && acts[1].includes("check") && bombed(2)) return { pattern: "checked_flop_turn_bomb" };
+  return { pattern: null };
+}
+
 function didSeatAggressInCurrentHand(events: any[], groupPlayerId: string | null) {
   if (!groupPlayerId) return false;
   for (let i = (events || []).length - 1; i >= 0; i -= 1) {
@@ -1930,6 +1949,21 @@ async function processBotAction({
     const bbForCap = Math.max(1, Number(table?.big_blind || 2));
     const heavyDecision = facingAllInNow || toCall / bbForCap >= 10;
     const waitMs = Math.min(Math.max(0, thinkMs - elapsedMs), heavyDecision ? 4200 : 2500);
+    // A long tank isn't silent at a real table: sometimes the player asks
+    // for the moment out loud. Text-only bubble (no TTS) -- presence, not
+    // a speech. The director's budget keeps it rare.
+    if (heavyDecision && waitMs > 2200 && actingSeat?.group_player_id && Math.random() < 0.2) {
+      const mutters = ["hold on.", "wait. thinking.", "give me a second here.", "hm. this one's real.", "don't rush me."];
+      detach(Promise.resolve(onlineClient.postBotChat({
+        tableId: hand.table_id,
+        groupPlayerId: actingSeat.group_player_id,
+        message: mutters[Math.floor(Math.random() * mutters.length)],
+        voice: false,
+        character: actingSeat?.bot_character || null,
+        mood: "banter",
+        priority: 4,
+      })).then(() => undefined).catch(() => undefined));
+    }
     if (waitMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, waitMs));
     }
@@ -2036,11 +2070,120 @@ async function processBotAction({
     }
   }
 
+  // ---------------------------------------------------------------------
+  // Psychology layer: the table TALK, the aggressor's emotional state, the
+  // SHAPE of their betting line, and this character's own gamble streak all
+  // lean on the math's answer. Math is the foundation; this is the read on
+  // top -- and when it changes the decision, the character says why.
+  let psychSpoke = false;
+  if (!shouldForceTimeoutAction && toCall > 0
+    && (facingAllInNow || toCall / Math.max(1, Number(table?.big_blind || 2)) >= 6)) {
+    try {
+      const bbPsy = Math.max(1, Number(table?.big_blind || 2));
+      const aggressorP = players
+        .filter((p: any) => !p.folded && p.group_player_id && String(p.group_player_id) !== String(actingSeat.group_player_id))
+        .sort((a: any, b: any) => Number(b.street_contribution || 0) - Number(a.street_contribution || 0))[0] || null;
+      if (aggressorP?.group_player_id) {
+        const aggGpid = String(aggressorP.group_player_id);
+        const idsPsy = await onlineClient.listSeatIdentities({ tableId: hand.table_id });
+        const aggId = idsPsy.find((s: any) => s.groupPlayerId === aggGpid) || null;
+        const memPsy = await loadTableMemory(onlineClient.client, hand.table_id);
+        let shift = 0;
+        const notes: string[] = [];
+
+        // (a) A tilted table-mate's aggression is wider; a heater earns respect.
+        if (aggId?.isBot && aggId.botCharacter) {
+          const emo = memPsy.emo?.[String(aggId.botCharacter)];
+          if (emo?.s === "tilted" && Number(emo.i || 0) >= 2) {
+            shift += 0.05; notes.push(`${aggId.name} is visibly tilted -- that bet is wider than it looks`);
+          } else if (emo?.s === "confident" && Number(emo.streak || 0) >= 3) {
+            shift -= 0.03; notes.push(`${aggId.name} is running the table -- respect the heater`);
+          }
+        }
+
+        // (b) Talk tells: taunting WHILE the chips go in, from a known
+        // pressure-merchant, is a performance. Performers get looked up.
+        if (aggId && !aggId.isBot && aggId.name) {
+          const { data: recentTalk } = await onlineClient.client
+            .from("online_table_chat_messages")
+            .select("message")
+            .eq("table_id", hand.table_id)
+            .eq("group_player_id", aggGpid)
+            .gt("created_at", new Date(Date.now() - 90_000).toISOString())
+            .order("created_at", { ascending: false })
+            .limit(6);
+          const talk = (recentTalk || []).map((r: any) => String(r.message || "")).join(" ");
+          const taunting = /free money|scared|fold|coward|easy|lesson|again\?|all day|mofo|loss?ers?/i.test(talk);
+          const humanRead = memPsy.human?.[String(aggId.name)];
+          if (taunting && Number(humanRead?.jamStreak || 0) >= 1) {
+            shift += 0.05; notes.push(`${aggId.name} is talking a LOT while betting big -- that's a performance`);
+          } else if (taunting) {
+            shift += 0.02; notes.push(`${aggId.name} can't stop talking while their chips are in`);
+          }
+        }
+
+        // (c) Line shape: passive-then-bomb is polarized. Versus a player
+        // with pressure history, air wins the argument more often.
+        const lineRead = deriveAggressorLineRead(handState?.events || [], aggGpid, String(liveHand?.state || hand.state || ""));
+        if (lineRead.pattern) {
+          const bluffy = Boolean(aggId && !aggId.isBot
+            && (Number(memPsy.human?.[String(aggId.name || "")]?.jamStreak || 0) >= 1 || jammerRead != null));
+          shift += bluffy ? 0.05 : 0.02;
+          notes.push(lineRead.pattern === "checked_turn_river_bomb"
+            ? "they CHECKED the turn and now this bomb on the river -- that story doesn't add up"
+            : "they checked the flop and now they're bombing the turn -- that's nuts or nothing");
+        }
+
+        // (d) Gamble factor: it's still gambling, and stuck players chase.
+        const selfEmo = actingSeat.bot_character ? memPsy.emo?.[String(actingSeat.bot_character)] : null;
+        if (selfEmo && Number(selfEmo.streak || 0) <= -2) {
+          shift += 0.04; notes.push("you're stuck tonight and tired of folding");
+        }
+
+        // Apply: flip a marginal fold into the PSYCH CALL (and say the read
+        // out loud), or a thin river call into a quiet respect-fold.
+        const stackNow = Number(botPlayer.stack_end || 0);
+        const affordable = stackNow > 0 && toCall <= stackNow * 0.45;
+        if (decision.actionType === "fold" && shift >= 0.05 && affordable && Math.random() < Math.min(0.5, shift * 4)) {
+          decision = { actionType: "call", amount: null };
+          if (notes.length && actingSeat.bot_character && hasBanter(actingSeat.bot_character) && Math.random() < 0.55) {
+            psychSpoke = true;
+            const reason = notes[Math.floor(Math.random() * notes.length)];
+            const cId = String(actingSeat.bot_character);
+            const cName = String(character?.name || "Bot");
+            const tName = aggId?.name ? String(aggId.name) : null;
+            detach((async () => {
+              if (!(await onlineClient.aiRateHit({ tableId: hand.table_id, kind: "chat", limit: AI_CHAT_PER_MIN }))) return;
+              const line = await mixedHandBanter({
+                speaker: { characterId: cId, name: cName },
+                situation: `You just talked yourself into a CALL the math barely approves of, because of a read: ${reason}. Say the read out loud as you call -- one short line, in character. You might be wrong; own it anyway.`,
+                targetName: tName,
+                roster: [cName, ...(tName ? [tName] : [])],
+                chatHistory: [],
+                canned: () => null,
+              });
+              if (line) {
+                await onlineClient.postBotChat({
+                  tableId: hand.table_id, groupPlayerId: actingSeat.group_player_id, message: line,
+                  voice: true, character: cId, mood: "needle", priority: 2, targetName: tName,
+                });
+              }
+            })());
+          }
+        } else if (decision.actionType === "call" && shift <= -0.02
+          && String(liveHand?.state || "") === "river" && toCall / bbPsy >= 12 && Math.random() < 0.3) {
+          // A quiet laydown IS the tell -- respect folds don't narrate.
+          decision = { actionType: "fold", amount: null };
+        }
+      }
+    } catch { /* psychology leans on the math; it never crashes it */ }
+  }
+
   // Declared read (presence layer): the table doesn't quietly look up the
   // spammer -- someone says the read OUT LOUD as the chips go in. Fires only
   // on the exact anti-spam call the engine just made, and lands with the
   // action: a declaration before the cards flip, right or wrong.
-  if (decision.actionType === "call" && facingAllInNow && jammerRead && jammerName
+  if (!psychSpoke && decision.actionType === "call" && facingAllInNow && jammerRead && jammerName
     && (jammerRead.jamStreak >= 2 || jammerRead.jams >= 3)
     && actingSeat.bot_character && hasBanter(actingSeat.bot_character)
     && Math.random() < 0.75) {

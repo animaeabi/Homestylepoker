@@ -148,6 +148,7 @@ const el = {
   actionStrip: document.getElementById("actionStrip"),
   presetRow: document.getElementById("presetRow"),
   foldBtn: document.getElementById("foldBtn"),
+  timeBankBtn: document.getElementById("timeBankBtn"),
   callBtn: document.getElementById("callBtn"),
   betRaiseBtn: document.getElementById("betRaiseBtn"),
   allInBtn: document.getElementById("allInBtn"),
@@ -5573,6 +5574,39 @@ function mergeLatestHandFields(patch) {
   };
 }
 
+// Deliberate time bank: the player asks for a real think (+30s), once per
+// turn. Distinct from the last-second micro-grace below.
+async function requestTimeBank() {
+  const hand = getLatestHand();
+  const hp = getMyHandPlayer();
+  const seatToken = getSeatToken();
+  if (!hand || !hp || !seatToken || !state.identity?.groupPlayerId || state.timeBankPending) return;
+  if (!isActionStreet(hand.state) || Number(hand.action_seat || 0) !== Number(hp.seat_no || 0)) return;
+  if (getTurnGraceUsedSecs(hand) > 6) return;
+  state.timeBankPending = true;
+  renderActions();
+  try {
+    const updatedHand = await online.requestTurnGrace({
+      handId: hand.id,
+      actorGroupPlayerId: state.identity.groupPlayerId,
+      seatToken,
+      graceSecs: 30,
+    });
+    if (updatedHand) {
+      mergeLatestHandFields({
+        last_action_at: updatedHand.last_action_at,
+        turn_grace_used_secs: updatedHand.turn_grace_used_secs,
+      });
+    }
+    toast("Time bank: +30 seconds", "success");
+  } catch {
+    toast("Couldn't get more time.", "error");
+  } finally {
+    state.timeBankPending = false;
+    renderActions();
+  }
+}
+
 async function maybeRequestRaiseTurnGrace(source = "interaction") {
   const hand = getLatestHand();
   const hp = getMyHandPlayer();
@@ -7819,6 +7853,7 @@ function renderActions() {
   el.callBtn.classList.add("hidden");
   el.allInBtn.classList.add("hidden");
   el.betRaiseBtn.classList.add("hidden");
+  el.timeBankBtn?.classList.add("hidden");
 
   if (showCardsMode) {
     clearHeroPreaction();
@@ -7846,6 +7881,13 @@ function renderActions() {
     el.foldBtn.classList.remove("hidden");
     el.callBtn.classList.remove("hidden");
     el.betRaiseBtn.classList.remove("hidden");
+    // Time bank: one deliberate +30s think per turn -- poker decisions deserve
+    // room to breathe, and asking for time is itself a table tell.
+    if (el.timeBankBtn) {
+      const bankAvailable = getTurnGraceUsedSecs(hand) <= 6 && !state.timeBankPending;
+      el.timeBankBtn.classList.toggle("hidden", !bankAvailable);
+      el.timeBankBtn.disabled = state.timeBankPending;
+    }
     el.foldBtn.textContent = "Fold";
     el.callBtn.textContent = "Check";
     el.betRaiseBtn.textContent = "Bet";
@@ -8495,6 +8537,7 @@ function bindEvents() {
   el.tableBootExit?.addEventListener("click", () => {
     returnToLobbyDeadTable();
   });
+  el.timeBankBtn?.addEventListener("click", () => { void requestTimeBank(); });
   el.foldBtn.addEventListener("click", () => {
     const hand = getLatestHand();
     const hp = getMyHandPlayer();
