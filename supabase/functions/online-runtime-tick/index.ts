@@ -2175,6 +2175,35 @@ async function processBotAction({
           // A quiet laydown IS the tell -- respect folds don't narrate.
           decision = { actionType: "fold", amount: null };
         }
+
+        // A SHORT-stack shove isn't scary, it's a punchline: pity-mock it
+        // instead of gasping -- "what else were you going to do with that?"
+        if (!psychSpoke && facingAllInNow && toCall / bbPsy <= 13
+          && aggId?.name && actingSeat.bot_character && hasBanter(actingSeat.bot_character)
+          && Math.random() < 0.28) {
+          psychSpoke = true;
+          const mockTarget = String(aggId.name);
+          const mockChar = String(actingSeat.bot_character);
+          const mockName = String(character?.name || "Bot");
+          const shoveBbTxt = Math.max(1, Math.round(toCall / bbPsy));
+          detach((async () => {
+            if (!(await onlineClient.aiRateHit({ tableId: hand.table_id, kind: "chat", limit: AI_CHAT_PER_MIN }))) return;
+            const line = await mixedHandBanter({
+              speaker: { characterId: mockChar, name: mockName },
+              situation: `${mockTarget} just went ALL IN -- for a SHORT stack, about ${shoveBbTxt} big blinds. That's not a power move, it's a formality: what else were they going to do with that? React with light pity or amusement in character -- mock the size, not fear it. One short line.`,
+              targetName: mockTarget,
+              roster: [mockName, mockTarget],
+              chatHistory: [],
+              canned: () => pickBanterLine({ characterId: mockChar, context: "bully", targetName: mockTarget, avoid: [] }),
+            });
+            if (line) {
+              await onlineClient.postBotChat({
+                tableId: hand.table_id, groupPlayerId: actingSeat.group_player_id, message: line,
+                voice: true, character: mockChar, mood: "needle", priority: 3, targetName: mockTarget,
+              });
+            }
+          })());
+        }
       }
     } catch { /* psychology leans on the math; it never crashes it */ }
   }
