@@ -117,6 +117,17 @@ const GEMINI_MOOD: Record<string, string> = {
   thought: "as a genuine WHISPER under your breath, hushed and close to the mic, a private thought nobody else can hear",
 };
 
+// Performance direction on top of the mood: how the character's ACTUAL
+// emotional state colors the read (the conversation director picks these --
+// e.g. post-loss cooldown means "deflated", not instant theatrical outrage).
+const GEMINI_DELIVERY: Record<string, string> = {
+  deflated: "quiet and deflated, the air out of the room, no theatrics",
+  restrained: "low-key and restrained, holding most of it back",
+  clipped: "clipped and terse, biting the words off short",
+  amused: "quietly amused, a half-smile you can hear",
+  tense: "tight and coiled, under pressure",
+};
+
 // Azure: map the moment to an express-as style; clamped per-voice below.
 const AZURE_MOOD_STYLE: Record<string, string[]> = {
   // preference order; first one the voice supports wins
@@ -226,15 +237,18 @@ export interface SpeechClip { audio: string; mime: string; }
 // ---------------------------------------------------------------------------
 // Provider: Gemini (high moments -- real laughs, best delivery). Base64 WAV.
 // ---------------------------------------------------------------------------
-async function geminiTts(characterId: string, clean: string, mood: string, apiKey: string, model?: string | null): Promise<SpeechClip | null> {
+async function geminiTts(characterId: string, clean: string, mood: string, apiKey: string, model?: string | null, delivery?: string | null): Promise<SpeechClip | null> {
   const voice = GEMINI_VOICE[characterId] || GEMINI_DEFAULT;
   // ONE compact "direction: line" sentence. The character style already ends
-  // with a colon; the mood merges in as a clause BEFORE that colon. A second
-  // free-standing direction sentence between the colon and the line breaks
-  // the direction/content boundary and the model reads it out loud.
+  // with a colon; the mood and delivery cue merge in as clauses BEFORE that
+  // colon. A second free-standing direction sentence between the colon and
+  // the line breaks the direction/content boundary and the model reads it
+  // out loud.
   const styleBase = (GEMINI_STYLE[characterId] || "Read this naturally").replace(/:\s*$/, "");
   const moodClause = mood ? GEMINI_MOOD[mood] : "";
-  const preamble = moodClause ? `${styleBase} -- ${moodClause}:` : `${styleBase}:`;
+  const deliveryClause = delivery ? GEMINI_DELIVERY[delivery] : "";
+  const clauses = [moodClause, deliveryClause].filter(Boolean).join(", ");
+  const preamble = clauses ? `${styleBase} -- ${clauses}:` : `${styleBase}:`;
   const prompt = `${preamble} ${clean}`;
   const modelName = model || "gemini-2.5-flash-preview-tts";
 
@@ -384,12 +398,13 @@ export interface TtsKeys {
 }
 
 export async function generateSpeech({
-  characterId, text, mood, keys,
+  characterId, text, mood, keys, delivery = null,
 }: {
   characterId: string;
   text: string;
   mood?: string | null;
   keys: TtsKeys;
+  delivery?: string | null; // director's performance cue (deflated/restrained/...)
 }): Promise<SpeechClip | null> {
   const clean = stripForSpeech(text);
   if (!clean) return null;
@@ -457,7 +472,7 @@ export async function generateSpeech({
 
   const tier = tierForMood(m);
 
-  const gemini = () => keys.gemini ? geminiTts(characterId, clean, m, keys.gemini, keys.model) : Promise.resolve(null);
+  const gemini = () => keys.gemini ? geminiTts(characterId, clean, m, keys.gemini, keys.model, delivery) : Promise.resolve(null);
   const azure = () => (keys.azureKey && keys.azureRegion) ? azureTts(characterId, clean, m, keys.azureKey, keys.azureRegion) : Promise.resolve(null);
   const groq = () => keys.groq ? groqTts(characterId, clean, m, keys.groq) : Promise.resolve(null);
   const chirp = () => keys.google ? chirpTts(characterId, clean, keys.google) : Promise.resolve(null);

@@ -1419,6 +1419,7 @@ function addChatMessage(message, { self = false } = {}) {
         voice: message?.voice,
         character: message?.character || null,
         mood: message?.mood || null,
+        deliveryCue: message?.deliveryCue || null,
         thought: isThought,
         sourceHandId: message?.sourceHandId || null,
         deliveryMode: message?.deliveryMode || null,
@@ -1452,6 +1453,7 @@ function addChatMessage(message, { self = false } = {}) {
       voice: message?.voice,
       character: message?.character || null,
       mood: message?.mood || null,
+      deliveryCue: message?.deliveryCue || null,
       thought: isThought,
       sourceHandId: message?.sourceHandId || null,
       deliveryMode: message?.deliveryMode || null,
@@ -3775,6 +3777,7 @@ function enqueueSpeechBubble(message) {
     voice: Boolean(message?.voice),
     character: message?.character || null,
     mood: message?.mood || null,
+    deliveryCue: message?.deliveryCue || null,
     thought: Boolean(message?.thought),
     handId: anchoredHandId,
     enqueuedAt: Date.now(),
@@ -3848,7 +3851,7 @@ async function presentSpeechBubble(item) {
   const characterId = item.character || characterIdForPlayer(item.playerId);
   let spoken = false;
   if (chatVoice.wouldSpeak(item.voice)) {
-    try { await chatVoice.speakGated(characterId, item.text, { mood: item.mood, maxWaitMs: 2500 }); spoken = true; }
+    try { await chatVoice.speakGated(characterId, item.text, { mood: item.mood, deliveryCue: item.deliveryCue, maxWaitMs: 2500 }); spoken = true; }
     catch { /* fall through to showing text */ }
     // People laugh TOGETHER: when a character's line is itself a vocalization
     // (a laugh, a groan), one or two others join in over it -- overlapping,
@@ -4051,7 +4054,7 @@ const chatVoice = {
   // reveal the text right as the voice begins) -- or after `maxWaitMs`, or on any
   // failure, so a slow/failed TTS never stalls the bubble. Assumes wouldSpeak was
   // true; still guards internally.
-  async speakGated(characterId, text, { mood = null, maxWaitMs = 2500 } = {}) {
+  async speakGated(characterId, text, { mood = null, deliveryCue = null, maxWaitMs = 2500 } = {}) {
     const seatToken = getSeatToken();
     if (!this.enabled || !this.supported() || !seatToken || !state.tableId || !state.identity) return;
     this._inflight = true;
@@ -4070,6 +4073,7 @@ const chatVoice = {
             text: String(text || "").slice(0, 240),
             character: characterId || "",
             mood: mood || "",
+            delivery: deliveryCue || "",
           },
         }).then(({ data, error }) => {
           if (error) {

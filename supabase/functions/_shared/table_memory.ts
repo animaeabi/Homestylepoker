@@ -106,6 +106,14 @@ export type TableMemory = {
   hush?: { until: number; kind: string; note: string } | null; // designed table silence
   lastMoment?: { at: number; pr: number } | null; // director gate: last line's priority
   joke?: { note: string; owner: string; hand: number; uses: number; retired: boolean } | null; // active running joke
+  convo?: ConvoState | null; // conversation-director social state
+};
+
+export type ConvoLine = { by: string; text: string; hand: number; t: number };
+export type ConvoState = {
+  lines: ConvoLine[];                     // the table's last dozen posted lines
+  targets: { name: string; t: number }[]; // who has been taking the heat
+  lastAnyAt: number;                      // when ANY character last spoke
 };
 
 const MAX_EVENTS = 24;
@@ -129,7 +137,114 @@ export function normalizeTableMemory(raw: unknown): TableMemory {
     hush: m.hush && typeof m.hush === "object" ? m.hush : null,
     lastMoment: m.lastMoment && typeof m.lastMoment === "object" ? m.lastMoment : null,
     joke: m.joke && typeof m.joke === "object" ? m.joke : null,
+    convo: m.convo && typeof m.convo === "object" ? m.convo as ConvoState : null,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Conversation director: the social budget of the table. Silence is the
+// DEFAULT state of a poker table; speech spends from a shared budget, one
+// player rarely stays the whole story, and the same idea doesn't get said
+// twice in different words. All enforcement funnels through postBotChat, so
+// every banter path obeys these rules without knowing they exist.
+// ---------------------------------------------------------------------------
+function ensureConvo(mem: TableMemory): ConvoState {
+  if (!mem.convo || typeof mem.convo !== "object") mem.convo = { lines: [], targets: [], lastAnyAt: 0 };
+  if (!Array.isArray(mem.convo.lines)) mem.convo.lines = [];
+  if (!Array.isArray(mem.convo.targets)) mem.convo.targets = [];
+  return mem.convo;
+}
+
+// Token-set similarity: catches "the same idea in different words" through
+// shared substance vocabulary, with no embedding round-trip.
+const CONVO_STOPWORDS = new Set([
+  "the", "a", "an", "and", "or", "but", "so", "to", "of", "in", "on", "at", "is", "it", "its",
+  "was", "you", "your", "youre", "i", "im", "me", "my", "he", "his", "she", "her", "they", "them",
+  "that", "this", "just", "with", "for", "not", "no", "yes", "what", "who", "how", "all", "one",
+]);
+function convoTokens(s: string): Set<string> {
+  return new Set(
+    String(s || "").toLowerCase().replace(/[^a-z0-9\s']/g, " ").split(/\s+/)
+      .map((w) => w.replace(/'s?$/, ""))
+      .filter((w) => w.length > 2 && !CONVO_STOPWORDS.has(w)),
+  );
+}
+export function tooSimilar(a: string, b: string): boolean {
+  const ta = convoTokens(a);
+  const tb = convoTokens(b);
+  if (!ta.size || !tb.size) return false;
+  let inter = 0;
+  for (const w of ta) if (tb.has(w)) inter += 1;
+  // Most of the shorter line's substance is recycled -> it's the same idea.
+  return inter >= 2 && inter / Math.min(ta.size, tb.size) >= 0.6;
+}
+
+// Same line, same idea, or the same speaker circling the same words: reject.
+export function convoRepetitive(mem: TableMemory, by: string, text: string): boolean {
+  const c = ensureConvo(mem);
+  const now = Date.now();
+  for (const line of c.lines.slice(-12)) {
+    if (now - Number(line.t || 0) > 6 * 60 * 1000) continue;
+    if (String(line.text || "").trim().toLowerCase() === String(text).trim().toLowerCase()) return true;
+    if (tooSimilar(line.text, text) && (line.by === by || now - Number(line.t || 0) < 2 * 60 * 1000)) return true;
+  }
+  return false;
+}
+
+// One player must not be the table's only story: when the recent heat keeps
+// landing on the same name, the next targeted line yields.
+export function targetFatigued(mem: TableMemory, name: string): boolean {
+  const c = ensureConvo(mem);
+  const now = Date.now();
+  const recent = c.targets.slice(-4).filter((t) => now - Number(t.t || 0) < 4 * 60 * 1000);
+  return recent.filter((t) => t.name === name).length >= 3;
+}
+
+// Table speech budget: normally zero or one speaker per beat. Direct
+// conversational chains (priority 1: replies to the human, bot-to-bot
+// back-and-forth) are the natural escalation and never blocked; strong
+// moments (priority 2) may follow quickly; weak ambient chatter waits its
+// turn or dies.
+export function tableBudgetBlocked(mem: TableMemory, priority: number): boolean {
+  if (priority <= 1) return false;
+  const c = ensureConvo(mem);
+  const gapMs = priority <= 2 ? 2500 : priority <= 4 ? 6000 : 9000;
+  return Date.now() - Number(c.lastAnyAt || 0) < gapMs;
+}
+
+export function noteConvoLine(
+  mem: TableMemory,
+  { by, text, hand, target }: { by: string; text: string; hand: number; target?: string | null },
+) {
+  const c = ensureConvo(mem);
+  c.lines.push({ by, text: String(text).slice(0, 120), hand, t: Date.now() });
+  if (c.lines.length > 14) c.lines.splice(0, c.lines.length - 14);
+  if (target) {
+    c.targets.push({ name: String(target), t: Date.now() });
+    if (c.targets.length > 8) c.targets.splice(0, c.targets.length - 8);
+  }
+  c.lastAnyAt = Date.now();
+}
+
+// Delivery direction matched to the character's ACTUAL emotional state -- the
+// post-loss cooldown especially: someone who just lost a big pot goes quiet
+// and flat first, not instantly theatrical. Returns a delivery cue keyword the
+// TTS layer turns into vocal direction, or null for the mood's default read.
+export function deliveryCueFor(
+  mem: TableMemory,
+  characterId: string | null | undefined,
+  mood: string | null | undefined,
+): string | null {
+  if (!characterId) return null;
+  const e = mem.emo?.[String(characterId)];
+  if (!e) return null;
+  const fresh = Number(mem.hands || 0) - Number(e.hand || 0) <= 1;
+  const m = String(mood || "");
+  if (e.s === "tilted" && e.i >= 2 && fresh && ["anger", "badbeat", "lose"].includes(m)) return "deflated";
+  if ((e.s === "frustrated" || e.s === "tilted") && ["win", "banter"].includes(m)) return "restrained";
+  if (e.s === "frustrated" && ["needle", "anger"].includes(m)) return "clipped";
+  if (e.s === "confident" && e.streak >= 2 && m === "needle") return "amused";
+  return null;
 }
 
 // ---------------------------------------------------------------------------
