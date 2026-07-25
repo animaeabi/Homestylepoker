@@ -197,7 +197,9 @@ export function decideBotExpressions({
       const pairHigh = r1 === r2 && r1 >= 10;
       const twoBig = r1 !== r2 && Math.min(r1, r2) >= 12;
       const junk = r1 !== r2 && Math.max(r1, r2) <= 9;
-      if ((pairHigh || twoBig) && chance(0.28 * expr)) { showCards = true; showReason = "fold_strong"; }
+      // (Purposeful shows in the runtime cover the DRAMATIC laydowns -- the
+      // dice layer keeps only the casual "eh, look what I folded" flash.)
+      if ((pairHigh || twoBig) && chance(0.16 * expr)) { showCards = true; showReason = "fold_strong"; }
       else if (junk && bigPot && chance(0.1 * expr)) { showCards = true; showReason = "fold_junk"; }
       else if (chance(0.04 * expr)) { showCards = true; showReason = "fold_junk"; }
     }
