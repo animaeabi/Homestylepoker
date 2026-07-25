@@ -3333,26 +3333,55 @@ async function handleReactionReply({
   const history = recent.slice().reverse().map((r) => ({ name: String(nameByGpid.get(r.groupPlayerId) || "Player"), text: r.message }));
   const avoid = recent.filter((r) => r.groupPlayerId === String(responder.groupPlayerId)).map((r) => r.message);
 
+  // The hand an emoji refers to is the one that just ENDED -- but by the time
+  // the tap lands, the next hand has often already been dealt, so the client's
+  // hand_id points at a fresh hand with nothing shown. Resolve to the latest
+  // SETTLED hand and pull the actual face-up facts (cards, board, what they
+  // made), so nobody demands proof of cards that are already on the table.
+  const reveal = { shown: false, cards: "", board: "", made: "", wonUncontested: false };
+  try {
+    let hs = handId ? await onlineClient.getHandState({ handId, sinceSeq: null }) : null;
+    if (!hs?.hand || String(hs.hand.state || "") !== "settled") {
+      const { data: prev } = await onlineClient.client
+        .from("online_hands")
+        .select("id")
+        .eq("table_id", tableId)
+        .eq("state", "settled")
+        .order("hand_no", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (prev?.id) hs = await onlineClient.getHandState({ handId: String(prev.id), sinceSeq: null });
+    }
+    const hsPlayers = Array.isArray(hs?.players) ? hs.players : [];
+    const me = hsPlayers.find((p: any) => String(p.group_player_id) === groupPlayerId);
+    if (me) {
+      const live = hsPlayers.filter((p: any) => !p.folded);
+      const shown = Boolean(me.manually_shown) || (live.length >= 2 && !me.folded && String(hs?.hand?.state || "") === "settled" && Array.isArray(hs?.hand?.board_cards) && hs.hand.board_cards.length >= 5);
+      if (shown && Array.isArray(me.hole_cards) && me.hole_cards.length >= 2) {
+        const rawCards = me.hole_cards.map((c: any) => String(c));
+        const board = Array.isArray(hs?.hand?.board_cards) ? hs.hand.board_cards.map((c: any) => String(c)) : [];
+        reveal.shown = true;
+        reveal.cards = rawCards.map(prettyCardName).join(" and ");
+        reveal.board = board.join(" ");
+        reveal.made = shownHandContext(rawCards, board);
+        reveal.wonUncontested = Number(me.result_amount || 0) > 0 && live.length <= 1;
+      }
+    }
+  } catch { /* facts are best-effort; standpoints fall back to hidden-hand logic */ }
+  const revealFacts = reveal.shown
+    ? ` FACE-UP FACTS: ${playerName}'s cards are already on the table -- ${reveal.cards}.${reveal.board ? ` The board ran ${reveal.board}.` : ""}${reveal.made ? ` ${reveal.made}` : ""} Everyone has SEEN them; never ask them to show, never guess, never misname them.`
+    : "";
+
   // Each emoji is a DIFFERENT social move, so each gets its own standpoint --
   // the table must not read "I bluffed" the same way it reads "good game".
   let mood = "banter";
   let standpoint = `React to ${playerName} in character: tease them, fire back, gloat, or play along.`;
   switch (reactionKey) {
     case "ha_bluffed": {
-      // "I bluffed" WITHOUT showing cards is an UNVERIFIED claim. Default to
-      // doubt; only an actual card-show (rare edge: shown then bragged)
-      // upgrades it to a confirmed insult.
-      let confirmedShow = false;
-      if (handId) {
-        try {
-          const hs = await onlineClient.getHandState({ handId, sinceSeq: null });
-          const me = (Array.isArray(hs?.players) ? hs.players : [])
-            .find((p: any) => String(p.group_player_id) === groupPlayerId);
-          confirmedShow = Boolean(me?.manually_shown);
-        } catch { /* stay doubtful */ }
-      }
-      if (confirmedShow) {
-        standpoint = `${playerName} bragged "I bluffed" right after SHOWING the table the junk they did it with. It's confirmed and it's a taunt. React stung and personal -- they moved you off pots with nothing and now they're gloating.`;
+      // "I bluffed" WITHOUT showing cards is an UNVERIFIED claim -> doubt.
+      // With the cards face-up it's a CONFIRMED taunt -> stung, specific.
+      if (reveal.shown) {
+        standpoint = `${playerName} bragged "I bluffed" and their cards are already face-up: ${reveal.cards || "shown for everyone"}.${reveal.made ? ` ${reveal.made}` : ""} Judge the claim against what you SAW: if it really was junk, it's a confirmed taunt -- react stung and personal, naming the cards. If they actually showed a real hand, the brag is absurd -- mock it ("bluffing with THAT? that's called value").`;
         mood = "anger";
       } else {
         standpoint = `${playerName} claims they just BLUFFED everyone out -- but they never showed their cards, so there is ZERO proof. Be openly skeptical: maybe they had the goods and want free credit for a bluff that never happened. Doubt them out loud, demand they show next time, refuse to hand them the glory. Do NOT concede that they bluffed you.`;
@@ -3385,7 +3414,7 @@ async function handleReactionReply({
       mood = "needle";
       break;
   }
-  const situation = `${playerName} just fired a "${emoji} ${reactionText}" emoji reaction at the table -- no words, just the reaction. ${standpoint} Do not describe the emoji; just respond to it.`;
+  const situation = `${playerName} just fired a "${emoji} ${reactionText}" emoji reaction at the table -- no words, just the reaction. ${standpoint}${revealFacts} Do not describe the emoji; just respond to it.`;
 
   const line = await mixedHandBanter({
     speaker: { characterId: responder.characterId, name: responder.name },
