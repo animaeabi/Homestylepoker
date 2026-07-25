@@ -410,49 +410,11 @@ export async function generateSpeech({
   if (!clean) return null;
   const m = String(mood || "");
 
-  // Private inner thoughts are WHISPERED: an intimate, internal delivery that
-  // reads as a voice in the head, not a voice at the table. Gemini renders a
-  // real human whisper in the character's OWN voice (a whisper direction in
-  // the preamble), so it goes first; Azure's whispering express-as style is
-  // the fallback -- it reads synthetic, and characters whose Azure voice
-  // can't whisper borrow Davis, which is why fallback whispers can sound off.
-  // No whisper available -> silent subtitle, never a full-volume read.
-  if (m === "thought") {
-    if (keys.gemini) {
-      try {
-        const clip = await geminiTts(characterId, clean, "thought", keys.gemini, keys.model);
-        if (clip) return clip;
-      } catch { /* fall through to Azure whisper */ }
-    }
-    if (!(keys.azureKey && keys.azureRegion)) return null;
-    const base = AZURE_VOICE[characterId] || AZURE_DEFAULT;
-    const voice = (AZURE_STYLES[base] || []).includes("whispering") ? base : "en-US-DavisNeural";
-    const locale = voice.split("-").slice(0, 2).join("-");
-    const ssml =
-      `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" ` +
-      `xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="${locale}">` +
-      `<voice name="${voice}"><mstts:express-as style="whispering" styledegree="1.2">` +
-      `<prosody rate="-6%">${xmlEscape(clean)}</prosody>` +
-      `</mstts:express-as></voice></speak>`;
-    try {
-      const resp = await fetch(`https://${keys.azureRegion}.tts.speech.microsoft.com/cognitiveservices/v1`, {
-        method: "POST",
-        headers: {
-          "Ocp-Apim-Subscription-Key": keys.azureKey,
-          "Content-Type": "application/ssml+xml",
-          "X-Microsoft-OutputFormat": "audio-24khz-48kbitrate-mono-mp3",
-          "User-Agent": "homestylepoker",
-        },
-        body: ssml,
-      });
-      if (!resp.ok) return null;
-      const bytes = new Uint8Array(await resp.arrayBuffer());
-      if (!bytes.length) return null;
-      return { audio: bytesToB64(bytes), mime: "audio/mpeg" };
-    } catch {
-      return null;
-    }
-  }
+  // Private inner thoughts are SILENT. Every whisper rendering we tried
+  // (Azure's whispering style, a Gemini whisper direction) too often came out
+  // as a spoken line -- an inner monologue read out loud is worse than none.
+  // Thoughts stay a visual layer: the thought bubble carries the moment.
+  if (m === "thought") return null;
 
   // Nonverbal layer: lines like "*sighs*" / "*groans quietly*" aren't words to
   // read -- they're sounds. Orpheus renders its emotion tags as REAL vocal

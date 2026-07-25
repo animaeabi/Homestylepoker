@@ -3850,7 +3850,9 @@ async function presentSpeechBubble(item) {
   // until it begins (or a short cap) before revealing any text.
   const characterId = item.character || characterIdForPlayer(item.playerId);
   let spoken = false;
-  if (chatVoice.wouldSpeak(item.voice)) {
+  // Private thoughts are a silent visual layer -- never voiced (a whispered
+  // inner monologue that renders as ordinary speech is worse than silence).
+  if (!item.thought && chatVoice.wouldSpeak(item.voice)) {
     try { await chatVoice.speakGated(characterId, item.text, { mood: item.mood, deliveryCue: item.deliveryCue, maxWaitMs: 2500 }); spoken = true; }
     catch { /* fall through to showing text */ }
     // People laugh TOGETHER: when a character's line is itself a vocalization
