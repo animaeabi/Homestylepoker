@@ -133,6 +133,7 @@ export function prepareNarrativeDelivery({
     sourceHandId: moment.sourceHandId,
     sourceEventSeq: moment.sourceEventSeq || 0,
     sourcePhase: moment.sourcePhase || null,
+    sourceStreet: moment.street || null,
     momentType: moment.momentType || null,
     momentCreatedAt: moment.createdAt || null,
     deliveryMode: mode,

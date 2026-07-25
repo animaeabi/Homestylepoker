@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { describeSevenCardHand, resolveShowdownPayouts } from "../_shared/showdown.ts";
+import { buildHandStory } from "../_shared/hand_story.ts";
 import { botThinkTimeMs, classifyOpponentProfile, combineOpponentProfiles, decideBotAction } from "../_shared/bot_engine.ts";
 import { decideBotExpressions, decideMidHandExpression } from "../_shared/bot_expression.ts";
 import { monteCarloEquity } from "../_shared/equity.ts";
@@ -1021,6 +1022,7 @@ async function runBotExpressions({
     resultAmount: Number(p.result_amount || 0),
     committed: Number(p.committed || 0),
     holeCards: Array.isArray(p.hole_cards) ? p.hole_cards : [],
+    manuallyShown: !!p.manually_shown,
     wasAggressor: Boolean(p.group_player_id) && String(p.group_player_id) === String(lastAggressorGpid)
   }));
 
@@ -1122,10 +1124,14 @@ async function runBotExpressions({
   // their emotional state, with session history available for callbacks.
   try {
     const bb = Math.max(1, Number(table?.big_blind || 2));
-    // HONEST pot: pot_total includes uncalled bets returned to the shover (a
-    // 628 open-jam that stole the blinds recorded a "631 pot"). Everything
-    // social keys on what was actually AWARDED.
-    const awardedPot = players.reduce((sum: number, p: any) => sum + Number(p.resultAmount || 0), 0);
+    // HONEST pot: pot_total (and result_amount) include uncalled bets returned
+    // to the shover (a 628 open-jam that stole the blinds recorded a "631
+    // pot"). Zero-sum gives the truth: the pot that was pushed is the losers'
+    // total losses plus the winner's matched share -- roughly twice the losses.
+    const awardedPot = 2 * players.reduce(
+      (sum: number, p: any) => sum + Math.max(0, Number(p.committed || 0) - Number(p.resultAmount || 0)),
+      0,
+    );
     const potBb = (awardedPot > 0 ? awardedPot : Number(hand?.pot_total || 0)) / bb;
     const identities = await onlineClient.listSeatIdentities({ tableId });
     const nameByGpid = new Map(identities.map((s: any) => [s.groupPlayerId, s.name || "Player"]));
@@ -1246,6 +1252,32 @@ async function runBotExpressions({
       memoryPromptBlock(memForBlocks, { speakerCharacterId: cid, speakerName: name ?? null });
     advanceRunningJoke(mem, memEvents, handNo);
     mem.events.push(...memEvents);
+    // Hand Story: ONE canonical factual account of this hand, stored so every
+    // later speech path (emoji replies, chat replies, table talk, card-show
+    // comebacks) draws on the same truth instead of improvising. Set AFTER the
+    // memForBlocks snapshot: this settle's own speakers get the PREVIOUS
+    // hand's story (callback fuel); everything after gets this one.
+    try {
+      const story = buildHandStory({
+        handNo,
+        bigBlind: bb,
+        boardCards,
+        players: players
+          .filter((p: any) => p.groupPlayerId && Number(p.committed || 0) > 0)
+          .map((p: any) => ({
+            name: String(nameByGpid.get(String(p.groupPlayerId)) || "Player"),
+            isBot: Boolean(isBotByGpid.get(String(p.groupPlayerId))),
+            folded: !!p.folded,
+            holeCards: (p.holeCards || []).map((c: any) => String(c)),
+            manuallyShown: !!p.manuallyShown,
+            netBb: (Number(p.resultAmount || 0) - Number(p.committed || 0)) / bb,
+            committedBb: Number(p.committed || 0) / bb,
+          })),
+        events,
+        nameByGpid: new Map([...nameByGpid].map(([k, v]) => [String(k), String(v)])),
+      });
+      mem.lastStory = { handNo: story.handNo, text: story.text, own: story.own };
+    } catch { /* the story is additive; memory still saves without it */ }
     saveTableMemory(onlineClient.client, tableId, mem);
 
     // The table turns on a hostage-taker: when the jam-spam meter crosses a
@@ -3416,12 +3448,19 @@ async function handleReactionReply({
   }
   const situation = `${playerName} just fired a "${emoji} ${reactionText}" emoji reaction at the table -- no words, just the reaction. ${standpoint}${revealFacts} Do not describe the emoji; just respond to it.`;
 
+  // Table memory (incl. the Hand Story) keeps this reply factual.
+  let rrMemory: string | null = null;
+  try {
+    const memRr = await loadTableMemory(onlineClient.client, tableId);
+    rrMemory = memoryPromptBlock(memRr, { speakerCharacterId: responder.characterId, speakerName: responder.name });
+  } catch { /* memory is flavor */ }
   const line = await mixedHandBanter({
     speaker: { characterId: responder.characterId, name: responder.name },
     situation,
     targetName: playerName,
     roster,
     chatHistory: history,
+    memory: rrMemory,
     canned: () => pickBanterLine({ characterId: responder.characterId, context: "bully", targetName: playerName, avoid }),
   });
   if (!line) return json({ ok: true, replied: false, reason: "no_line" });
@@ -3558,12 +3597,19 @@ async function handleCardsShown({
     } catch { /* memory is flavor */ }
   }
 
+  // Table memory (incl. the Hand Story) keeps this reply factual.
+  let csMemory: string | null = null;
+  try {
+    const memCs = await loadTableMemory(onlineClient.client, tableId);
+    csMemory = memoryPromptBlock(memCs, { speakerCharacterId: responder.characterId, speakerName: responder.name });
+  } catch { /* memory is flavor */ }
   const line = await mixedHandBanter({
     speaker: { characterId: responder.characterId, name: responder.name },
     situation: anchor + situation,
     targetName: playerName,
     roster,
     chatHistory: history,
+    memory: csMemory,
     canned: () => pickBanterLine({ characterId: responder.characterId, context: "bully", targetName: playerName, avoid }),
   });
   if (!line) return json({ ok: true, replied: false, reason: "no_line" });

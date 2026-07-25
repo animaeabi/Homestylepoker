@@ -1422,6 +1422,8 @@ function addChatMessage(message, { self = false } = {}) {
         deliveryCue: message?.deliveryCue || null,
         thought: isThought,
         sourceHandId: message?.sourceHandId || null,
+        sourcePhase: message?.sourcePhase || null,
+        sourceStreet: message?.sourceStreet || null,
         deliveryMode: message?.deliveryMode || null,
       });
     }
@@ -1456,6 +1458,8 @@ function addChatMessage(message, { self = false } = {}) {
       deliveryCue: message?.deliveryCue || null,
       thought: isThought,
       sourceHandId: message?.sourceHandId || null,
+      sourcePhase: message?.sourcePhase || null,
+      sourceStreet: message?.sourceStreet || null,
       deliveryMode: message?.deliveryMode || null,
     });
   }
@@ -2368,7 +2372,11 @@ function currentPresentationWeight(hand = getLatestHand(), { showdown = false } 
   // read as a monster pot (slow pacing + big-pot chorus on a trivial steal).
   let pot = Number(hand?.pot_total || 0);
   if (hand && hand.state === "settled") {
-    const awarded = getHandPlayers().reduce((sum, hp) => sum + Number(hp?.result_amount || 0), 0);
+    // Zero-sum truth: losses x2 (result_amount includes refunded shoves).
+    const awarded = 2 * getHandPlayers().reduce(
+      (sum, hp) => sum + Math.max(0, Number(hp?.committed || 0) - Number(hp?.result_amount || 0)),
+      0,
+    );
     if (awarded > 0) pot = awarded;
   }
   const potBb = pot / bb;
@@ -3786,6 +3794,8 @@ function enqueueSpeechBubble(message) {
     character: message?.character || null,
     mood: message?.mood || null,
     deliveryCue: message?.deliveryCue || null,
+    sourcePhase: message?.sourcePhase || null,
+    sourceStreet: message?.sourceStreet || null,
     thought: Boolean(message?.thought),
     handId: anchoredHandId,
     enqueuedAt: Date.now(),
@@ -3796,6 +3806,29 @@ function enqueueSpeechBubble(message) {
     state.speechQueue.splice(0, state.speechQueue.length - SPEECH_QUEUE_MAX);
   }
   pumpSpeechQueue();
+}
+
+// Has the beat this line refers to actually been PRESENTED to the player?
+// The server generates reactions the instant it settles a hand -- full runout
+// known -- but the client may still be flipping the turn card. A river line
+// waits for the river card on screen; settle talk waits for the runout (and,
+// when contested, the reveal beat). Anything else is the bots visibly
+// reacting to the future.
+function speechBeatPresented(item) {
+  const hand = getLatestHand();
+  if (!hand || !item?.sourceHandId || item.sourceHandId !== hand.id) return true;
+  if (String(item.deliveryMode || "") === "callback") return true;
+  const phase = String(item.sourcePhase || "");
+  const street = String(item.sourceStreet || "");
+  const boardLen = Array.isArray(hand.board_cards) ? hand.board_cards.length : 0;
+  if (phase.startsWith("settle")) {
+    if (presentation.boardCountFor(hand) < boardLen) return false;
+    if (isContestedShowdown(hand, getHandPlayers()) && !presentation.showdownAllowedFor(hand)) return false;
+    return true;
+  }
+  const need = street === "flop" ? 3 : street === "turn" ? 4 : street === "river" ? 5 : 0;
+  if (need > 0 && presentation.boardCountFor(hand) < Math.min(need, boardLen)) return false;
+  return true;
 }
 
 function pumpSpeechQueue() {
@@ -3809,6 +3842,14 @@ function pumpSpeechQueue() {
     const tooOld = Date.now() - Number(head.enqueuedAt || 0) > 25000;
     if (wrongHand || tooOld) state.speechQueue.shift();
     else break;
+  }
+  // Presentation gate: hold the head line until its beat is on screen (with a
+  // hard cap so a stuck animation can never silence the table forever).
+  const head = state.speechQueue[0];
+  if (head && !speechBeatPresented(head) && Date.now() - Number(head.enqueuedAt || 0) < 15000) {
+    clearTimeout(state.speechGateTimer);
+    state.speechGateTimer = setTimeout(() => pumpSpeechQueue(), 350);
+    return;
   }
   const item = state.speechQueue.shift();
   if (!item) return;
