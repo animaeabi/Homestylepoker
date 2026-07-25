@@ -3785,17 +3785,13 @@ async function handleCardsShown({
     return json({ ok: false, error: "cards_shown_requires_table_player_token" }, 400);
   }
 
-  // Showing cards is always a deliberate social move -- it nearly always
-  // deserves an answer (the client's instant chorus covers the first beat;
-  // this is the considered spoken line that follows).
-  if (Math.random() < 0.12) return json({ ok: true, replied: false, reason: "chose_silence" });
-
   const ctx = await authSeatAndListCharacters(onlineClient, { tableId, groupPlayerId, seatToken });
   if (!ctx) return json({ ok: false, error: "cards_shown_seat_not_found" }, 403);
   if (!ctx.bots.length) return json({ ok: true, replied: false, reason: "no_characters_seated" });
-  if (!(await onlineClient.aiRateHit({ tableId, kind: "chat", limit: AI_CHAT_PER_MIN }))) {
-    return json({ ok: true, replied: false, reason: "rate_limited" });
-  }
+  // The silence roll and rate-limit handling happen BELOW, once we know
+  // whether a character publicly ASKED for this show -- an invited reveal is
+  // a debt, and the asker always pays it (with a canned line if the LLM
+  // budget is spent, but never with silence).
 
   const playerName = ctx.sender?.name || "friend";
 
@@ -3854,10 +3850,32 @@ async function handleCardsShown({
     .map((b) => ({ b, r: Math.random() / Math.max(0.2, b.expressiveness) }))
     .sort((a, z) => a.r - z.r)[0].b;
   const preferVictim = wonUncontested && victimBots.length > 0;
-  const responder = pickWeighted(preferVictim ? victimBots : ctx.bots);
-  const responderMuck = victimByGpid.get(String(responder.groupPlayerId))?.cards || "";
+  let responder = pickWeighted(preferVictim ? victimBots : ctx.bots);
   const roster = ctx.identities.map((s: any) => String(s.name || "Player")).filter(Boolean);
   const recent = await onlineClient.listRecentChatLines({ tableId, limit: 10 });
+
+  // Did a character publicly CALL a read and ask for the show ("that's
+  // king-jack, right? show me after?")? Then this reveal is the payoff beat
+  // of THEIR guess: they respond, they grade their read, and silence is not
+  // an option -- an asked-for show that goes unanswered reads as broken.
+  const askRe = /show (me|it|us|after)|show\?|right\?/i;
+  const askerLine = recent.find((r) => {
+    if (String(r.groupPlayerId) === groupPlayerId) return false;
+    return ctx.bots.some((b) => String(b.groupPlayerId) === String(r.groupPlayerId))
+      && askRe.test(String(r.message || ""));
+  }) || null;
+  const askerBot = askerLine
+    ? ctx.bots.find((b) => String(b.groupPlayerId) === String(askerLine.groupPlayerId)) || null
+    : null;
+  if (askerBot) responder = askerBot;
+  // Uninvited shows may occasionally pass in silence; invited ones never do.
+  if (!askerBot && Math.random() < 0.12) {
+    return json({ ok: true, replied: false, reason: "chose_silence" });
+  }
+  // LLM budget: when it's spent, fall back to a canned line rather than
+  // dropping the beat (invited or not, the reveal was deliberate).
+  const llmAllowed = await onlineClient.aiRateHit({ tableId, kind: "chat", limit: AI_CHAT_PER_MIN });
+  const responderMuck = victimByGpid.get(String(responder.groupPlayerId))?.cards || "";
   const nameByGpid = new Map(ctx.identities.map((s: any) => [s.groupPlayerId, s.name || "Player"]));
   const history = recent.slice().reverse().map((r) => ({ name: String(nameByGpid.get(r.groupPlayerId) || "Player"), text: r.message }));
   const avoid = recent.filter((r) => r.groupPlayerId === String(responder.groupPlayerId)).map((r) => r.message);
@@ -3902,15 +3920,20 @@ async function handleCardsShown({
     const memCs = await loadTableMemory(onlineClient.client, tableId);
     csMemory = memoryPromptBlock(memCs, { speakerCharacterId: responder.characterId, speakerName: responder.name });
   } catch { /* memory is flavor */ }
-  const line = await mixedHandBanter({
-    speaker: { characterId: responder.characterId, name: responder.name },
-    situation: anchor + situation,
-    targetName: playerName,
-    roster,
-    chatHistory: history,
-    memory: csMemory,
-    canned: () => pickBanterLine({ characterId: responder.characterId, context: "bully", targetName: playerName, avoid }),
-  });
+  const gradeContext = askerBot && askerLine
+    ? ` Moments ago YOU publicly called your read on ${playerName}: "${String(askerLine.message || "").slice(0, 120)}". The cards are now FACE-UP -- grade your own read out loud: if you nailed it, gloat hard ("I SAID it!"); if you missed, own it (grace or comic double-down). This is the payoff beat of your guess -- never ignore it.`
+    : "";
+  const line = llmAllowed
+    ? await mixedHandBanter({
+      speaker: { characterId: responder.characterId, name: responder.name },
+      situation: anchor + situation + gradeContext,
+      targetName: playerName,
+      roster,
+      chatHistory: history,
+      memory: csMemory,
+      canned: () => pickBanterLine({ characterId: responder.characterId, context: "bully", targetName: playerName, avoid }),
+    })
+    : pickBanterLine({ characterId: responder.characterId, context: "bully", targetName: playerName, avoid });
   if (!line) return json({ ok: true, replied: false, reason: "no_line" });
   await new Promise((resolve) => setTimeout(resolve, 220 + Math.floor(Math.random() * 360)));
   // Priority 1: showing cards is a direct social move aimed at the table --
