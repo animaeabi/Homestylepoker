@@ -739,7 +739,18 @@ function createOnlineRpcClient() {
     }) {
       const delivery = await resolveNarrativeDelivery({ tableId, message, mood, moment });
       if (delivery.mode === "memory_only") return "memory_only";
-      const trimmed = String(delivery.text || "").trim().slice(0, 178);
+      // Length cap trims at a SENTENCE boundary, never mid-word -- a line
+      // ending "what you call it when" reads like a glitch, not a person.
+      let trimmed = String(delivery.text || "").trim();
+      if (trimmed.length > 178) {
+        const cut = trimmed.slice(0, 178);
+        const lastEnd = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("! "), cut.lastIndexOf("? "));
+        if (lastEnd >= 60) trimmed = cut.slice(0, lastEnd + 1);
+        else {
+          const lastSpace = cut.lastIndexOf(" ");
+          trimmed = (lastSpace > 100 ? cut.slice(0, lastSpace) : cut).trimEnd().replace(/[,;:-]$/, "") + "...";
+        }
+      }
       const deliveryMood = delivery.mood || null;
       if (!trimmed) return "memory_only";
 

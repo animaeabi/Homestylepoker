@@ -44,6 +44,18 @@ const {
   assert.equal(convoRepetitive(mem, "grease", "that river saved your night, friend"), false, "other speaker after window");
 }
 
+// --- 2b) Catchphrase template: same shape with swapped cards is a repeat. ---
+{
+  const mem = emptyTableMemory();
+  noteConvoLine(mem, { by: "negranope", text: "That's seven-deuce and a whole lot of noise, right? Show me.", hand: 3 });
+  assert.equal(convoRepetitive(mem, "negranope", "That's queen-ten, right? Just hand over the chips."), true, "swapped-card catchphrase rejected");
+  assert.equal(convoRepetitive(mem, "negranope", "You looked at your chips before the flop came."), false, "different opener passes");
+  assert.equal(convoRepetitive(mem, "eyev", "That's queen-ten, right? I can tell."), false, "another character may use the shape");
+  // The template comes back once enough time has passed.
+  mem.convo.lines[0].t = Date.now() - 11 * 60 * 1000;
+  assert.equal(convoRepetitive(mem, "negranope", "That's ace-king, right? Show me."), false, "catchphrase returns after cooldown");
+}
+
 // --- 3) Target rotation: one player must not stay the whole story. ----------
 {
   const mem = emptyTableMemory();
