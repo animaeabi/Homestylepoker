@@ -2327,7 +2327,15 @@ export function botThinkTimeMs({
   }
   const stackFraction = stack > 0 ? Math.min(1, Number(toCall || 0) / Number(stack)) : 0;
   delay += Math.round(stackFraction * 1900); // calling off your stack is a real tank
-  if (facingAllIn && toCall > 0) delay += 750;
+  if (facingAllIn && toCall > 0) {
+    delay += 750;
+    // Timing as expression: some all-in decisions were made before the chips
+    // even landed. A snap (they knew) and an agonized tank (they didn't) both
+    // read as HUMAN; a uniform pause reads as a program.
+    const roll = Math.random();
+    if (roll < 0.28) delay = Math.min(delay, 950 + Math.random() * 500);
+    else if (roll < 0.48) delay += 1400 + Math.random() * 1600;
+  }
   delay += Math.min(3, Math.max(0, Number(raiseCount || 0))) * 200;
 
   delay = Math.round(delay * Math.max(0.4, Math.min(1.8, Number(paceMul || 1))));

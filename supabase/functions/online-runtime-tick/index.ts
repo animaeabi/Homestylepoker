@@ -1313,6 +1313,88 @@ async function runBotExpressions({
       }
     } catch { /* callout is cosmetic; the engine adaptation is the real answer */ }
 
+    // Purposeful show-and-tell (presence layer): a reveal with a REASON.
+    // Dice-driven flashes stay rare; these fire because the STORY calls for
+    // them -- a steal shown to the rival it was aimed at, a big laydown shown
+    // as proof against relentless pressure.
+    if (!quiet) {
+      try {
+        const alreadyShown = new Set(expressions.filter((e) => e.showCards).map((e) => String(e.groupPlayerId)));
+        const rankOfTok = (c: string) => "23456789TJQKA".indexOf(String(c || "").toUpperCase().replace("10", "T")[0]) + 2;
+        let purposeful: { gpid: string; characterId: string; name: string; seatNo: number; cards: string[]; situation: string; mood: string } | null = null;
+
+        const winnerSp = settlePlayers.slice().sort((a, b) => b.netBb - a.netBb)[0] || null;
+        // 1) Revenge steal: won it uncontested as the aggressor against someone
+        //    this character holds a grudge on -- show it, make it personal.
+        if (aftermath.kind === "steal" && winnerSp?.isBot && winnerSp.characterId && winnerSp.wasAggressor && hasBanter(winnerSp.characterId)) {
+          const bot = botSeats.find((b) => b.botCharacter === winnerSp.characterId);
+          const raw = bot ? players.find((p: any) => String(p.groupPlayerId) === String(bot.groupPlayerId)) : null;
+          if (bot && raw && !alreadyShown.has(String(bot.groupPlayerId))) {
+            const grudgeTarget = settlePlayers.find((sp) => sp.folded && sp.name !== winnerSp.name
+              && ["revenge", "resentful", "suspicious"].includes(String((mem.rel || {})[`${winnerSp.name}>${sp.name}`]?.kind || "")));
+            if (grudgeTarget && Math.random() < 0.55) {
+              const why = String((mem.rel || {})[`${winnerSp.name}>${grudgeTarget.name}`]?.why || "unfinished business");
+              purposeful = {
+                gpid: String(bot.groupPlayerId), characterId: winnerSp.characterId, name: winnerSp.name,
+                seatNo: Number(raw.seatNo || 0), cards: (raw.holeCards || []).map((c: any) => String(c)),
+                situation: `You just bet ${grudgeTarget.name} off this pot and now you are SHOWING your cards -- because this one was personal (${why}). Name what you had and make sure ${grudgeTarget.name} knows exactly what just happened.`,
+                mood: "needle",
+              };
+            }
+          }
+        }
+        // 2) Laydown proof: folded a genuinely big hand under a bully's
+        //    pressure -- flip it as a statement.
+        if (!purposeful) {
+          for (const sp of settlePlayers) {
+            if (!sp.isBot || !sp.characterId || !sp.folded || !hasBanter(sp.characterId)) continue;
+            const bot = botSeats.find((b) => b.botCharacter === sp.characterId);
+            const raw = bot ? players.find((p: any) => String(p.groupPlayerId) === String(bot.groupPlayerId)) : null;
+            const cards = (raw?.holeCards || []).map((c: any) => String(c));
+            if (!bot || cards.length < 2 || alreadyShown.has(String(bot.groupPlayerId))) continue;
+            const r1 = rankOfTok(cards[0]);
+            const r2 = rankOfTok(cards[1]);
+            const bigLay = (r1 === r2 && r1 >= 10) || Math.min(r1, r2) >= 13;
+            const bullyPressure = aftermath.kind === "steal"
+              || Number(mem.human?.[String(aftermath.winnerName || "")]?.jamStreak || 0) >= 2;
+            if (bigLay && bullyPressure && Math.random() < 0.5) {
+              purposeful = {
+                gpid: String(bot.groupPlayerId), characterId: sp.characterId, name: sp.name,
+                seatNo: Number(raw.seatNo || 0), cards,
+                situation: `You are flipping over the hand you just FOLDED to ${aftermath.winnerName || "that"} pressure -- a genuinely big laydown, face-up for the table. Show it as a statement: not scared, disciplined... or a warning that the next one gets paid off.`,
+                mood: "regret",
+              };
+              break;
+            }
+          }
+        }
+
+        if (purposeful) {
+          await onlineClient.showHandPlayerCards({ handId, tableId, groupPlayerId: purposeful.gpid, seatNo: purposeful.seatNo });
+          if (await onlineClient.aiRateHit({ tableId, kind: "chat", limit: AI_CHAT_PER_MIN })) {
+            const cardsPretty = purposeful.cards.map(prettyCardName).join(" and ");
+            const made = shownHandContext(purposeful.cards, boardCards.map((c: any) => String(c)));
+            const line = await mixedHandBanter({
+              speaker: { characterId: purposeful.characterId, name: purposeful.name },
+              situation: `${purposeful.situation} Your cards, now face-up: ${cardsPretty}.${made ? ` ${made}` : ""}`,
+              targetName: null,
+              roster: identities.map((s: any) => String(s.name || "Player")).filter(Boolean),
+              chatHistory: [],
+              memory: memBlocksBuilt(purposeful.characterId, purposeful.name),
+              canned: () => null,
+            });
+            if (line) {
+              await new Promise((r) => setTimeout(r, 500 + Math.floor(Math.random() * 600)));
+              await onlineClient.postBotChat({
+                tableId, groupPlayerId: purposeful.gpid, message: line,
+                voice: true, character: purposeful.characterId, mood: purposeful.mood, priority: 2,
+              });
+            }
+          }
+        }
+      } catch { /* purposeful shows are flavor */ }
+    }
+
     if (!quiet && potBb >= 3) {
       // Candidate speakers, by how personally the hand touched them. The
       // aftermath principals (caught bluffer, cooler victim, hero caller)
@@ -1890,6 +1972,7 @@ async function processBotAction({
   // the aggressor's jam habit so the engine can widen its calling range. Only
   // queried in the exact spot it matters (big preflop all-in from a human).
   let jammerRead: { jams: number; jamStreak: number } | null = null;
+  let jammerName: string | null = null;
   try {
     const streetForRead = String(liveHand?.state || hand.state || "preflop");
     const bbForRead = Math.max(1, Number(table?.big_blind || 2));
@@ -1904,6 +1987,7 @@ async function processBotAction({
         if (aggrId && !aggrId.isBot && aggrId.name) {
           const memForRead = await loadTableMemory(onlineClient.client, hand.table_id);
           jammerRead = jammerReadFor(memForRead, String(aggrId.name));
+          jammerName = String(aggrId.name);
         }
       }
     }
@@ -1950,6 +2034,43 @@ async function processBotAction({
     } catch (_error) {
       decision = timeoutFallbackDecision;
     }
+  }
+
+  // Declared read (presence layer): the table doesn't quietly look up the
+  // spammer -- someone says the read OUT LOUD as the chips go in. Fires only
+  // on the exact anti-spam call the engine just made, and lands with the
+  // action: a declaration before the cards flip, right or wrong.
+  if (decision.actionType === "call" && facingAllInNow && jammerRead && jammerName
+    && (jammerRead.jamStreak >= 2 || jammerRead.jams >= 3)
+    && actingSeat.bot_character && hasBanter(actingSeat.bot_character)
+    && Math.random() < 0.75) {
+    const readCharacter = String(actingSeat.bot_character);
+    const readName = String(character?.name || "Bot");
+    const readTarget = jammerName;
+    const streakLine = jammerRead.jamStreak >= 2 ? `${jammerRead.jamStreak} shoves in a row` : `${jammerRead.jams} shoves tonight`;
+    detach((async () => {
+      if (!(await onlineClient.aiRateHit({ tableId: hand.table_id, kind: "chat", limit: AI_CHAT_PER_MIN }))) return;
+      const line = await mixedHandBanter({
+        speaker: { characterId: readCharacter, name: readName },
+        situation: `You are LOOKING ${readTarget} UP right now -- calling their latest open-shove, because after ${streakLine} you've decided their range is any two cards. Say the read out loud as the chips go in: short, cold, certain. A declaration, not a question. The cards flip next and you might be wrong -- say it anyway.`,
+        targetName: readTarget,
+        roster: [readName, readTarget],
+        chatHistory: [],
+        canned: () => pickBanterLine({ characterId: readCharacter, context: "bully", targetName: readTarget, avoid: [] }),
+      });
+      if (line) {
+        await onlineClient.postBotChat({
+          tableId: hand.table_id, groupPlayerId: actingSeat.group_player_id, message: line,
+          voice: true, character: readCharacter, mood: "anger", priority: 2, targetName: readTarget,
+        });
+      }
+    })());
+  }
+
+  // Expressive beat: a reluctant fold to an all-in hangs for a moment -- the
+  // player you can FEEL letting go of the hand.
+  if (decision.actionType === "fold" && facingAllInNow && Math.random() < 0.4) {
+    await new Promise((r) => setTimeout(r, 500 + Math.floor(Math.random() * 800)));
   }
 
   // Turn-scoped idempotency key: stable across racing dispatchers (cron tick +
@@ -3513,7 +3634,7 @@ async function handleCardsShown({
   let junk = false;
   // The characters who FOLDED to the reveal, with what they mucked -- the
   // comeback belongs to a victim who knows exactly what they threw away.
-  const victims: Array<{ groupPlayerId: string; cards: string }> = [];
+  const victims: Array<{ groupPlayerId: string; cards: string; raw: string[]; seatNo: number }> = [];
   if (handId) {
     try {
       const hs = await onlineClient.getHandState({ handId, sinceSeq: null });
@@ -3524,8 +3645,9 @@ async function handleCardsShown({
       const botGpids = new Set(ctx.bots.map((b) => String(b.groupPlayerId)));
       for (const p of hsPlayers) {
         if (!p?.folded || !botGpids.has(String(p.group_player_id))) continue;
-        const cards = Array.isArray(p.hole_cards) ? p.hole_cards.map((c: any) => prettyCardName(String(c))).join(" and ") : "";
-        victims.push({ groupPlayerId: String(p.group_player_id), cards });
+        const raw = Array.isArray(p.hole_cards) ? p.hole_cards.map((c: any) => String(c)) : [];
+        const cards = raw.map(prettyCardName).join(" and ");
+        victims.push({ groupPlayerId: String(p.group_player_id), cards, raw, seatNo: Number(p.seat_no || 0) });
       }
       const me = hsPlayers.find((p: any) => String(p.group_player_id) === groupPlayerId);
       if (me) {
@@ -3617,6 +3739,26 @@ async function handleCardsShown({
   // Priority 1: showing cards is a direct social move aimed at the table --
   // the answer must never be starved by the director's ambient speech budget.
   await onlineClient.postBotChat({ tableId, groupPlayerId: responder.groupPlayerId, message: line, voice: true, character: responder.characterId, mood, priority: 1, targetName: playerName });
+
+  // Presence beat: the victim doesn't just SAY what they folded -- when the
+  // muck was respectable, they flip it face-up right back at the rub-in.
+  // "You moved me off THIS" with the cards on the felt beats any sentence.
+  try {
+    const victimShow = victimByGpid.get(String(responder.groupPlayerId));
+    if (preferVictim && victimShow && Array.isArray(victimShow.raw) && victimShow.raw.length >= 2 && handId && Math.random() < 0.6) {
+      const rankOfTok = (c: string) => "23456789TJQKA".indexOf(String(c || "").toUpperCase().replace("10", "T")[0]) + 2;
+      const r1 = rankOfTok(victimShow.raw[0]);
+      const r2 = rankOfTok(victimShow.raw[1]);
+      const respectable = r1 === r2 || Math.max(r1, r2) >= 11;
+      if (respectable) {
+        await onlineClient.showHandPlayerCards({
+          handId, tableId,
+          groupPlayerId: String(responder.groupPlayerId),
+          seatNo: Number(victimShow.seatNo || 0),
+        });
+      }
+    }
+  } catch { /* the flip is flavor; the line already landed */ }
   return json({ ok: true, replied: true, by: responder.name });
 }
 
