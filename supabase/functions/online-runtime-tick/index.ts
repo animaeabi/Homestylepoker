@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { resolveShowdownPayouts } from "../_shared/showdown.ts";
+import { describeSevenCardHand, resolveShowdownPayouts } from "../_shared/showdown.ts";
 import { botThinkTimeMs, classifyOpponentProfile, combineOpponentProfiles, decideBotAction } from "../_shared/bot_engine.ts";
 import { decideBotExpressions, decideMidHandExpression } from "../_shared/bot_expression.ts";
 import { monteCarloEquity } from "../_shared/equity.ts";
@@ -79,6 +79,29 @@ function betFeel(betBb: number): string {
   if (betBb >= 25) return "a huge bet";
   if (betBb >= 10) return "a big bet";
   return "a bet";
+}
+
+// Spoken card names ("nine of hearts") so reactions can name EXACTLY what was
+// shown instead of parroting raw codes.
+function prettyCardName(c: string): string {
+  const s = String(c || "").toUpperCase().replace("10", "T");
+  const ranks: Record<string, string> = { A: "ace", K: "king", Q: "queen", J: "jack", T: "ten", "9": "nine", "8": "eight", "7": "seven", "6": "six", "5": "five", "4": "four", "3": "three", "2": "deuce" };
+  const suits: Record<string, string> = { S: "spades", H: "hearts", D: "diamonds", C: "clubs" };
+  const r = ranks[s[0]] || s[0];
+  const su = suits[s[s.length - 1]] || "";
+  return su ? `${r} of ${su}` : r;
+}
+
+// What a shown holding actually MADE with the community cards -- the board
+// context is what makes a reveal interesting ("that folded flush" beats
+// "those two cards"). Empty when there aren't 5 cards to evaluate.
+function shownHandContext(holeCards: string[], boardCards: string[]): string {
+  try {
+    if (!Array.isArray(holeCards) || holeCards.length < 2) return "";
+    if (!Array.isArray(boardCards) || boardCards.length < 3) return "";
+    const desc = describeSevenCardHand(holeCards.concat(boardCards).map(String), holeCards.map(String));
+    return desc?.label ? `With the board that makes ${desc.label}.` : "";
+  } catch { return ""; }
 }
 
 function asText(value: unknown) {
@@ -731,7 +754,9 @@ function createOnlineRpcClient() {
       if (tableBudgetBlocked(dirMem, priority)) return "memory_only";
       // Rotate the heat: the same player hammered line after line reads as
       // scripted bullying, not table talk. When the target's fatigued, pass.
-      if (targetName && targetFatigued(dirMem, String(targetName))) return "memory_only";
+      // Direct answers (priority 1: the target INVITED this by showing cards,
+      // chatting, or firing an emoji) are never rotated away.
+      if (targetName && priority > 1 && targetFatigued(dirMem, String(targetName))) return "memory_only";
       // Semantic repeat: the same idea in different words is still a repeat.
       // (Exact-text dedup against the chat table happens below as well.)
       if (convoRepetitive(dirMem, String(character || groupPlayerId), trimmed)) return "memory_only";
@@ -1030,6 +1055,48 @@ async function runBotExpressions({
           groupPlayerId: ex.groupPlayerId,
           seatNo: ex.seatNo
         });
+        // A show is a STATEMENT -- the character says why they flipped the
+        // cards, naming the exact holding and what it made with the board.
+        // That context (folded flush, junk steal) is the whole point of a
+        // voluntary reveal.
+        const showBot = botSeats.find((b) => String(b.groupPlayerId) === String(ex.groupPlayerId));
+        const shownPlayer = players.find((pp: any) => String(pp.groupPlayerId) === String(ex.groupPlayerId));
+        const holeRaw = (shownPlayer?.holeCards || []).map((c: any) => String(c));
+        if (showBot?.botCharacter && hasBanter(showBot.botCharacter) && holeRaw.length >= 2
+          && await onlineClient.aiRateHit({ tableId, kind: "chat", limit: AI_CHAT_PER_MIN })) {
+          detach((async () => {
+            const cardsPretty = holeRaw.map(prettyCardName).join(" and ");
+            const boardArr = Array.isArray(hand?.board_cards) ? hand.board_cards.map((c: any) => String(c)) : [];
+            const madeCtx = shownHandContext(holeRaw, boardArr);
+            const boardCtx = boardArr.length ? `The board ran ${boardArr.join(" ")}.` : "It never got past preflop.";
+            const reason = String(ex.showReason || "steal");
+            const situation = reason === "steal"
+              ? `You just took the pot with NO showdown, and now you flip your cards face-up for the table: ${cardsPretty}. ${boardCtx} ${madeCtx} Rub it in, or claim it proves something -- your call, in character. Name what you had.`
+              : reason === "fold_strong"
+                ? `You just showed the table the hand you FOLDED earlier: ${cardsPretty}. ${boardCtx} ${madeCtx} That laydown is eating at you -- demand credit for it or grieve what the board did. Name the actual cards.`
+                : `You just flipped over the ${cardsPretty} you folded -- for laughs. ${boardCtx} ${madeCtx} Own the moment in character.`;
+            const mood = reason === "steal" ? "win" : reason === "fold_strong" ? "regret" : "banter";
+            const line = await mixedHandBanter({
+              speaker: { characterId: String(showBot.botCharacter), name: String(showBot.name || ex.name || "Bot") },
+              situation,
+              targetName: null,
+              roster: botSeats.map((b) => String(b.name || "Bot")),
+              chatHistory: [],
+              canned: () => pickBanterLine({
+                characterId: String(showBot.botCharacter),
+                context: reason === "steal" ? "win" : "lose",
+                targetName: null,
+                avoid: [],
+              }),
+            });
+            if (!line) return;
+            await new Promise((r) => setTimeout(r, 400 + Math.floor(Math.random() * 500)));
+            await onlineClient.postBotChat({
+              tableId, groupPlayerId: String(ex.groupPlayerId), message: line,
+              voice: true, character: String(showBot.botCharacter), mood, priority: 2,
+            });
+          })());
+        }
       } catch (error) {
         console.error("[runBotExpressions] show cards failed", error instanceof Error ? error.message : String(error));
       }
@@ -3245,7 +3312,7 @@ async function handleReactionReply({
   });
   if (!line) return json({ ok: true, replied: false, reason: "no_line" });
   await new Promise((resolve) => setTimeout(resolve, 220 + Math.floor(Math.random() * 360)));
-  await onlineClient.postBotChat({ tableId, groupPlayerId: responder.groupPlayerId, message: line, voice: true, character: responder.characterId, mood, targetName: playerName });
+  await onlineClient.postBotChat({ tableId, groupPlayerId: responder.groupPlayerId, message: line, voice: true, character: responder.characterId, mood, priority: 2, targetName: playerName });
   return json({ ok: true, replied: true, by: responder.name });
 }
 
@@ -3286,6 +3353,9 @@ async function handleCardsShown({
   let folded = false;
   let won = false;
   let cardStr = "";
+  let boardStr = "";
+  let shownMade = "";
+  let handNo = 0;
   let wonUncontested = false;
   let junk = false;
   // The characters who FOLDED to the reveal, with what they mucked -- the
@@ -3295,10 +3365,13 @@ async function handleCardsShown({
     try {
       const hs = await onlineClient.getHandState({ handId, sinceSeq: null });
       const hsPlayers = Array.isArray(hs?.players) ? hs.players : [];
+      const hsHand = hs?.hand || null;
+      boardStr = Array.isArray(hsHand?.board_cards) ? hsHand.board_cards.map((c: any) => String(c)).join(" ") : "";
+      handNo = Number(hsHand?.hand_no || 0);
       const botGpids = new Set(ctx.bots.map((b) => String(b.groupPlayerId)));
       for (const p of hsPlayers) {
         if (!p?.folded || !botGpids.has(String(p.group_player_id))) continue;
-        const cards = Array.isArray(p.hole_cards) ? p.hole_cards.map((c: any) => String(c)).join(" ") : "";
+        const cards = Array.isArray(p.hole_cards) ? p.hole_cards.map((c: any) => prettyCardName(String(c))).join(" and ") : "";
         victims.push({ groupPlayerId: String(p.group_player_id), cards });
       }
       const me = hsPlayers.find((p: any) => String(p.group_player_id) === groupPlayerId);
@@ -3306,7 +3379,8 @@ async function handleCardsShown({
         folded = !!me.folded;
         won = Number(me.result_amount || 0) > 0;
         const cards = Array.isArray(me.hole_cards) ? me.hole_cards : [];
-        cardStr = cards.map((c: any) => String(c)).join(" ");
+        cardStr = cards.map((c: any) => prettyCardName(String(c))).join(" and ");
+        shownMade = shownHandContext(cards.map((c: any) => String(c)), Array.isArray(hsHand?.board_cards) ? hsHand.board_cards.map((c: any) => String(c)) : []);
         // Won with everyone folding, then showed: that's a rub-it-in. Junk
         // makes it an insult ("I had NOTHING and you all ran").
         wonUncontested = won && hsPlayers.filter((p: any) => !p.folded).length <= 1;
@@ -3338,6 +3412,9 @@ async function handleCardsShown({
 
   const shown = cardStr ? `their ${cardStr}` : "their cards";
   const rubIn = wonUncontested && junk;
+  // Hard anchor: the model must react to THIS reveal, not to whatever earlier
+  // hand the chat history above happens to be discussing.
+  const anchor = `HAPPENING RIGHT NOW: ${playerName} just flipped their cards face-up on the hand that JUST ended${handNo ? ` (hand #${handNo})` : ""}. ${boardStr ? `The board was ${boardStr}.` : "There was no board -- it never got past preflop."}${shownMade ? ` ${shownMade}` : ""} React ONLY to this reveal, this hand -- ignore whatever the table was discussing before. Talk about the actual cards and the board, not generalities. `;
   const victimContext = preferVictim && responderMuck
     ? ` YOU personally folded ${responderMuck} to their aggression this very hand -- you know exactly what you threw away, so say so: name YOUR cards, name THEIRS, make it specific ("you moved me off ${responderMuck}... with THAT?").`
     : "";
@@ -3369,7 +3446,7 @@ async function handleCardsShown({
 
   const line = await mixedHandBanter({
     speaker: { characterId: responder.characterId, name: responder.name },
-    situation,
+    situation: anchor + situation,
     targetName: playerName,
     roster,
     chatHistory: history,
@@ -3377,7 +3454,9 @@ async function handleCardsShown({
   });
   if (!line) return json({ ok: true, replied: false, reason: "no_line" });
   await new Promise((resolve) => setTimeout(resolve, 220 + Math.floor(Math.random() * 360)));
-  await onlineClient.postBotChat({ tableId, groupPlayerId: responder.groupPlayerId, message: line, voice: true, character: responder.characterId, mood, priority: 2, targetName: playerName });
+  // Priority 1: showing cards is a direct social move aimed at the table --
+  // the answer must never be starved by the director's ambient speech budget.
+  await onlineClient.postBotChat({ tableId, groupPlayerId: responder.groupPlayerId, message: line, voice: true, character: responder.characterId, mood, priority: 1, targetName: playerName });
   return json({ ok: true, replied: true, by: responder.name });
 }
 
