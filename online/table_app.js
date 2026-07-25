@@ -4314,6 +4314,35 @@ const chorus = {
   },
 };
 
+// The table's reaction to a shove depends on what the shove MEANS. All-in
+// with a deep stack in a real pot is a moment -- gasps. All-in with ten
+// dollars is a formality -- chuckles, because what else were you going to
+// do? And the third jam inside a few minutes gets near-silence: the table
+// has stopped being impressed, and boredom stings more than any gasp.
+function reactToHeroShove(hand, hp) {
+  try {
+    const bb = Math.max(0.01, Number(getTable()?.big_blind || 1));
+    const shoveBb = (Number(hp?.stack_end || 0) + Number(hp?.street_contribution || 0)) / bb;
+    const now = Date.now();
+    state.heroJamTimes = (state.heroJamTimes || []).filter((t) => now - t < 6 * 60 * 1000);
+    state.heroJamTimes.push(now);
+    if (state.heroJamTimes.length >= 3) {
+      if (Math.random() < 0.35) chorus.play(["groan"], { count: 1, minGapMs: 6000 });
+      return;
+    }
+    if (shoveBb < 15) {
+      chorus.play(["chuckle", "laugh"], { count: 2, minGapMs: 6000 });
+      return;
+    }
+    if (shoveBb >= 40) {
+      chorus.play(["gasp", "noway", "ooh"], { count: 2, minGapMs: 8000 });
+      return;
+    }
+    // Mid-size shove: a single raised eyebrow at most.
+    if (Math.random() < 0.5) chorus.play(["ooh"], { count: 1, minGapMs: 8000 });
+  } catch { /* flavor */ }
+}
+
 // Instant table reaction the moment the HUMAN's cards hit the felt -- fired
 // locally on the tap, before any server round-trip, so the table gasps WHILE
 // the cards flip instead of four seconds later. What they react WITH depends
@@ -8452,9 +8481,11 @@ async function submitTurnAction(label, actionType) {
   renderSeats();
   renderMyHand();
   renderActions();
-  // A human shove earns an audible table-wide intake of breath -- immediately,
-  // not after the server confirms it.
-  if (actionType === "all_in") chorus.play(["gasp", "ooh", "noway"], { count: 2, minGapMs: 8000 });
+  // A human shove gets a POT-AWARE reaction -- immediately, not after the
+  // server confirms it. A big fresh shove earns the gasp; a short-stack
+  // shove is a punchline; the third jam in a row gets boredom, which is the
+  // harshest review a table can give.
+  if (actionType === "all_in") reactToHeroShove(hand, hp);
   state.loading = true;
   try {
     // Retry once on the 500ms per-hand rate limit (fast legit play can trip it).
