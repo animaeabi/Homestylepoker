@@ -1008,15 +1008,29 @@ function renderJoinHomeGameList(activeGames, groupNameMap) {
   showJoinStep("list");
 }
 
-async function fetchJoinableOnlineGames() {
+async function fetchOpenOnlineTables() {
   if (!supabase) return [];
   const { data: tables, error } = await supabase.rpc("online_list_table_summaries", {
     p_statuses: ["waiting", "active"],
     p_limit: 12
   });
   if (error) throw error;
-  return (tables || [])
-    .filter((table) => Number(table.seated_count || 0) < Number(table.max_seats || 0));
+  return tables || [];
+}
+
+// Does THIS browser hold a seat pass for the table? (Saved at join time as
+// online_seat_token:<tableId>:<groupPlayerId>.) If so, the table is not a
+// "join" -- it's a RESUME, even when every seat is occupied (one of them is
+// yours, being held for you).
+function hasStoredSeatFor(tableId) {
+  try {
+    const prefix = `online_seat_token:${tableId}:`;
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(prefix)) return true;
+    }
+  } catch { /* storage unavailable -> treat as no seat */ }
+  return false;
 }
 
 async function showJoinOnlineListStep() {
@@ -1029,15 +1043,37 @@ async function showJoinOnlineListStep() {
   showJoinStep("list");
 
   try {
-    const tables = await fetchJoinableOnlineGames();
+    const allOpen = await fetchOpenOnlineTables();
     if (joinFlowMode !== "online") return;
-    if (!tables.length) {
+    // Your live tables come FIRST: a table where this browser holds a seat is
+    // a resume, not a join -- and it must show even when it's full (your own
+    // seat is the one filling it).
+    const mine = allOpen.filter((table) => hasStoredSeatFor(table.id));
+    const joinable = allOpen.filter((table) =>
+      !hasStoredSeatFor(table.id)
+      && Number(table.seated_count || 0) < Number(table.max_seats || 0));
+    if (!mine.length && !joinable.length) {
       setJoinPlayerListHint("No open online games right now.");
       return;
     }
-    setJoinPlayerListHint("Choose an open online table to join.");
+    setJoinPlayerListHint(mine.length
+      ? "Your seat is being held — resume, or join another table."
+      : "Choose an open online table to join.");
     elements.joinPlayerGameList.innerHTML = "";
-    tables.forEach((table) => {
+    mine.forEach((table) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "join-player-item";
+      button.innerHTML = `
+        <strong>${table.name || "Online Table"} — Resume</strong>
+        <span>Your seat is waiting · ${formatOnlineJoinMeta(table)}</span>
+      `;
+      button.addEventListener("click", () => {
+        window.location.href = `online-table.html?table=${table.id}`;
+      });
+      elements.joinPlayerGameList.appendChild(button);
+    });
+    joinable.forEach((table) => {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "join-player-item";
@@ -9105,7 +9141,8 @@ async function loadOnlineGamesList() {
         <span>${dateStr} · ${hands} hand${hands !== 1 ? "s" : ""} · ${statusLabel}</span>
       </div>
       <div class="recent-actions">
-        <button class="ghost" data-online-action="open" data-table-id="${table.id}">Open</button>
+        ${table.status !== "closed" ? `<button class="primary" data-online-action="rejoin" data-table-id="${table.id}">Rejoin</button>` : ""}
+        <button class="ghost" data-online-action="open" data-table-id="${table.id}">${table.status === "closed" ? "Open" : "Results"}</button>
       </div>
     `;
     listWrap.appendChild(row);
@@ -9118,6 +9155,11 @@ async function loadOnlineGamesList() {
     if (!btn) return;
     if (btn.dataset.onlineAction === "open") {
       openOnlineGameDetail(btn.dataset.tableId);
+    } else if (btn.dataset.onlineAction === "rejoin") {
+      // Straight back to the LIVE table. The seat pass saved in this browser
+      // resumes the seat; "Open" only ever showed the results summary, which
+      // left no way back into a running game after a closed tab.
+      window.location.href = `online-table.html?table=${btn.dataset.tableId}`;
     }
   });
 }
