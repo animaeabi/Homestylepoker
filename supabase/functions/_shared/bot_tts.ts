@@ -100,16 +100,20 @@ const GEMINI_STYLE: Record<string, string> = {
   pony:      "Speak with a strong British accent, cocky and aggressive but with a STEADY, flat tone -- no sing-song, punchy and right in their face:",
 };
 
-// The moment, layered on top of the character voice.
+// The moment, layered on top of the character voice. These are CLAUSE
+// FRAGMENTS, not sentences: they merge into the single "direction: line"
+// preamble below. Standalone direction sentences placed before the text get
+// READ ALOUD by the TTS model ("It's a huge all-in pot on the line...")
+// instead of interpreted -- exactly the bug players heard at every all-in.
 const GEMINI_MOOD: Record<string, string> = {
-  allin:  "It's a huge all-in pot on the line -- sound charged up, dramatic and larger than life, and laugh if you win it.",
-  badbeat:"You just took a brutal bad beat on a big pot -- sound gutted and stunned, tilting, in disbelief.",
-  anger:  "You are FURIOUS -- sound angry, worked up and venting.",
-  win:    "You just WON the pot -- sound cocky and gloating, delighted with yourself, and laugh naturally.",
-  lose:   "You just LOST a rough one -- sound bitter, deflated, a little salty and stung.",
-  needle: "You're needling and trash-talking -- sound sarcastic, teasing, and cocky.",
-  banter: "You're bantering with the table -- sound loose, playful, and quick.",
-  regret: "Sound rueful and grudgingly impressed, like it stings to admit it.",
+  allin:  "charged up and dramatic, big-moment energy, laughing if it goes your way",
+  badbeat:"gutted and stunned, tilting, in disbelief",
+  anger:  "furious, worked up and venting",
+  win:    "cocky and gloating, delighted, with a natural laugh",
+  lose:   "bitter, deflated, a little salty and stung",
+  needle: "sarcastic, teasing and cocky",
+  banter: "loose, playful and quick",
+  regret: "rueful and grudgingly impressed, like it stings to admit",
 };
 
 // Azure: map the moment to an express-as style; clamped per-voice below.
@@ -223,10 +227,14 @@ export interface SpeechClip { audio: string; mime: string; }
 // ---------------------------------------------------------------------------
 async function geminiTts(characterId: string, clean: string, mood: string, apiKey: string, model?: string | null): Promise<SpeechClip | null> {
   const voice = GEMINI_VOICE[characterId] || GEMINI_DEFAULT;
-  const style = GEMINI_STYLE[characterId];
-  const moodStyle = mood ? GEMINI_MOOD[mood] : "";
-  const preamble = [style, moodStyle].filter(Boolean).join(" ");
-  const prompt = preamble ? `${preamble} ${clean}` : clean;
+  // ONE compact "direction: line" sentence. The character style already ends
+  // with a colon; the mood merges in as a clause BEFORE that colon. A second
+  // free-standing direction sentence between the colon and the line breaks
+  // the direction/content boundary and the model reads it out loud.
+  const styleBase = (GEMINI_STYLE[characterId] || "Read this naturally").replace(/:\s*$/, "");
+  const moodClause = mood ? GEMINI_MOOD[mood] : "";
+  const preamble = moodClause ? `${styleBase} -- ${moodClause}:` : `${styleBase}:`;
+  const prompt = `${preamble} ${clean}`;
   const modelName = model || "gemini-2.5-flash-preview-tts";
 
   const resp = await fetch(

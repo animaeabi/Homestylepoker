@@ -4132,7 +4132,7 @@ function loadVoxClip(file) {
   const ctx = getAudioCtx();
   if (!ctx) return;
   voxBuffers[file] = "loading";
-  fetch(`online/vox/${file}.mp3`)
+  fetch(`online/vox/${file}.mp3?v=2`)
     .then((r) => r.arrayBuffer())
     .then((ab) => ctx.decodeAudioData(ab))
     .then((buf) => { voxBuffers[file] = buf; })
@@ -4237,7 +4237,7 @@ const chorus = {
           // Not decoded yet: kick the load for next time and try an element
           // (works on desktop; on mobile the emote still carries the beat).
           loadVoxClip(file);
-          const a = new Audio(`online/vox/${file}.mp3`);
+          const a = new Audio(`online/vox/${file}.mp3?v=2`);
           a.volume = 0.42 + Math.random() * 0.3;
           a.playbackRate = 0.92 + Math.random() * 0.16;
           a.play().catch(() => { /* autoplay-blocked */ });
