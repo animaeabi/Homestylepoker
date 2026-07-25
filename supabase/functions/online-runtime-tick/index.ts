@@ -42,7 +42,12 @@ import {
 const STREET_STATES = new Set(["preflop", "flop", "turn", "river"]);
 const ACTIVE_RUNTIME_STATES = new Set(["preflop", "flop", "turn", "river", "showdown"]);
 const DEFAULT_TURN_TIMEOUT_SECS = 25;
-const STALE_SEAT_AFTER_SECS = 300;
+// An accidentally closed tab must not kill the game: the per-hand timeout
+// already folds an absent player hand by hand, so holding the SEAT longer
+// costs nothing -- it just keeps the door open to come back. 5 minutes
+// proved brutal in practice (browser close + a few minutes of confusion
+// = table gone); 15 gives a realistic re-entry window.
+const STALE_SEAT_AFTER_SECS = 900;
 const POST_ACTION_STREET_CLOSE_BREATH_MS = 950;
 const POST_ACTION_SHOWDOWN_SETTLE_BREATH_MS = 1250;
 
