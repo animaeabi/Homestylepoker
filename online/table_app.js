@@ -4080,9 +4080,10 @@ const chatVoice = {
           if (!data || !data.audio) { ttsDbg("no audio (" + (data?.reason || data?.error || "empty") + ")"); clearTimeout(timer); finish(); return; }
           const a = this.ensureAudio();
           this._playing = false;
-          // Private thoughts are whispered UNDER the table sound -- an inner
-          // voice, not a table voice.
-          a.volume = mood === "thought" ? 0.62 : 1;
+          // Private thoughts are whispered -- an inner voice, not a table
+          // voice. Real whisper renders are already quiet, so only a light
+          // duck here; the old heavy duck buried them under the ambience.
+          a.volume = mood === "thought" ? 0.8 : 1;
           a.onplaying = () => { this._playing = true; ttsDbg("playing " + Math.round(String(data.audio).length / 1024) + "kb"); clearTimeout(timer); finish(); };
           a.onended = () => { this._playing = false; };
           a.onerror = () => { this._playing = false; ttsDbg("audio element error"); clearTimeout(timer); finish(); };

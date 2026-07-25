@@ -114,6 +114,7 @@ const GEMINI_MOOD: Record<string, string> = {
   needle: "sarcastic, teasing and cocky",
   banter: "loose, playful and quick",
   regret: "rueful and grudgingly impressed, like it stings to admit",
+  thought: "as a genuine WHISPER under your breath, hushed and close to the mic, a private thought nobody else can hear",
 };
 
 // Azure: map the moment to an express-as style; clamped per-voice below.
@@ -395,12 +396,19 @@ export async function generateSpeech({
   const m = String(mood || "");
 
   // Private inner thoughts are WHISPERED: an intimate, internal delivery that
-  // reads as a voice in the head, not a voice at the table. Azure's whispering
-  // express-as style does this on the free tier. Characters whose everyday
-  // Azure voice can't whisper borrow Davis (a different timbre is fine here --
-  // the inner voice isn't the table voice). No whisper available -> silent
-  // subtitle, never a full-volume read.
+  // reads as a voice in the head, not a voice at the table. Gemini renders a
+  // real human whisper in the character's OWN voice (a whisper direction in
+  // the preamble), so it goes first; Azure's whispering express-as style is
+  // the fallback -- it reads synthetic, and characters whose Azure voice
+  // can't whisper borrow Davis, which is why fallback whispers can sound off.
+  // No whisper available -> silent subtitle, never a full-volume read.
   if (m === "thought") {
+    if (keys.gemini) {
+      try {
+        const clip = await geminiTts(characterId, clean, "thought", keys.gemini, keys.model);
+        if (clip) return clip;
+      } catch { /* fall through to Azure whisper */ }
+    }
     if (!(keys.azureKey && keys.azureRegion)) return null;
     const base = AZURE_VOICE[characterId] || AZURE_DEFAULT;
     const voice = (AZURE_STYLES[base] || []).includes("whispering") ? base : "en-US-DavisNeural";
