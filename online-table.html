@@ -4902,13 +4902,15 @@
 
         .table-surface {
           /* A table you could stand next to: it sits IN the room with air on
-             every side, players ringing the rail, hero at the near edge. */
-          width: min(76%, 880px) !important;
-          height: 80% !important;
-          max-width: 880px !important;
-          max-height: 320px !important;
+             every side, players ringing the rail, hero at the near edge.
+             Racetrack shape: long straight rails with tight semicircular
+             ends -- the elongated oval of a real casino table. */
+          width: min(88%, 980px) !important;
+          height: 64% !important;
+          max-width: 980px !important;
+          max-height: 250px !important;
           aspect-ratio: auto !important;
-          border-radius: 48% / 50% !important;
+          border-radius: 999px !important;
           /* House rail: dark walnut with the gold inlay this game wears
              everywhere else. */
           border: 11px solid #2a160b !important;
@@ -4930,14 +4932,14 @@
           content: "";
           position: absolute;
           inset: 9px;
-          border-radius: 46% / 49%;
+          border-radius: 999px;
           border: 1px solid rgba(233,176,89,0.24);
           box-shadow: inset 0 0 26px rgba(0,0,0,0.28);
           pointer-events: none;
           z-index: 1;
         }
 
-        .table-surface::before { border-radius: 46% / 49% !important; opacity: 0.12 !important; }
+        .table-surface::before { border-radius: 999px !important; opacity: 0.12 !important; }
         .dealer-deck { top: 31% !important; width: 30px; height: 44px; opacity: 0 !important; }
         .dealer-deck::before,
         .dealer-deck::after { opacity: 0 !important; }
@@ -5915,7 +5917,7 @@
     <div class="voice-audio-rack" id="voiceAudioRack" aria-hidden="true"></div>
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
-    <script src="./online/table_fx_geometry.js?v=203"></script>
-    <script type="module" src="./online/table_app.js?v=284"></script>
+    <script src="./online/table_fx_geometry.js?v=285"></script>
+    <script type="module" src="./online/table_app.js?v=285"></script>
   </body>
 </html>
