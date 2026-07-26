@@ -3645,13 +3645,16 @@ function getActionPopupAnchor(pos = {}) {
 }
 
 function getReactionPopupAnchor(pos = {}, { speech = false } = {}) {
-  // Chat speech bubbles sit above the speaker (a thought bubble over the
-  // head) and point away from the board. Exception: landscape rim seats sit
-  // at the very top of the viewport, so an "above" bubble clips off-screen
-  // -- top-row speakers bubble below their pill instead.
+  // Chat speech bubbles: in landscape every seat hugs the rim, so bubbles
+  // hang BESIDE the speaker's pill (never above -- clips off-screen at the
+  // top; never centered on the felt). Left-half speakers bubble to their
+  // right, right-half speakers to their left, always staying next to the
+  // player. Portrait keeps the classic over-the-head bubble.
   if (speech) {
-    const pyS = Number.parseFloat(pos.y);
-    if (isLandscape() && Number.isFinite(pyS) && pyS <= 20) return "below-cards";
+    if (isLandscape()) {
+      const pxS = Number.parseFloat(pos.x);
+      return Number.isFinite(pxS) && pxS >= 55 ? "left" : "right";
+    }
     return "above";
   }
   // Emoji reactions: top seats bubble BELOW (clear of their flipped cards),
