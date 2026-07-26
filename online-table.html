@@ -4906,10 +4906,10 @@
              Same design language as the portrait table (soft 36% rounded
              oval), rotated: ~2.3:1 like the reference client -- broad corner
              curves, gently flat rails, never touching the screen edges. */
-          width: min(78%, 900px) !important;
-          height: 84% !important;
-          max-width: 900px !important;
-          max-height: 300px !important;
+          width: min(84%, 960px) !important;
+          height: 88% !important;
+          max-width: 960px !important;
+          max-height: 316px !important;
           aspect-ratio: auto !important;
           border-radius: 36% !important;
           /* House rail: dark walnut with the gold inlay this game wears
@@ -5022,9 +5022,9 @@
 
         .seat-node {
           width: auto !important;
-          min-width: 86px;
-          max-width: 112px;
-          padding: 3px 10px 5px !important;
+          min-width: 72px;
+          max-width: 98px;
+          padding: 2px 8px 4px !important;
           gap: 1px !important;
           /* House seat: avatar floating above a warm dark pill with the
              game's gold-dim edge -- casino composition, our identity. */
@@ -5056,10 +5056,10 @@
         }
 
         .seat-avatar {
-          width: 46px;
-          height: 46px;
-          margin-top: -30px;
-          font-size: 12px;
+          width: 40px;
+          height: 40px;
+          margin-top: -25px;
+          font-size: 11px;
           border: 2px solid rgba(12,10,6,0.95);
           box-shadow: 0 0 0 1px rgba(236,178,86,0.35), 0 4px 12px rgba(0,0,0,0.5);
         }
@@ -5087,14 +5087,17 @@
         }
         .seat-name,
         .seat-node.bot-seat .seat-name {
-          font-size: 9.5px !important;
+          font-size: 8.5px !important;
           font-weight: 600 !important;
           color: #cfc4a8 !important;
-          max-width: 132px;
+          max-width: 96px;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
           text-shadow: 0 1px 1px rgba(0,0,0,0.4);
         }
         .seat-stack {
-          font-size: 11.5px !important;
+          font-size: 10.5px !important;
           font-weight: 800 !important;
           text-align: center;
           color: #f6ecd2 !important;
@@ -5120,9 +5123,9 @@
           margin-top: 1px !important;
         }
         .seat-dealer-dot {
-          width: 24px !important;
-          height: 24px !important;
-          font-size: 11px !important;
+          width: 20px !important;
+          height: 20px !important;
+          font-size: 10px !important;
           position: static !important;
           top: auto !important;
           right: auto !important;
@@ -5131,14 +5134,14 @@
           color: #3a2807 !important;
         }
         .seat-pos-label {
-          font-size: 10px !important;
+          font-size: 9px !important;
           font-weight: 800 !important;
           color: #3a2807 !important;
           position: static !important;
           top: auto !important;
           right: auto !important;
           background: radial-gradient(circle at 30% 30%, #fff4cf, #ebbe71 74%);
-          padding: 3px 7px !important;
+          padding: 2px 6px !important;
           border-radius: 999px;
           border: 2px solid rgba(255,215,140,0.82);
           box-shadow: 0 3px 10px rgba(0,0,0,0.26);
@@ -5931,7 +5934,7 @@
     <div class="voice-audio-rack" id="voiceAudioRack" aria-hidden="true"></div>
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
-    <script src="./online/table_fx_geometry.js?v=290"></script>
-    <script type="module" src="./online/table_app.js?v=290"></script>
+    <script src="./online/table_fx_geometry.js?v=291"></script>
+    <script type="module" src="./online/table_app.js?v=291"></script>
   </body>
 </html>
