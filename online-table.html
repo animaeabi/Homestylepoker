@@ -5463,12 +5463,13 @@
           width: auto;
           flex: 0 0 auto;
         }
-        /* Confirm pill bottom-left; the amount panel stands to its RIGHT,
-           both flush with the bottom edge. Keep the pill narrow so pill +
-           panel fit before the hero's cards. */
+        /* The amount panel owns the bottom-left corner; the confirm pill
+           stands to its RIGHT, next to the hero's cards, bottom-aligned.
+           Keep the pill narrow so it stops short of the cards. */
         .action-strip.raise-armed .astrip-raise-confirm {
-          width: 128px !important;
+          width: 124px !important;
           min-width: 0 !important;
+          margin-left: 152px;
           font-size: 12px !important;
           white-space: nowrap;
           overflow: hidden;
@@ -5479,9 +5480,9 @@
         .action-strip.raise-armed .astrip-time { display: none !important; }
         .preset-row {
           position: absolute;
-          /* Standing to the RIGHT of the confirm pill (8 + 128 + 8), both
-             flush with the bottom edge of the screen. */
-          left: calc(max(8px, env(safe-area-inset-left) + 8px) + 136px);
+          /* Panel owns the bottom-left corner; the confirm pill stands to
+             its right, next to the hero's cards, both bottom-aligned. */
+          left: max(8px, calc(env(safe-area-inset-left) + 8px));
           right: auto;
           bottom: calc(max(0px, env(safe-area-inset-bottom)) + 8px);
           width: 150px !important;
@@ -6019,7 +6020,7 @@
     <div class="voice-audio-rack" id="voiceAudioRack" aria-hidden="true"></div>
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
-    <script src="./online/table_fx_geometry.js?v=299"></script>
-    <script type="module" src="./online/table_app.js?v=299"></script>
+    <script src="./online/table_fx_geometry.js?v=300"></script>
+    <script type="module" src="./online/table_app.js?v=300"></script>
   </body>
 </html>
