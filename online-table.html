@@ -3532,6 +3532,25 @@
         display: none;
       }
 
+      .my-hand-rank {
+        position: absolute;
+        top: -4px;
+        left: 50%;
+        transform: translate(-50%, -100%);
+        padding: 3px 12px;
+        border-radius: 999px;
+        background: rgba(7,10,9,0.85);
+        border: 1px solid rgba(255,255,255,0.1);
+        color: #eef1f0;
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.05em;
+        white-space: nowrap;
+        pointer-events: none;
+        z-index: 7;
+      }
+      .my-hand-rank.hidden { display: none; }
+
       .my-hand-cards {
         position: relative;
         display: flex;
@@ -4715,7 +4734,25 @@
         .preset-chip[data-fraction="0.75"] { grid-area: frac3; }
         .preset-chip[data-fraction="1"] { grid-area: frac4; }
 
-        .seat-bet { font-size: 10px !important; padding: 2px 6px !important; }
+        .seat-bet {
+          font-size: 10.5px !important;
+          font-weight: 800 !important;
+          padding: 3px 9px 3px 7px !important;
+          color: #f2f4f5 !important;
+          background: rgba(6,9,8,0.8) !important;
+          border: 1px solid rgba(255,255,255,0.09) !important;
+        }
+        .seat-bet::before {
+          content: "";
+          display: inline-block;
+          width: 9px;
+          height: 9px;
+          margin-right: 4px;
+          border-radius: 50%;
+          background: radial-gradient(circle at 35% 30%, #7fd8ff, #2278b8 72%);
+          box-shadow: 0 0 0 1px rgba(0,0,0,0.45);
+          vertical-align: -1px;
+        }
         .seat-bet--hero { bottom: calc(100% + 10px) !important; }
         .seat-win-amount { font-size: 14px !important; }
         .seat-rebuy-btn { font-size: 11px !important; padding: 6px 14px !important; }
@@ -4762,14 +4799,11 @@
         .board-flight-card__face .card { width: 100% !important; height: 100% !important; }
         #tableView {
           min-height: 100dvh;
+          /* Muted club room: dark panelled wall, one soft overhead light. */
           background:
-            radial-gradient(ellipse 28% 14% at 50% 8%, rgba(123,247,255,0.18) 0%, rgba(123,247,255,0.05) 46%, transparent 76%),
-            radial-gradient(circle at 18% 23%, rgba(81,117,255,0.16) 0%, transparent 16%),
-            radial-gradient(circle at 82% 23%, rgba(187,96,255,0.14) 0%, transparent 16%),
-            radial-gradient(ellipse 110% 66% at 50% 42%, rgba(20,78,70,0.2) 0%, rgba(8,12,14,0) 56%),
-            linear-gradient(90deg, rgba(8,24,38,0.82) 0%, rgba(10,12,18,0.16) 12%, rgba(10,12,18,0.16) 88%, rgba(18,10,38,0.78) 100%),
-            repeating-linear-gradient(90deg, rgba(255,255,255,0.012) 0 1px, transparent 1px 140px),
-            linear-gradient(180deg, #0d1118 0%, #06080c 48%, #020305 100%) !important;
+            radial-gradient(ellipse 60% 30% at 50% 0%, rgba(210,225,205,0.10) 0%, transparent 66%),
+            repeating-linear-gradient(90deg, rgba(255,255,255,0.016) 0 2px, transparent 2px 170px),
+            linear-gradient(180deg, #1d241f 0%, #141a16 34%, #0d110e 70%, #080a09 100%) !important;
           position: relative;
           display: grid;
           grid-template-rows: auto minmax(0, 1fr) auto auto auto;
@@ -4871,30 +4905,32 @@
           max-height: 390px !important;
           aspect-ratio: auto !important;
           border-radius: 46% / 49% !important;
-          border: 10px solid #2a160b !important;
-          background: url("assets/felt_portrait.png") center/cover, radial-gradient(ellipse 100% 100% at 50% 45%, #1d6b48 0%, #145838 40%, #0e3a28 70%, #0a2a1c 100%) !important;
+          /* Pro-client look: slim near-black leather rail, clean deep-green felt,
+             soft top sheen -- no ornament fighting the cards for attention. */
+          border: 9px solid #221912 !important;
+          background:
+            radial-gradient(ellipse 74% 46% at 50% 18%, rgba(255,255,255,0.05) 0%, transparent 58%),
+            radial-gradient(ellipse 100% 100% at 50% 46%, #2c7550 0%, #20603f 38%, #164a2f 68%, #103823 100%) !important;
           box-shadow:
-            inset 0 0 0 3px rgba(226,169,76,0.38),
-            inset 0 0 0 13px rgba(0,0,0,0.22),
-            inset 0 0 58px rgba(0,0,0,0.35),
-            0 0 0 2px rgba(216,152,58,0.24),
-            0 0 0 7px #1b0f07,
-            0 18px 40px rgba(0,0,0,0.65),
-            0 0 24px rgba(225,154,53,0.2) !important;
+            inset 0 0 0 1.5px rgba(0,0,0,0.5),
+            inset 0 14px 44px rgba(0,0,0,0.34),
+            inset 0 -10px 34px rgba(0,0,0,0.3),
+            0 0 0 1px rgba(0,0,0,0.65),
+            0 22px 46px rgba(0,0,0,0.7) !important;
         }
 
         .table-surface::after {
           content: "";
           position: absolute;
-          inset: 6px;
+          inset: 10px;
           border-radius: 44% / 48%;
-          border: 1.5px solid rgba(233,176,89,0.35);
-          box-shadow: inset 0 0 22px rgba(235,182,92,0.08);
+          border: 1px solid rgba(255,255,255,0.055);
+          box-shadow: none;
           pointer-events: none;
           z-index: 1;
         }
 
-        .table-surface::before { border-radius: 44% / 48% !important; opacity: 0.14 !important; }
+        .table-surface::before { border-radius: 44% / 48% !important; opacity: 0.08 !important; }
         .dealer-deck { top: 31% !important; width: 30px; height: 44px; opacity: 0 !important; }
         .dealer-deck::before,
         .dealer-deck::after { opacity: 0 !important; }
@@ -4903,26 +4939,29 @@
           max-width: min(34vw, 300px) !important;
           padding: 7px 12px !important;
         }
-        .table-center { gap: 7px !important; top: 54% !important; }
+        .table-center { gap: 6px !important; top: 50% !important; }
+        /* Pot reads as ONE quiet pill above the board -- pro-client style. */
         .pot-display {
-          margin-top: 1px !important;
-          display: grid !important;
-          grid-template-columns: auto auto;
-          grid-template-areas:
-            "label label"
-            "chips amount"
-            "meta meta";
-          column-gap: 8px;
-          row-gap: 3px;
+          margin-top: 0 !important;
+          display: inline-flex !important;
           align-items: center;
-          justify-items: center;
+          gap: 6px;
+          padding: 4px 14px !important;
+          border-radius: 999px;
+          background: rgba(5,8,7,0.62);
+          border: 1px solid rgba(255,255,255,0.07);
+          box-shadow: 0 4px 12px rgba(0,0,0,0.35);
         }
-        .pot-label { grid-area: label; }
-        .pot-stack-art { grid-area: chips; }
+        .pot-label {
+          font-size: 10px !important;
+          letter-spacing: 0.12em;
+          color: #b9c4bd !important;
+        }
+        .pot-stack-art { display: none !important; }
         .pot-amount {
-          grid-area: amount;
-          align-self: center;
-          justify-self: start;
+          font-size: 13.5px !important;
+          font-weight: 900 !important;
+          color: #f5f7f6 !important;
         }
         .pot-breakdown {
           grid-area: meta;
@@ -4949,7 +4988,7 @@
           text-shadow: 0 3px 10px rgba(0,0,0,0.38) !important;
         }
         .street-label { display: none !important; }
-        .board-cards { gap: 7px !important; margin-top: 10px !important; }
+        .board-cards { gap: 8px !important; margin-top: 8px !important; }
         .card {
           width: 50px !important;
           height: 72px !important;
@@ -4957,10 +4996,13 @@
           border-radius: 8px !important;
           box-shadow: 0 5px 14px rgba(0,0,0,0.46) !important;
         }
+        /* The board is the centerpiece: big clean white cards. */
         .board-cards .card {
-          width: 46px !important;
-          height: 66px !important;
-          font-size: 16px !important;
+          width: 56px !important;
+          height: 78px !important;
+          font-size: 20px !important;
+          border-radius: 7px !important;
+          box-shadow: 0 6px 16px rgba(0,0,0,0.5) !important;
         }
         .card-empty {
           background: linear-gradient(180deg, rgba(255,255,255,0.15), rgba(222,218,207,0.08)) !important;
@@ -4969,14 +5011,16 @@
 
         .seat-node {
           width: auto !important;
-          min-width: 82px;
-          max-width: 106px;
-          padding: 3px 6px 5px !important;
-          gap: 2px !important;
-          border: 1.5px solid rgba(236,178,86,0.38) !important;
-          border-radius: 10px !important;
-          background: linear-gradient(180deg, rgba(10,14,14,0.9), rgba(8,10,10,0.96)) !important;
-          box-shadow: 0 5px 18px rgba(0,0,0,0.5), inset 0 0 0 1px rgba(255,214,128,0.06) !important;
+          min-width: 86px;
+          max-width: 112px;
+          padding: 3px 10px 5px !important;
+          gap: 1px !important;
+          /* Pro-client seat: the avatar floats above a clean dark info pill --
+             no gold boxes, the felt stays quiet around the players. */
+          border: 1px solid rgba(255,255,255,0.09) !important;
+          border-radius: 14px !important;
+          background: linear-gradient(180deg, rgba(17,20,22,0.94), rgba(10,12,13,0.97)) !important;
+          box-shadow: 0 6px 18px rgba(0,0,0,0.55) !important;
           animation: none !important;
           text-align: center;
           display: flex !important;
@@ -4989,28 +5033,35 @@
         }
 
         .seat-node.empty {
-          width: 54px !important;
-          height: 54px !important;
+          width: 50px !important;
+          height: 50px !important;
           min-width: 0 !important;
           max-width: none !important;
           min-height: 0 !important;
-          border: 2px dashed rgba(230,173,87,0.2) !important;
+          border: 1.5px dashed rgba(255,255,255,0.14) !important;
           border-radius: 50% !important;
-          background: rgba(0,0,0,0.22) !important;
+          background: rgba(0,0,0,0.2) !important;
           padding: 0 !important;
         }
 
         .seat-avatar {
-          width: 38px;
-          height: 38px;
-          margin-top: -24px;
-          font-size: 11px;
+          width: 46px;
+          height: 46px;
+          margin-top: -30px;
+          font-size: 12px;
+          border: 2px solid rgba(10,12,13,0.95);
+          box-shadow: 0 0 0 1px rgba(255,255,255,0.16), 0 4px 12px rgba(0,0,0,0.5);
         }
+        /* The turn lights the PLAYER (avatar ring), not a box. */
         .seat-node.active-turn {
-          border-color: #f6c56f !important;
+          border-color: rgba(246,197,111,0.5) !important;
+          box-shadow: 0 6px 18px rgba(0,0,0,0.55) !important;
+        }
+        .seat-node.active-turn .seat-avatar {
           box-shadow:
-            0 0 0 2px rgba(246,197,111,0.32),
-            0 0 26px rgba(246,197,111,0.3) !important;
+            0 0 0 2.5px #f6c56f,
+            0 0 22px rgba(246,197,111,0.55),
+            0 4px 12px rgba(0,0,0,0.5) !important;
         }
         .seat-node.allin-seat { border-color: var(--red) !important; }
         .seat-node.winner-seat { border-color: var(--gold) !important; box-shadow: 0 0 18px rgba(212,175,85,0.28) !important; }
@@ -5025,17 +5076,28 @@
         }
         .seat-name,
         .seat-node.bot-seat .seat-name {
-          font-size: 10px !important;
-          font-weight: 800 !important;
-          color: #f5efe1 !important;
+          font-size: 9.5px !important;
+          font-weight: 600 !important;
+          color: #c7cdd2 !important;
           max-width: 132px;
           text-shadow: 0 1px 1px rgba(0,0,0,0.4);
         }
         .seat-stack {
-          font-size: 10px !important;
+          font-size: 11.5px !important;
           font-weight: 800 !important;
           text-align: center;
-          color: #efc777 !important;
+          color: #f4f6f7 !important;
+        }
+        .seat-stack::before {
+          content: "";
+          display: inline-block;
+          width: 8px;
+          height: 8px;
+          margin-right: 4px;
+          border-radius: 50%;
+          background: radial-gradient(circle at 35% 30%, #6fe8a8, #23a75f 70%);
+          box-shadow: 0 0 0 1px rgba(0,0,0,0.4);
+          vertical-align: 1px;
         }
         .seat-role-badges {
           position: static !important;
@@ -5420,7 +5482,25 @@
         .preset-chip[data-fraction="0.75"] { grid-area: frac3; }
         .preset-chip[data-fraction="1"] { grid-area: frac4; }
 
-        .seat-bet { font-size: 10px !important; padding: 2px 6px !important; }
+        .seat-bet {
+          font-size: 10.5px !important;
+          font-weight: 800 !important;
+          padding: 3px 9px 3px 7px !important;
+          color: #f2f4f5 !important;
+          background: rgba(6,9,8,0.8) !important;
+          border: 1px solid rgba(255,255,255,0.09) !important;
+        }
+        .seat-bet::before {
+          content: "";
+          display: inline-block;
+          width: 9px;
+          height: 9px;
+          margin-right: 4px;
+          border-radius: 50%;
+          background: radial-gradient(circle at 35% 30%, #7fd8ff, #2278b8 72%);
+          box-shadow: 0 0 0 1px rgba(0,0,0,0.45);
+          vertical-align: -1px;
+        }
         .seat-bet--hero { bottom: calc(100% + 10px) !important; }
         .seat-win-amount { font-size: 13px !important; }
         .seat-rebuy-btn { font-size: 11px !important; padding: 6px 14px !important; }
@@ -5733,6 +5813,7 @@
       </div>
 
       <div class="my-hand-area" id="myHandArea">
+        <div class="my-hand-rank hidden" id="myHandRank"></div>
         <div class="my-hand-cards" id="myHandCards"></div>
         <div class="my-hand-nameplate" id="myHandNameplate">
           <div class="my-hand-avatar"></div>
@@ -5827,6 +5908,6 @@
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
     <script src="./online/table_fx_geometry.js?v=203"></script>
-    <script type="module" src="./online/table_app.js?v=281"></script>
+    <script type="module" src="./online/table_app.js?v=282"></script>
   </body>
 </html>
