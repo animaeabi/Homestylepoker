@@ -5443,11 +5443,23 @@
         .astrip-raise-group { display: none !important; }
         .astrip-amount { width: 48px; font-size: 12px; }
 
+        /* While the raise panel is up the strip collapses to the single
+           confirm pill (everything else is hidden), so flex packs it to the
+           far left and the panel sits directly above it. */
+        .action-strip.raise-armed {
+          display: flex !important;
+          flex-direction: row;
+        }
+        .action-strip.raise-armed .astrip-btn {
+          width: auto;
+          flex: 0 0 auto;
+          min-width: 210px;
+        }
         .preset-row {
           position: absolute;
           left: max(8px, calc(env(safe-area-inset-left) + 8px));
           right: auto;
-          bottom: calc(max(0px, env(safe-area-inset-bottom)) + 98px);
+          bottom: calc(max(0px, env(safe-area-inset-bottom)) + 58px);
           z-index: 24;
           width: 172px;
           display: grid;
@@ -5556,7 +5568,25 @@
           box-shadow: 0 0 0 1px rgba(0,0,0,0.45);
           vertical-align: -1px;
         }
-        .seat-bet--hero { bottom: calc(100% + 10px) !important; }
+        /* Hero's bet/action labels dodge the board column: they anchor on
+           the open felt just right of the nameplate instead of dead center
+           where the board and hand-rank meter live. */
+        .seat-bet--hero {
+          left: calc(50% + 168px) !important;
+          bottom: calc(100% + 6px) !important;
+          transform: none !important;
+        }
+        .hero-action-popup {
+          /* Stacks a step above the hero bet pill (same felt lane). */
+          left: calc(50% + 168px) !important;
+          bottom: calc(100% + 34px) !important;
+          transform: none !important;
+        }
+        /* Top-center seats: shift the below-chin bet label off the pot
+           column (left, onto open felt). */
+        .seat-bet--dodge-pot {
+          transform: translateX(calc(-50% - 78px)) !important;
+        }
         .seat-win-amount { font-size: 13px !important; }
         .seat-rebuy-btn { font-size: 11px !important; padding: 6px 14px !important; }
         .seat-popover { z-index: 30 !important; }
@@ -5964,7 +5994,7 @@
     <div class="voice-audio-rack" id="voiceAudioRack" aria-hidden="true"></div>
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
-    <script src="./online/table_fx_geometry.js?v=295"></script>
-    <script type="module" src="./online/table_app.js?v=295"></script>
+    <script src="./online/table_fx_geometry.js?v=296"></script>
+    <script type="module" src="./online/table_app.js?v=296"></script>
   </body>
 </html>

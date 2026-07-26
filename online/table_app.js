@@ -2617,7 +2617,13 @@ function getSeatContributionAnchor(pos, { hero = false } = {}) {
     if (Number.isFinite(py) && py >= 78) return "seat-bet--top-chin";
     return "seat-bet--bottom-chin";
   }
-  if (Number.isFinite(py) && py <= 12) return "seat-bet--bottom-chin";
+  if (Number.isFinite(py) && py <= 12) {
+    // Top-CENTER seats sit directly above the pot column -- a straight
+    // below-chin label lands on the POT text. Nudge those aside.
+    const dodge = Number.isFinite(px) && px > 38 && px < 62
+      ? " seat-bet--dodge-pot" : "";
+    return `seat-bet--bottom-chin${dodge}`;
+  }
   if (Number.isFinite(px) && px < 50) return "seat-bet--right-chin";
   return "seat-bet--left-chin";
 }
@@ -3639,11 +3645,15 @@ function getActionPopupAnchor(pos = {}) {
 }
 
 function getReactionPopupAnchor(pos = {}, { speech = false } = {}) {
-  // Chat speech bubbles ALWAYS sit above the speaker (a thought bubble over the
-  // head) and point away from the board -- top players' bubbles go up into the
-  // rim instead of dropping onto the pot; side/bottom players' stay on their
-  // side. A viewport clamp (in renderSeats) nudges edge bubbles back on-screen.
-  if (speech) return "above";
+  // Chat speech bubbles sit above the speaker (a thought bubble over the
+  // head) and point away from the board. Exception: landscape rim seats sit
+  // at the very top of the viewport, so an "above" bubble clips off-screen
+  // -- top-row speakers bubble below their pill instead.
+  if (speech) {
+    const pyS = Number.parseFloat(pos.y);
+    if (isLandscape() && Number.isFinite(pyS) && pyS <= 20) return "below-cards";
+    return "above";
+  }
   // Emoji reactions: top seats bubble BELOW (clear of their flipped cards),
   // everyone else ABOVE.
   const py = Number.parseFloat(pos.y);
