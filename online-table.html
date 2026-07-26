@@ -4949,7 +4949,7 @@
           max-width: min(34vw, 300px) !important;
           padding: 7px 12px !important;
         }
-        .table-center { gap: 6px !important; top: 50% !important; }
+        .table-center { gap: 6px !important; top: 46% !important; }
         /* Pot reads as ONE quiet pill above the board -- pro-client style. */
         .pot-display {
           /* Same look as portrait: bare chip stack + gold amount on the
@@ -4990,19 +4990,20 @@
           text-shadow: 0 3px 10px rgba(0,0,0,0.38) !important;
         }
         .street-label { display: none !important; }
-        .board-cards { gap: 8px !important; margin-top: 8px !important; }
+        .board-cards { gap: 6px !important; margin-top: 6px !important; }
         .card {
-          width: 50px !important;
-          height: 72px !important;
-          font-size: 18px !important;
+          width: 46px !important;
+          height: 66px !important;
+          font-size: 17px !important;
           border-radius: 8px !important;
           box-shadow: 0 5px 14px rgba(0,0,0,0.46) !important;
         }
-        /* The board is the centerpiece: big clean white cards. */
+        /* The board is the centerpiece: clean white cards, sized so the
+           whole pot+board group sits centered on the felt. */
         .board-cards .card {
-          width: 56px !important;
-          height: 78px !important;
-          font-size: 20px !important;
+          width: 48px !important;
+          height: 68px !important;
+          font-size: 18px !important;
           border-radius: 7px !important;
           box-shadow: 0 6px 16px rgba(0,0,0,0.5) !important;
         }
@@ -5318,23 +5319,23 @@
 
         .my-hand-nameplate {
           margin-top: 8px;
-          min-width: 100px;
-          padding: 5px 10px 7px !important;
+          min-width: 84px;
+          padding: 3px 8px 5px !important;
           border: 1.5px solid rgba(236,178,86,0.38) !important;
           background: linear-gradient(180deg, rgba(10,14,14,0.9), rgba(8,10,10,0.96)) !important;
           box-shadow: 0 5px 18px rgba(0,0,0,0.5), inset 0 0 0 1px rgba(255,214,128,0.06) !important;
         }
 
         .my-hand-avatar {
-          width: 34px;
-          height: 34px;
-          margin-top: -20px;
+          width: 30px;
+          height: 30px;
+          margin-top: -17px;
           border: 2px solid rgba(246,188,90,0.9);
           box-shadow: 0 0 0 2px rgba(240,146,42,0.28), 0 0 22px rgba(242,169,62,0.34);
         }
 
-        .my-hand-name { font-size: 11px; font-weight: 800; }
-        .my-hand-stack { font-size: 12px; color: #efc777; }
+        .my-hand-name { font-size: 10px; font-weight: 800; }
+        .my-hand-stack { font-size: 11px; color: #efc777; }
         .my-hand-badges { gap: 3px; min-height: 14px; }
         .my-hand-badges .seat-dealer-dot {
           width: 16px !important;
@@ -5403,6 +5404,24 @@
         .astrip-allin { display: none !important; }
         .astrip-fold { grid-area: fold; }
         .astrip-call { grid-area: call; }
+        /* Preaction checkboxes (Fold / Call / Call Any) carry longer labels
+           plus the checkbox square -- compact them so the row never reaches
+           the hero's cards. */
+        .action-strip.preaction-mode .astrip-btn {
+          font-size: 10px !important;
+          padding: 5px 8px 5px 26px !important;
+          min-height: 30px !important;
+          letter-spacing: 0.02em !important;
+        }
+        .action-strip.preaction-mode .astrip-btn::before {
+          left: 8px;
+          width: 11px;
+          height: 11px;
+        }
+        .action-strip.preaction-mode .astrip-btn.active::after {
+          left: 10px;
+          font-size: 8px;
+        }
         /* Time bank sits beside the hero's nameplate, out of the grid flow.
            Anchored off the strip's center (the strip spans the full width,
            so its center tracks the hero) -- fixed positioning is unreliable
@@ -5945,7 +5964,7 @@
     <div class="voice-audio-rack" id="voiceAudioRack" aria-hidden="true"></div>
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
-    <script src="./online/table_fx_geometry.js?v=294"></script>
-    <script type="module" src="./online/table_app.js?v=294"></script>
+    <script src="./online/table_fx_geometry.js?v=295"></script>
+    <script type="module" src="./online/table_app.js?v=295"></script>
   </body>
 </html>
