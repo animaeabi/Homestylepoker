@@ -3671,20 +3671,13 @@ function buildActionPopup(copy, { hero = false, anchor = "above" } = {}) {
   return popup;
 }
 
-function buildReactionPopup(reaction, { hero = false, anchor = "above", seatX = NaN } = {}) {
+function buildReactionPopup(reaction, { hero = false, anchor = "above" } = {}) {
   if (!reaction?.emoji && !reaction?.text) return null;
   const popup = document.createElement("div");
   popup.className = hero
     ? "seat-reaction-popup hero-reaction-popup"
     : `seat-reaction-popup seat-reaction-popup--${anchor}`;
   if (reaction?.speech) popup.classList.add("seat-reaction-popup--speech");
-  // Lean the bubble off its own avatar, AWAY from the table's center: the
-  // plate stays readable, the bubble lands in open room by the frame edge
-  // instead of over the felt, and neighbouring speakers' bubbles diverge
-  // rather than colliding. The dead-center seat leans right.
-  if (reaction?.speech && !hero && Number.isFinite(seatX)) {
-    popup.classList.add(seatX >= 50 ? "speech-lean-right" : "speech-lean-left");
-  }
   if (reaction?.speech && reaction?.thought) popup.classList.add("speech-thought");
   if (reaction?.speech && reaction?.fading) popup.classList.add("speech-fading");
   if (reaction?.speech && reaction?.typing) popup.classList.add("speech-typing");
@@ -7539,7 +7532,6 @@ function renderSeats() {
       if (reactionData && Date.now() < reactionData.until && (!hand?.id || !reactionData.handId || reactionData.handId === hand.id)) {
         const reactionBubble = buildReactionPopup(reactionData, {
           anchor: getReactionPopupAnchor(pos, { speech: Boolean(reactionData.speech) }),
-          seatX: Number.parseFloat(pos.x),
         });
         if (reactionBubble) {
           node.appendChild(reactionBubble);
