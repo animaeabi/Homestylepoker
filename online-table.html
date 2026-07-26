@@ -5453,29 +5453,38 @@
 
         /* While the raise panel is up the strip collapses to the single
            confirm pill (everything else is hidden), so flex packs it to the
-           far left and the panel sits directly above it. */
+           far left; the amount panel stands beside it, bottom-aligned. */
         .action-strip.raise-armed {
           display: flex !important;
           flex-direction: row;
+          align-items: flex-end;
         }
         .action-strip.raise-armed .astrip-btn {
           width: auto;
           flex: 0 0 auto;
         }
-        /* Confirm pill matches the panel width exactly so panel + button
-           read as one attached unit. */
+        /* Confirm pill bottom-left; the amount panel stands to its RIGHT,
+           both flush with the bottom edge. Keep the pill narrow so pill +
+           panel fit before the hero's cards. */
         .action-strip.raise-armed .astrip-raise-confirm {
-          width: 172px !important;
+          width: 128px !important;
           min-width: 0 !important;
+          font-size: 12px !important;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
         }
         /* The oversized time-bank pill has no business in the armed state
            (and absolute positioning inside the flex strip distorts it). */
         .action-strip.raise-armed .astrip-time { display: none !important; }
         .preset-row {
           position: absolute;
-          left: max(8px, calc(env(safe-area-inset-left) + 8px));
+          /* Standing to the RIGHT of the confirm pill (8 + 128 + 8), both
+             flush with the bottom edge of the screen. */
+          left: calc(max(8px, env(safe-area-inset-left) + 8px) + 136px);
           right: auto;
-          bottom: calc(max(0px, env(safe-area-inset-bottom)) + 58px);
+          bottom: calc(max(0px, env(safe-area-inset-bottom)) + 8px);
+          width: 150px !important;
           z-index: 24;
           width: 172px;
           display: grid;
@@ -6010,7 +6019,7 @@
     <div class="voice-audio-rack" id="voiceAudioRack" aria-hidden="true"></div>
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
-    <script src="./online/table_fx_geometry.js?v=298"></script>
-    <script type="module" src="./online/table_app.js?v=298"></script>
+    <script src="./online/table_fx_geometry.js?v=299"></script>
+    <script type="module" src="./online/table_app.js?v=299"></script>
   </body>
 </html>
