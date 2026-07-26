@@ -4882,7 +4882,7 @@
 
         .table-area {
           grid-row: 2;
-          padding: 8px 18px 0 !important;
+          padding: 8px calc(18px + env(safe-area-inset-right)) 0 calc(18px + env(safe-area-inset-left)) !important;
           flex: 1;
           position: relative;
           overflow: visible;
@@ -4903,14 +4903,15 @@
         .table-surface {
           /* A table you could stand next to: it sits IN the room with air on
              every side, players ringing the rail, hero at the near edge.
-             Racetrack shape: long straight rails with tight semicircular
-             ends -- the elongated oval of a real casino table. */
-          width: min(94%, 1080px) !important;
-          height: 80% !important;
-          max-width: 1080px !important;
-          max-height: 310px !important;
+             Same design language as the portrait table (soft 36% rounded
+             oval), rotated: ~2.3:1 like the reference client -- broad corner
+             curves, gently flat rails, never touching the screen edges. */
+          width: min(78%, 900px) !important;
+          height: 84% !important;
+          max-width: 900px !important;
+          max-height: 300px !important;
           aspect-ratio: auto !important;
-          border-radius: 999px !important;
+          border-radius: 36% !important;
           /* House rail: dark walnut with the gold inlay this game wears
              everywhere else. */
           border: 11px solid #2a160b !important;
@@ -4932,14 +4933,14 @@
           content: "";
           position: absolute;
           inset: 9px;
-          border-radius: 999px;
+          border-radius: 35%;
           border: 1px solid rgba(233,176,89,0.24);
           box-shadow: inset 0 0 26px rgba(0,0,0,0.28);
           pointer-events: none;
           z-index: 1;
         }
 
-        .table-surface::before { border-radius: 999px !important; opacity: 0.12 !important; }
+        .table-surface::before { border-radius: 35% !important; opacity: 0.12 !important; }
         .dealer-deck { top: 31% !important; width: 30px; height: 44px; opacity: 0 !important; }
         .dealer-deck::before,
         .dealer-deck::after { opacity: 0 !important; }
@@ -5526,26 +5527,15 @@
           padding: 8px 14px !important;
         }
         .table-deal-btn {
-          /* Centered-on-felt placement stomps the board slots on the low
-             racetrack; dock it on the open felt to the right of the board,
-             clear of the card row, the hero nameplate, and the cap seats. */
-          left: auto !important;
-          right: 12% !important;
-          bottom: auto !important;
-          top: 50% !important;
-          transform: translateY(-50%) !important;
+          /* Centered below the board row, above the hero nameplate --
+             mirrors the portrait placement. */
+          bottom: 13% !important;
           font-size: 14px !important;
           font-weight: 800 !important;
           padding: 9px 24px !important;
           border-radius: 999px !important;
           background: linear-gradient(180deg, #f2bc62, #c68c36) !important;
           box-shadow: 0 7px 20px rgba(0,0,0,0.42), inset 0 0 0 1px rgba(255,233,188,0.2);
-        }
-        .table-deal-btn:hover:not(:disabled) {
-          transform: translateY(-50%) scale(1.03) !important;
-        }
-        .table-deal-btn.corner:hover:not(:disabled) {
-          transform: scale(1.03) !important;
         }
 
       }
@@ -5930,7 +5920,7 @@
     <div class="voice-audio-rack" id="voiceAudioRack" aria-hidden="true"></div>
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
-    <script src="./online/table_fx_geometry.js?v=287"></script>
-    <script type="module" src="./online/table_app.js?v=287"></script>
+    <script src="./online/table_fx_geometry.js?v=288"></script>
+    <script type="module" src="./online/table_app.js?v=288"></script>
   </body>
 </html>
