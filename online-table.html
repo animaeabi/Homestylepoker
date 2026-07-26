@@ -5158,14 +5158,28 @@
           padding: 5px 8px !important;
           border-radius: 10px !important;
         }
-        /* Chat bubbles sit above the speaker and always to the RIGHT of the
-           player tag -- one consistent side table-wide, so the eye always
-           knows where a line will appear. Small and two lines max so they
-           fit the shallow strip above the rail. (Bubbles at the right edge
-           get pulled back inside the frame by the clamp pass.) */
+        /* Chat bubbles attach to the player tag's top-RIGHT corner and grow
+           rightward -- one consistent side table-wide, and anchoring to the
+           tag's EDGE (not an offset from its center) keeps a two-word line
+           just as attached as a full sentence. Small and two lines max so
+           they fit the shallow strip above the rail. (Bubbles at the right
+           edge get pulled back inside the frame by the clamp pass.) */
+        .seat-reaction-popup--above.seat-reaction-popup--speech {
+          left: calc(100% - 10px) !important;
+          bottom: calc(100% - 8px + var(--speech-lift, 0px)) !important;
+          transform: translateX(var(--speech-nudge, 0px)) !important;
+        }
+        /* Set by the clamp pass when a line is too long to fit on the right
+           of a right-edge seat: attach on the tag's left instead of sliding
+           back over the speaker's own portrait. */
+        .seat-reaction-popup--above.seat-reaction-popup--speech.speech-flip {
+          left: auto !important;
+          right: calc(100% - 10px) !important;
+        }
         .seat-reaction-popup--speech {
-          --speech-shift: 74px;
-          max-width: 148px !important;
+          /* --speech-max is narrowed by the clamp pass when the frame edge
+             leaves less room than the full width. */
+          max-width: var(--speech-max, 148px) !important;
           padding: 4px 7px !important;
           z-index: 22;
         }
@@ -6036,7 +6050,7 @@
     <div class="voice-audio-rack" id="voiceAudioRack" aria-hidden="true"></div>
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
-    <script src="./online/table_fx_geometry.js?v=302"></script>
-    <script type="module" src="./online/table_app.js?v=302"></script>
+    <script src="./online/table_fx_geometry.js?v=303"></script>
+    <script type="module" src="./online/table_app.js?v=303"></script>
   </body>
 </html>
