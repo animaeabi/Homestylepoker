@@ -5376,10 +5376,13 @@
           padding: 8px !important;
           gap: 7px !important;
           display: grid;
+          /* Fold lives alone at the far left with a hard 14px moat (plus the
+             7px gaps) so a mis-tap near Call/Raise can't hit it. All-in rides
+             above Call; Raise sits right of Call. */
           grid-template-areas:
-            "raise allin ."
-            "fold  call  .";
-          grid-template-columns: minmax(72px, auto) minmax(72px, auto) 1fr;
+            ".    . allin .     ."
+            "fold . call  raise .";
+          grid-template-columns: minmax(72px, auto) 14px minmax(72px, auto) minmax(72px, auto) 1fr;
           align-items: stretch;
           background: transparent !important;
           border: none !important;
@@ -5941,7 +5944,7 @@
     <div class="voice-audio-rack" id="voiceAudioRack" aria-hidden="true"></div>
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
-    <script src="./online/table_fx_geometry.js?v=292"></script>
-    <script type="module" src="./online/table_app.js?v=292"></script>
+    <script src="./online/table_fx_geometry.js?v=293"></script>
+    <script type="module" src="./online/table_app.js?v=293"></script>
   </body>
 </html>
