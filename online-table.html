@@ -1209,6 +1209,15 @@
         transform: translateX(-50%);
       }
 
+      /* Speech bubbles are placed cooperatively: CSS owns the base geometry
+         (gap above the plate + the per-seat sideways lean), and
+         clampSpeechBubbles() only writes --speech-nudge / --speech-lift to
+         keep the bubble inside the frame and off other plates. */
+      .seat-reaction-popup--above.seat-reaction-popup--speech {
+        bottom: calc(100% + 8px + var(--speech-lift, 0px));
+        transform: translateX(calc(-50% + var(--speech-shift, 0px) + var(--speech-nudge, 0px)));
+      }
+
       .seat-action-popup--below,
       .seat-reaction-popup--below {
         top: calc(100% + 8px);
@@ -5149,16 +5158,22 @@
           padding: 5px 8px !important;
           border-radius: 10px !important;
         }
-        /* Chat bubbles hang beside the speaker's pill -- keep them small so
-           they hug the player without reaching the board or a neighbor. */
+        /* Chat bubbles sit above the speaker, leaning off their own avatar
+           into the open room by the frame edge. Small and two lines max so
+           they fit the shallow strip above the rail. */
         .seat-reaction-popup--speech {
-          max-width: 128px !important;
-          padding: 5px 8px !important;
+          max-width: 148px !important;
+          padding: 4px 7px !important;
+          z-index: 22;
         }
         .seat-reaction-popup--speech .reaction-text {
           font-size: 9px !important;
-          line-height: 1.3 !important;
+          line-height: 1.28 !important;
+          -webkit-line-clamp: 2 !important;
+          line-clamp: 2 !important;
         }
+        .seat-reaction-popup--speech.speech-lean-right { --speech-shift: 74px; }
+        .seat-reaction-popup--speech.speech-lean-left { --speech-shift: -74px; }
         .seat-action-popup-text,
         .reaction-text { font-size: 10px !important; }
         .seat-empty-label { font-size: 9px !important; color: rgba(180,140,60,0.38) !important; letter-spacing: 0.1em; }
@@ -6020,7 +6035,7 @@
     <div class="voice-audio-rack" id="voiceAudioRack" aria-hidden="true"></div>
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
-    <script src="./online/table_fx_geometry.js?v=300"></script>
-    <script type="module" src="./online/table_app.js?v=300"></script>
+    <script src="./online/table_fx_geometry.js?v=301"></script>
+    <script type="module" src="./online/table_app.js?v=301"></script>
   </body>
 </html>
