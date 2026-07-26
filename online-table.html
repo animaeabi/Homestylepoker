@@ -5376,12 +5376,11 @@
           padding: 8px !important;
           gap: 7px !important;
           display: grid;
-          /* Fold lives alone at the far left with a hard 14px moat (plus the
-             7px gaps) so a mis-tap near Call/Raise can't hit it. All-in rides
-             above Call; Raise sits right of Call. */
-          grid-template-areas:
-            ".    . allin .     ."
-            "fold . call  raise .";
+          /* One row: Fold lives alone at the far left with a hard 14px moat
+             (plus the 7px gaps) so a mis-tap near Call/Raise can't hit it.
+             No All-in button -- the raise slider at max IS the all-in, and a
+             forced shove relabels Call itself. */
+          grid-template-areas: "fold . call raise .";
           grid-template-columns: minmax(72px, auto) 14px minmax(72px, auto) minmax(72px, auto) 1fr;
           align-items: stretch;
           background: transparent !important;
@@ -5401,7 +5400,7 @@
           letter-spacing: 0.04em;
         }
         .astrip-raise { grid-area: raise; }
-        .astrip-allin { grid-area: allin; }
+        .astrip-allin { display: none !important; }
         .astrip-fold { grid-area: fold; }
         .astrip-call { grid-area: call; }
         /* Time bank sits beside the hero's nameplate, out of the grid flow.
@@ -5419,7 +5418,9 @@
         .astrip-fold { background: linear-gradient(180deg, #9e2b2b, #6f1818) !important; color: #ffe8e8 !important; border: 1px solid rgba(255,130,130,0.28); box-shadow: inset 0 0 0 1px rgba(255,190,190,0.12), 0 6px 16px rgba(0,0,0,0.35); }
         .astrip-call { background: linear-gradient(180deg, #21744a, #0f5732) !important; color: #ebfff1 !important; padding: 8px 10px !important; font-size: 13px !important; font-weight: 800 !important; border: 1px solid rgba(120,255,175,0.22); box-shadow: inset 0 0 0 1px rgba(170,255,210,0.12), 0 6px 16px rgba(0,0,0,0.35); min-width: 0; max-width: none; text-align: center; }
         .astrip-raise { background: linear-gradient(180deg, #91671f, #6d4a15) !important; color: #fff5dd !important; border: 1px solid rgba(255,210,125,0.25); box-shadow: inset 0 0 0 1px rgba(255,240,198,0.1), 0 6px 16px rgba(0,0,0,0.35); }
-        .astrip-allin { background: linear-gradient(180deg, #473221, #2c1e13) !important; color: #f4ddbd !important; padding: 8px 10px !important; font-size: 12px !important; border: 1px solid rgba(255,193,119,0.24); box-shadow: inset 0 0 0 1px rgba(255,230,188,0.08), 0 6px 16px rgba(0,0,0,0.35); display: block !important; }
+        /* No standalone All-in in landscape: slider-max is the all-in and a
+           forced shove relabels Call. */
+        .astrip-allin { display: none !important; }
         .astrip-raise-group { display: none !important; }
         .astrip-amount { width: 48px; font-size: 12px; }
 
@@ -5944,7 +5945,7 @@
     <div class="voice-audio-rack" id="voiceAudioRack" aria-hidden="true"></div>
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
-    <script src="./online/table_fx_geometry.js?v=293"></script>
-    <script type="module" src="./online/table_app.js?v=293"></script>
+    <script src="./online/table_fx_geometry.js?v=294"></script>
+    <script type="module" src="./online/table_app.js?v=294"></script>
   </body>
 </html>
