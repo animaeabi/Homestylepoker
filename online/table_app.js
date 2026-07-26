@@ -7599,6 +7599,10 @@ function renderSeats() {
 // above its own speaker; if it overlaps another seat (e.g. a lower player's
 // bubble rising onto the player above them), lift it into the open felt to
 // clear that seat. Horizontal overflow is nudged back inside the frame.
+// Narrowest a bubble may be squeezed to before it flips to the tag's other
+// side instead -- below this, lines wrap into an unreadable sliver.
+const MIN_SPEECH_WIDTH = 100;
+
 function clampSpeechBubbles() {
   const vw = window.innerWidth || document.documentElement?.clientWidth || 0;
   if (!vw) return;
@@ -7610,11 +7614,25 @@ function clampSpeechBubbles() {
     // The bubble's own CSS owns its base position (gap above the plate plus
     // the sideways lean); this pass only writes the two correction vars, so
     // reset them before measuring.
+    b.classList.remove("speech-flip");
+    b.style.removeProperty("--speech-max");
     b.style.setProperty("--speech-nudge", "0px");
     b.style.setProperty("--speech-lift", "0px");
     let r = b.getBoundingClientRect();
 
-    // 1) Horizontal viewport clamp.
+    // 1) Bubbles attach to the RIGHT of the player tag. When the line is too
+    //    wide for the room left of the frame edge, first narrow the bubble to
+    //    fit (it wraps); only flip to the tag's LEFT side when even a minimum
+    //    width won't fit -- sliding it back inside the frame instead would
+    //    bury the speaker's own portrait.
+    if (r.right > vw - margin) {
+      const room = Math.floor(vw - margin - r.left);
+      if (room >= MIN_SPEECH_WIDTH) b.style.setProperty("--speech-max", `${room}px`);
+      else b.classList.add("speech-flip");
+      r = b.getBoundingClientRect();
+    }
+
+    // 2) Horizontal viewport clamp for whatever still overhangs.
     let nudge = 0;
     if (r.left < margin) nudge = margin - r.left;
     else if (r.right > vw - margin) nudge = (vw - margin) - r.right;
@@ -7623,7 +7641,7 @@ function clampSpeechBubbles() {
       r = b.getBoundingClientRect();
     }
 
-    // 2) Lift above any OTHER seat plate it currently covers -- but only as
+    // 3) Lift above any OTHER seat plate it currently covers -- but only as
     //    far as the headroom allows, so clearing a neighbor can never push
     //    the bubble off the top of the frame.
     let lift = 0;
@@ -7638,9 +7656,9 @@ function clampSpeechBubbles() {
       r = b.getBoundingClientRect();
     }
 
-    // 3) Top-edge clamp: rim seats have little room overhead, so pull the
-    //    bubble back DOWN by whatever it overhangs. The sideways lean keeps
-    //    it off the speaker's own plate as it descends.
+    // 4) Top-edge clamp: rim seats have little room overhead, so pull the
+    //    bubble back DOWN by whatever it overhangs. Side attachment keeps it
+    //    off the speaker's own plate as it descends.
     const over = margin - r.top;
     if (over > 0) b.style.setProperty("--speech-lift", `${Math.round(lift - over)}px`);
   });
