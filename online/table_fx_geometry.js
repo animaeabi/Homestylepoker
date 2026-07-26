@@ -96,20 +96,21 @@ const PORTRAIT_SEATS = {
 // diagonal and side seats ride the gently flat ends. Bottom center stays
 // clear for the hero.
 const LANDSCAPE_SEATS = {
+  // The liked arrangement: an arc of 3 (or 4) across the top rail, one seat
+  // on each extreme end at mid-height, extras on the lower side curves.
   // Every anchor sits ON the oval's rim curve (36% corner radii) so pills
-  // straddle the rail -- never float mid-felt. The lower pair rides the
-  // lower side curves at {2,76}/{98,76} (the rim point at that height),
-  // clear of the bottom action bar; the bottom rail itself belongs to the
-  // hero. Tops stay at y>=3 so avatars never clip the viewport edge.
-  1: [{ x: 50, y: 5 }],
+  // straddle the rail -- never float mid-felt. The bottom rail belongs to
+  // the hero and the action bar. Tops stay at y>=2 so avatars never clip
+  // the viewport edge.
+  1: [{ x: 50, y: 4 }],
   2: [{ x: 35, y: 4 }, { x: 65, y: 4 }],
-  3: [{ x: 50, y: 5 }, { x: 4, y: 38 }, { x: 96, y: 38 }],
-  4: [{ x: 35, y: 4 }, { x: 65, y: 4 }, { x: 3, y: 45 }, { x: 97, y: 45 }],
-  5: [{ x: 50, y: 5 }, { x: 3, y: 40 }, { x: 97, y: 40 }, { x: 2, y: 76 }, { x: 98, y: 76 }],
-  6: [{ x: 30, y: 4 }, { x: 70, y: 4 }, { x: 3, y: 40 }, { x: 97, y: 40 }, { x: 2, y: 76 }, { x: 98, y: 76 }],
-  7: [{ x: 50, y: 3 }, { x: 22, y: 6 }, { x: 78, y: 6 }, { x: 3, y: 42 }, { x: 97, y: 42 }, { x: 2, y: 76 }, { x: 98, y: 76 }],
-  8: [{ x: 38, y: 3 }, { x: 62, y: 3 }, { x: 13, y: 9 }, { x: 87, y: 9 }, { x: 2, y: 46 }, { x: 98, y: 46 }, { x: 2, y: 78 }, { x: 98, y: 78 }],
-  9: [{ x: 50, y: 3 }, { x: 28, y: 5 }, { x: 72, y: 5 }, { x: 11, y: 11 }, { x: 89, y: 11 }, { x: 2, y: 44 }, { x: 98, y: 44 }, { x: 2, y: 77 }, { x: 98, y: 77 }],
+  3: [{ x: 50, y: 4 }, { x: 13, y: 8 }, { x: 87, y: 8 }],
+  4: [{ x: 35, y: 4 }, { x: 65, y: 4 }, { x: 2, y: 52 }, { x: 98, y: 52 }],
+  5: [{ x: 50, y: 4 }, { x: 13, y: 8 }, { x: 87, y: 8 }, { x: 2, y: 55 }, { x: 98, y: 55 }],
+  6: [{ x: 20, y: 7 }, { x: 40, y: 2 }, { x: 60, y: 2 }, { x: 80, y: 7 }, { x: 2, y: 52 }, { x: 98, y: 52 }],
+  7: [{ x: 50, y: 3 }, { x: 15, y: 8 }, { x: 85, y: 8 }, { x: 2, y: 46 }, { x: 98, y: 46 }, { x: 2, y: 79 }, { x: 98, y: 79 }],
+  8: [{ x: 20, y: 7 }, { x: 40, y: 2 }, { x: 60, y: 2 }, { x: 80, y: 7 }, { x: 2, y: 46 }, { x: 98, y: 46 }, { x: 2, y: 79 }, { x: 98, y: 79 }],
+  9: [{ x: 50, y: 2 }, { x: 30, y: 4 }, { x: 70, y: 4 }, { x: 12, y: 10 }, { x: 88, y: 10 }, { x: 2, y: 44 }, { x: 98, y: 44 }, { x: 2, y: 78 }, { x: 98, y: 78 }],
 };
 
 function portraitSeatTemplate(total) {
