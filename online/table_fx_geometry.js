@@ -89,17 +89,20 @@ const PORTRAIT_SEATS = {
 };
 
 // Hand-tuned landscape slots (table seats only; my-seat remains in hand area).
-// Goal: mirrored rows with no direct seat opposite hero.
+// Casino composition: every slot sits ON the elliptical rail (the seats-layer
+// spans the table surface, so these are points on the oval's edge) -- players
+// straddle the rim like at a real table, never float inside the felt. Bottom
+// center stays clear for the hero.
 const LANDSCAPE_SEATS = {
-  1: [{ x: 36, y: 9 }],
-  2: [{ x: 36, y: 9 }, { x: 64, y: 9 }],
-  3: [{ x: 36, y: 9 }, { x: 64, y: 9 }, { x: 88, y: 27 }],
-  4: [{ x: 36, y: 9 }, { x: 64, y: 9 }, { x: 12, y: 27 }, { x: 88, y: 27 }],
-  5: [{ x: 36, y: 9 }, { x: 64, y: 9 }, { x: 12, y: 27 }, { x: 88, y: 27 }, { x: 94, y: 56 }],
-  6: [{ x: 36, y: 9 }, { x: 64, y: 9 }, { x: 12, y: 27 }, { x: 88, y: 27 }, { x: 6, y: 56 }, { x: 94, y: 56 }],
-  7: [{ x: 36, y: 9 }, { x: 64, y: 9 }, { x: 12, y: 27 }, { x: 88, y: 27 }, { x: 6, y: 56 }, { x: 94, y: 56 }, { x: 80, y: 82 }],
-  8: [{ x: 36, y: 9 }, { x: 64, y: 9 }, { x: 12, y: 27 }, { x: 88, y: 27 }, { x: 6, y: 56 }, { x: 94, y: 56 }, { x: 20, y: 82 }, { x: 80, y: 82 }],
-  9: [{ x: 36, y: 9 }, { x: 64, y: 9 }, { x: 12, y: 27 }, { x: 88, y: 27 }, { x: 6, y: 56 }, { x: 94, y: 56 }, { x: 20, y: 82 }, { x: 80, y: 82 }, { x: 86, y: 86 }],
+  1: [{ x: 50, y: 1 }],
+  2: [{ x: 35, y: 3 }, { x: 65, y: 3 }],
+  3: [{ x: 50, y: 1 }, { x: 13, y: 15 }, { x: 87, y: 15 }],
+  4: [{ x: 35, y: 3 }, { x: 65, y: 3 }, { x: 7, y: 30 }, { x: 93, y: 30 }],
+  5: [{ x: 50, y: 1 }, { x: 16, y: 11 }, { x: 84, y: 11 }, { x: 4, y: 46 }, { x: 96, y: 46 }],
+  6: [{ x: 35, y: 3 }, { x: 65, y: 3 }, { x: 8, y: 24 }, { x: 92, y: 24 }, { x: 5, y: 60 }, { x: 95, y: 60 }],
+  7: [{ x: 35, y: 3 }, { x: 65, y: 3 }, { x: 8, y: 24 }, { x: 92, y: 24 }, { x: 5, y: 58 }, { x: 95, y: 58 }, { x: 78, y: 90 }],
+  8: [{ x: 35, y: 3 }, { x: 65, y: 3 }, { x: 8, y: 24 }, { x: 92, y: 24 }, { x: 5, y: 58 }, { x: 95, y: 58 }, { x: 22, y: 90 }, { x: 78, y: 90 }],
+  9: [{ x: 50, y: 1 }, { x: 22, y: 6 }, { x: 78, y: 6 }, { x: 6, y: 28 }, { x: 94, y: 28 }, { x: 4, y: 60 }, { x: 96, y: 60 }, { x: 24, y: 90 }, { x: 76, y: 90 }],
 };
 
 function portraitSeatTemplate(total) {
