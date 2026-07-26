@@ -7448,7 +7448,9 @@ function renderSeats() {
           if ((isShowdown || manuallyShown) && reveal) {
             const px = parseFloat(pos.x);
             const py = parseFloat(pos.y);
-            const anchor = py <= 10 ? "top" : (px < 50 ? "left" : "right");
+            // Only true top-CENTER seats reveal below the pill; corner and
+            // side seats reveal beside it, toward the board.
+            const anchor = (py <= 10 && px >= 35 && px <= 65) ? "top" : (px < 50 ? "left" : "right");
             cards.classList.add(`compact-opponent--${anchor}`);
           }
           const winningHoleCards = resultRevealReady
