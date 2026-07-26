@@ -96,15 +96,18 @@ const PORTRAIT_SEATS = {
 // diagonal and side seats ride the gently flat ends. Bottom center stays
 // clear for the hero.
 const LANDSCAPE_SEATS = {
-  1: [{ x: 50, y: 1 }],
-  2: [{ x: 35, y: 2 }, { x: 65, y: 2 }],
-  3: [{ x: 50, y: 1 }, { x: 8, y: 20 }, { x: 92, y: 20 }],
-  4: [{ x: 35, y: 2 }, { x: 65, y: 2 }, { x: 3, y: 50 }, { x: 97, y: 50 }],
-  5: [{ x: 50, y: 1 }, { x: 13, y: 8 }, { x: 87, y: 8 }, { x: 3, y: 58 }, { x: 97, y: 58 }],
-  6: [{ x: 30, y: 2 }, { x: 70, y: 2 }, { x: 3, y: 45 }, { x: 97, y: 45 }, { x: 11, y: 85 }, { x: 89, y: 85 }],
-  7: [{ x: 30, y: 2 }, { x: 70, y: 2 }, { x: 3, y: 40 }, { x: 97, y: 40 }, { x: 8, y: 78 }, { x: 92, y: 78 }, { x: 74, y: 97 }],
-  8: [{ x: 30, y: 2 }, { x: 70, y: 2 }, { x: 3, y: 40 }, { x: 97, y: 40 }, { x: 8, y: 78 }, { x: 92, y: 78 }, { x: 25, y: 97 }, { x: 75, y: 97 }],
-  9: [{ x: 50, y: 1 }, { x: 25, y: 3 }, { x: 75, y: 3 }, { x: 3, y: 36 }, { x: 97, y: 36 }, { x: 6, y: 74 }, { x: 94, y: 74 }, { x: 25, y: 96 }, { x: 75, y: 96 }],
+  // y floors: tops >= 5 so avatars (which ride above their pill) never clip
+  // the viewport top edge; lower corners <= 70 so pills clear the bottom
+  // action bar that flanks the hero on their turn.
+  1: [{ x: 50, y: 6 }],
+  2: [{ x: 35, y: 5 }, { x: 65, y: 5 }],
+  3: [{ x: 50, y: 6 }, { x: 6, y: 26 }, { x: 94, y: 26 }],
+  4: [{ x: 35, y: 5 }, { x: 65, y: 5 }, { x: 3, y: 45 }, { x: 97, y: 45 }],
+  5: [{ x: 50, y: 6 }, { x: 3, y: 42 }, { x: 97, y: 42 }, { x: 15, y: 76 }, { x: 85, y: 76 }],
+  6: [{ x: 30, y: 5 }, { x: 70, y: 5 }, { x: 3, y: 42 }, { x: 97, y: 42 }, { x: 15, y: 76 }, { x: 85, y: 76 }],
+  7: [{ x: 50, y: 3 }, { x: 25, y: 7 }, { x: 75, y: 7 }, { x: 3, y: 42 }, { x: 97, y: 42 }, { x: 15, y: 76 }, { x: 85, y: 76 }],
+  8: [{ x: 35, y: 4 }, { x: 65, y: 4 }, { x: 9, y: 15 }, { x: 91, y: 15 }, { x: 3, y: 45 }, { x: 97, y: 45 }, { x: 15, y: 76 }, { x: 85, y: 76 }],
+  9: [{ x: 50, y: 3 }, { x: 27, y: 6 }, { x: 73, y: 6 }, { x: 8, y: 16 }, { x: 92, y: 16 }, { x: 3, y: 46 }, { x: 97, y: 46 }, { x: 15, y: 76 }, { x: 85, y: 76 }],
 };
 
 function portraitSeatTemplate(total) {
