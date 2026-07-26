@@ -5115,14 +5115,22 @@
           box-shadow: 0 0 0 1px rgba(0,0,0,0.4);
           vertical-align: 1px;
         }
+        /* SB / BB / D hang off the plate's outer LEFT edge instead of taking a
+           row inside it -- an inline badge row stretched the tag's chin and
+           squeezed the name and stack. The upper-left is the one free margin:
+           the avatar owns top-center, speech bubbles the top-right, and bet
+           pills the bottom (chins + below-plate). */
         .seat-role-badges {
-          position: static !important;
-          top: auto !important;
+          position: absolute !important;
+          left: -11px !important;
+          top: 3px !important;
+          bottom: auto !important;
           right: auto !important;
-          gap: 4px !important;
-          z-index: 2;
-          justify-content: center !important;
-          margin-top: 1px !important;
+          flex-direction: column !important;
+          gap: 2px !important;
+          z-index: 3;
+          justify-content: flex-start !important;
+          margin: 0 !important;
         }
         .seat-dealer-dot {
           width: 20px !important;
@@ -5367,7 +5375,18 @@
 
         .my-hand-name { font-size: 10px; font-weight: 800; }
         .my-hand-stack { font-size: 11px; color: #efc777; }
-        .my-hand-badges { gap: 3px; min-height: 14px; }
+        /* Same treatment for the hero: badges ride the plate's bottom-left
+           corner rather than adding a row to it. */
+        .my-hand-badges {
+          position: absolute;
+          left: -10px;
+          top: 3px;
+          bottom: auto;
+          flex-direction: column;
+          gap: 2px;
+          min-height: 0;
+          z-index: 3;
+        }
         .my-hand-badges .seat-dealer-dot {
           width: 16px !important;
           height: 16px !important;
@@ -6043,7 +6062,7 @@
     <div class="voice-audio-rack" id="voiceAudioRack" aria-hidden="true"></div>
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
-    <script src="./online/table_fx_geometry.js?v=304"></script>
-    <script type="module" src="./online/table_app.js?v=304"></script>
+    <script src="./online/table_fx_geometry.js?v=305"></script>
+    <script type="module" src="./online/table_app.js?v=305"></script>
   </body>
 </html>
