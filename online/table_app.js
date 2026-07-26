@@ -158,6 +158,7 @@ const el = {
   betAmountQuick: document.getElementById("betAmountQuick"),
   presetAmountLabel: document.getElementById("presetAmountLabel"),
   myHandArea: document.getElementById("myHandArea"),
+  myHandRank: document.getElementById("myHandRank"),
   myHandCards: document.getElementById("myHandCards"),
   myHandNameplate: document.getElementById("myHandNameplate"),
   myHandAvatar: document.querySelector(".my-hand-avatar"),
@@ -7694,6 +7695,27 @@ function renderMyHand() {
     lbl.className = "seat-pos-label all-in-badge";
     lbl.textContent = "ALL-IN";
     badgesEl.appendChild(lbl);
+  }
+
+  // Live hand-rank readout ("Two Pair") above the hero cards -- computed
+  // against the PRESENTED board only, so it never spoils a card that hasn't
+  // visibly landed yet.
+  if (el.myHandRank) {
+    let rankLabel = "";
+    try {
+      const board = Array.isArray(hand?.board_cards) ? hand.board_cards : [];
+      if (!clearedSettledHand && hand && hp && !hp.folded
+        && Array.isArray(hp.hole_cards) && hp.hole_cards.length >= 2 && board.length >= 3
+        && ["flop", "turn", "river", "showdown", "settled"].includes(String(hand.state))) {
+        const visibleCount = Math.min(presentation.boardCountFor(hand), board.length);
+        if (visibleCount >= 3) {
+          const desc = describeSevenCardHand([...hp.hole_cards, ...board.slice(0, visibleCount)], hp.hole_cards);
+          rankLabel = desc?.label || "";
+        }
+      }
+    } catch { /* readout is flavor */ }
+    el.myHandRank.textContent = rankLabel;
+    el.myHandRank.classList.toggle("hidden", !rankLabel);
   }
 
   // Show the hero's own all-in equity. Opponent equities render into their seat
