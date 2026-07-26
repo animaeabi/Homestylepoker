@@ -7954,17 +7954,24 @@ function renderActions() {
 
     const { toCall, canAggress, maxBet } = getBetBounds(hand, hp);
     const raiseActionType = normalizeMoney(hand.current_bet || 0) > 0 ? "raise" : "bet";
-    el.callBtn.textContent = toCall > 0 ? `Call ${fmtShort(toCall)}` : "Check";
+    // No standalone All-in button: the raise slider at max IS the all-in
+    // (the confirm relabels itself "All-in $X"). The one time a shove needs
+    // its own button is when calling costs the whole stack -- then the call
+    // IS an all-in and raising is impossible, so the player sees only
+    // "All-in" and "Fold".
+    const myStack = normalizeMoney(Number(hp?.stack_end || 0));
+    const callIsShove = toCall > 0 && toCall + 1e-9 >= myStack;
+    el.callBtn.textContent = toCall > 0
+      ? (callIsShove ? `All-in ${fmtShort(Math.min(toCall, myStack))}` : `Call ${fmtShort(toCall)}`)
+      : "Check";
     const raiseVerb = raiseActionType === "raise" ? "Raise" : "Bet";
     el.betRaiseBtn.textContent = raiseVerb;
-    el.allInBtn.textContent = `All-in`;
-    el.betRaiseBtn.classList.toggle("hidden", !canAggress);
-    el.allInBtn.classList.toggle("hidden", !canAggress);
+    el.betRaiseBtn.classList.toggle("hidden", !canAggress || callIsShove);
     // "armed" = the compact amount panel is open and the next Raise tap commits.
     // Reset it every render; the compact branch re-adds it when the panel is up.
     el.actionStrip.classList.remove("raise-armed");
     el.betRaiseBtn.classList.remove("astrip-raise-confirm");
-    if (!canAggress) {
+    if (!canAggress || callIsShove) {
       state.landscapeRaisePanelOpen = false;
       el.presetRow.classList.add("hidden");
     } else if (compactActions) {
