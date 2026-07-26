@@ -7599,9 +7599,12 @@ function renderSeats() {
 // above its own speaker; if it overlaps another seat (e.g. a lower player's
 // bubble rising onto the player above them), lift it into the open felt to
 // clear that seat. Horizontal overflow is nudged back inside the frame.
-// Narrowest a bubble may be squeezed to before it flips to the tag's other
-// side instead -- below this, lines wrap into an unreadable sliver.
+// Narrowest a bubble may be squeezed to when the frame edge is close; below
+// this, lines wrap into an unreadable sliver, so it gets raised instead.
 const MIN_SPEECH_WIDTH = 100;
+// How far to raise a bubble that had to slide back over its own seat, so it
+// sits above the avatar (which pokes ~25px above the tag) rather than on it.
+const AVATAR_CLEARANCE = 36;
 
 function clampSpeechBubbles() {
   const vw = window.innerWidth || document.documentElement?.clientWidth || 0;
@@ -7614,44 +7617,49 @@ function clampSpeechBubbles() {
     // The bubble's own CSS owns its base position (gap above the plate plus
     // the sideways lean); this pass only writes the two correction vars, so
     // reset them before measuring.
-    b.classList.remove("speech-flip");
     b.style.removeProperty("--speech-max");
     b.style.setProperty("--speech-nudge", "0px");
     b.style.setProperty("--speech-lift", "0px");
     let r = b.getBoundingClientRect();
+    let lift = 0;
 
-    // 1) Bubbles attach to the RIGHT of the player tag. When the line is too
-    //    wide for the room left of the frame edge, first narrow the bubble to
-    //    fit (it wraps); only flip to the tag's LEFT side when even a minimum
-    //    width won't fit -- sliding it back inside the frame instead would
-    //    bury the speaker's own portrait.
+    // 1) Bubbles always attach to the RIGHT of the player tag. When the line
+    //    is too wide for the room left of the frame edge, narrow it so it
+    //    still fits on that side (it wraps instead of moving).
     if (r.right > vw - margin) {
       const room = Math.floor(vw - margin - r.left);
-      if (room >= MIN_SPEECH_WIDTH) b.style.setProperty("--speech-max", `${room}px`);
-      else b.classList.add("speech-flip");
-      r = b.getBoundingClientRect();
+      if (room >= MIN_SPEECH_WIDTH) {
+        b.style.setProperty("--speech-max", `${room}px`);
+        r = b.getBoundingClientRect();
+      }
     }
 
-    // 2) Horizontal viewport clamp for whatever still overhangs.
+    // 2) Still overhanging (a long line on the outermost seat): slide it
+    //    inside the frame AND raise it clear of the speaker's own avatar --
+    //    sliding alone used to drop the bubble onto their portrait. It stays
+    //    on the right, just higher.
     let nudge = 0;
     if (r.left < margin) nudge = margin - r.left;
     else if (r.right > vw - margin) nudge = (vw - margin) - r.right;
     if (nudge) {
       b.style.setProperty("--speech-nudge", `${Math.round(nudge)}px`);
+      lift = AVATAR_CLEARANCE;
+      b.style.setProperty("--speech-lift", `${lift}px`);
       r = b.getBoundingClientRect();
     }
 
     // 3) Lift above any OTHER seat plate it currently covers -- but only as
     //    far as the headroom allows, so clearing a neighbor can never push
     //    the bubble off the top of the frame.
-    let lift = 0;
+    let extra = 0;
     for (const { node, r: sr } of seatRects) {
       if (node === own) continue;
       const overlaps = r.left < sr.right && sr.left < r.right && r.top < sr.bottom && sr.top < r.bottom;
-      if (overlaps) lift = Math.max(lift, r.bottom - sr.top + 6);
+      if (overlaps) extra = Math.max(extra, r.bottom - sr.top + 6);
     }
-    lift = Math.min(lift, Math.max(0, r.top - margin));
-    if (lift > 0) {
+    extra = Math.min(extra, Math.max(0, r.top - margin));
+    if (extra > 0) {
+      lift += extra;
       b.style.setProperty("--speech-lift", `${Math.round(lift)}px`);
       r = b.getBoundingClientRect();
     }
