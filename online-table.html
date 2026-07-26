@@ -4738,9 +4738,9 @@
           font-size: 10.5px !important;
           font-weight: 800 !important;
           padding: 3px 9px 3px 7px !important;
-          color: #f2f4f5 !important;
-          background: rgba(6,9,8,0.8) !important;
-          border: 1px solid rgba(255,255,255,0.09) !important;
+          color: #f4ecd8 !important;
+          background: rgba(8,7,4,0.82) !important;
+          border: 1px solid rgba(236,178,86,0.24) !important;
         }
         .seat-bet::before {
           content: "";
@@ -4799,11 +4799,13 @@
         .board-flight-card__face .card { width: 100% !important; height: 100% !important; }
         #tableView {
           min-height: 100dvh;
-          /* Muted club room: dark panelled wall, one soft overhead light. */
+          /* Casino room in the house palette: dark walls, one warm overhead
+             lamp pooling gold light onto the table below. */
           background:
-            radial-gradient(ellipse 60% 30% at 50% 0%, rgba(210,225,205,0.10) 0%, transparent 66%),
-            repeating-linear-gradient(90deg, rgba(255,255,255,0.016) 0 2px, transparent 2px 170px),
-            linear-gradient(180deg, #1d241f 0%, #141a16 34%, #0d110e 70%, #080a09 100%) !important;
+            radial-gradient(ellipse 46% 26% at 50% 0%, rgba(236,190,110,0.13) 0%, rgba(236,190,110,0.04) 48%, transparent 72%),
+            radial-gradient(ellipse 70% 60% at 50% 55%, rgba(24,58,46,0.35) 0%, transparent 68%),
+            repeating-linear-gradient(90deg, rgba(255,255,255,0.014) 0 2px, transparent 2px 170px),
+            linear-gradient(180deg, #141814 0%, #0e120e 40%, #080b09 75%, #050706 100%) !important;
           position: relative;
           display: grid;
           grid-template-rows: auto minmax(0, 1fr) auto auto auto;
@@ -4899,38 +4901,43 @@
         }
 
         .table-surface {
-          width: min(96%, 1240px) !important;
-          height: 90% !important;
-          max-width: 1240px !important;
-          max-height: 390px !important;
+          /* A table you could stand next to: it sits IN the room with air on
+             every side, players ringing the rail, hero at the near edge. */
+          width: min(76%, 880px) !important;
+          height: 80% !important;
+          max-width: 880px !important;
+          max-height: 320px !important;
           aspect-ratio: auto !important;
-          border-radius: 46% / 49% !important;
-          /* Pro-client look: slim near-black leather rail, clean deep-green felt,
-             soft top sheen -- no ornament fighting the cards for attention. */
-          border: 9px solid #221912 !important;
+          border-radius: 48% / 50% !important;
+          /* House rail: dark walnut with the gold inlay this game wears
+             everywhere else. */
+          border: 11px solid #2a160b !important;
           background:
-            radial-gradient(ellipse 74% 46% at 50% 18%, rgba(255,255,255,0.05) 0%, transparent 58%),
-            radial-gradient(ellipse 100% 100% at 50% 46%, #2c7550 0%, #20603f 38%, #164a2f 68%, #103823 100%) !important;
+            url("assets/felt_portrait.png") center/cover,
+            radial-gradient(ellipse 76% 48% at 50% 16%, rgba(255,255,255,0.045) 0%, transparent 58%),
+            radial-gradient(ellipse 100% 100% at 50% 45%, #1d6b48 0%, #145838 40%, #0e3a28 72%, #092619 100%) !important;
           box-shadow:
-            inset 0 0 0 1.5px rgba(0,0,0,0.5),
-            inset 0 14px 44px rgba(0,0,0,0.34),
-            inset 0 -10px 34px rgba(0,0,0,0.3),
-            0 0 0 1px rgba(0,0,0,0.65),
-            0 22px 46px rgba(0,0,0,0.7) !important;
+            inset 0 0 0 2px rgba(226,169,76,0.30),
+            inset 0 0 0 10px rgba(0,0,0,0.22),
+            inset 0 16px 50px rgba(0,0,0,0.38),
+            inset 0 -12px 36px rgba(0,0,0,0.32),
+            0 0 0 2px rgba(216,152,58,0.18),
+            0 0 0 6px #170d06,
+            0 26px 52px rgba(0,0,0,0.72) !important;
         }
 
         .table-surface::after {
           content: "";
           position: absolute;
-          inset: 10px;
-          border-radius: 44% / 48%;
-          border: 1px solid rgba(255,255,255,0.055);
-          box-shadow: none;
+          inset: 9px;
+          border-radius: 46% / 49%;
+          border: 1px solid rgba(233,176,89,0.24);
+          box-shadow: inset 0 0 26px rgba(0,0,0,0.28);
           pointer-events: none;
           z-index: 1;
         }
 
-        .table-surface::before { border-radius: 44% / 48% !important; opacity: 0.08 !important; }
+        .table-surface::before { border-radius: 46% / 49% !important; opacity: 0.12 !important; }
         .dealer-deck { top: 31% !important; width: 30px; height: 44px; opacity: 0 !important; }
         .dealer-deck::before,
         .dealer-deck::after { opacity: 0 !important; }
@@ -4948,8 +4955,8 @@
           gap: 6px;
           padding: 4px 14px !important;
           border-radius: 999px;
-          background: rgba(5,8,7,0.62);
-          border: 1px solid rgba(255,255,255,0.07);
+          background: rgba(8,7,4,0.66);
+          border: 1px solid rgba(236,178,86,0.28);
           box-shadow: 0 4px 12px rgba(0,0,0,0.35);
         }
         .pot-label {
@@ -5005,8 +5012,9 @@
           box-shadow: 0 6px 16px rgba(0,0,0,0.5) !important;
         }
         .card-empty {
-          background: linear-gradient(180deg, rgba(255,255,255,0.15), rgba(222,218,207,0.08)) !important;
-          border: 1.5px solid rgba(246,237,214,0.24) !important;
+          background: rgba(255,255,255,0.05) !important;
+          border: 1.5px solid rgba(233,176,89,0.16) !important;
+          box-shadow: none !important;
         }
 
         .seat-node {
@@ -5015,12 +5023,12 @@
           max-width: 112px;
           padding: 3px 10px 5px !important;
           gap: 1px !important;
-          /* Pro-client seat: the avatar floats above a clean dark info pill --
-             no gold boxes, the felt stays quiet around the players. */
-          border: 1px solid rgba(255,255,255,0.09) !important;
+          /* House seat: avatar floating above a warm dark pill with the
+             game's gold-dim edge -- casino composition, our identity. */
+          border: 1px solid rgba(236,178,86,0.30) !important;
           border-radius: 14px !important;
-          background: linear-gradient(180deg, rgba(17,20,22,0.94), rgba(10,12,13,0.97)) !important;
-          box-shadow: 0 6px 18px rgba(0,0,0,0.55) !important;
+          background: linear-gradient(180deg, rgba(20,17,11,0.94), rgba(11,9,6,0.97)) !important;
+          box-shadow: 0 6px 18px rgba(0,0,0,0.55), inset 0 0 0 1px rgba(255,214,128,0.05) !important;
           animation: none !important;
           text-align: center;
           display: flex !important;
@@ -5038,9 +5046,9 @@
           min-width: 0 !important;
           max-width: none !important;
           min-height: 0 !important;
-          border: 1.5px dashed rgba(255,255,255,0.14) !important;
+          border: 1.5px dashed rgba(230,173,87,0.28) !important;
           border-radius: 50% !important;
-          background: rgba(0,0,0,0.2) !important;
+          background: rgba(0,0,0,0.24) !important;
           padding: 0 !important;
         }
 
@@ -5049,8 +5057,8 @@
           height: 46px;
           margin-top: -30px;
           font-size: 12px;
-          border: 2px solid rgba(10,12,13,0.95);
-          box-shadow: 0 0 0 1px rgba(255,255,255,0.16), 0 4px 12px rgba(0,0,0,0.5);
+          border: 2px solid rgba(12,10,6,0.95);
+          box-shadow: 0 0 0 1px rgba(236,178,86,0.35), 0 4px 12px rgba(0,0,0,0.5);
         }
         /* The turn lights the PLAYER (avatar ring), not a box. */
         .seat-node.active-turn {
@@ -5078,7 +5086,7 @@
         .seat-node.bot-seat .seat-name {
           font-size: 9.5px !important;
           font-weight: 600 !important;
-          color: #c7cdd2 !important;
+          color: #cfc4a8 !important;
           max-width: 132px;
           text-shadow: 0 1px 1px rgba(0,0,0,0.4);
         }
@@ -5086,7 +5094,7 @@
           font-size: 11.5px !important;
           font-weight: 800 !important;
           text-align: center;
-          color: #f4f6f7 !important;
+          color: #f6ecd2 !important;
         }
         .seat-stack::before {
           content: "";
@@ -5486,9 +5494,9 @@
           font-size: 10.5px !important;
           font-weight: 800 !important;
           padding: 3px 9px 3px 7px !important;
-          color: #f2f4f5 !important;
-          background: rgba(6,9,8,0.8) !important;
-          border: 1px solid rgba(255,255,255,0.09) !important;
+          color: #f4ecd8 !important;
+          background: rgba(8,7,4,0.82) !important;
+          border: 1px solid rgba(236,178,86,0.24) !important;
         }
         .seat-bet::before {
           content: "";
@@ -5908,6 +5916,6 @@
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
     <script src="./online/table_fx_geometry.js?v=203"></script>
-    <script type="module" src="./online/table_app.js?v=282"></script>
+    <script type="module" src="./online/table_app.js?v=283"></script>
   </body>
 </html>
