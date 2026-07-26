@@ -3645,18 +3645,11 @@ function getActionPopupAnchor(pos = {}) {
 }
 
 function getReactionPopupAnchor(pos = {}, { speech = false } = {}) {
-  // Chat speech bubbles: in landscape every seat hugs the rim, so bubbles
-  // hang BESIDE the speaker's pill (never above -- clips off-screen at the
-  // top; never centered on the felt). Left-half speakers bubble to their
-  // right, right-half speakers to their left, always staying next to the
-  // player. Portrait keeps the classic over-the-head bubble.
-  if (speech) {
-    if (isLandscape()) {
-      const pxS = Number.parseFloat(pos.x);
-      return Number.isFinite(pxS) && pxS >= 55 ? "left" : "right";
-    }
-    return "above";
-  }
+  // Chat speech bubbles always sit ABOVE the speaker, out toward the frame
+  // edge -- the free room above the rail, never across the felt or on the
+  // board. clampSpeechBubbles() then leans them sideways off their own
+  // avatar and pins them inside the frame.
+  if (speech) return "above";
   // Emoji reactions: top seats bubble BELOW (clear of their flipped cards),
   // everyone else ABOVE.
   const py = Number.parseFloat(pos.y);
@@ -3678,13 +3671,20 @@ function buildActionPopup(copy, { hero = false, anchor = "above" } = {}) {
   return popup;
 }
 
-function buildReactionPopup(reaction, { hero = false, anchor = "above" } = {}) {
+function buildReactionPopup(reaction, { hero = false, anchor = "above", seatX = NaN } = {}) {
   if (!reaction?.emoji && !reaction?.text) return null;
   const popup = document.createElement("div");
   popup.className = hero
     ? "seat-reaction-popup hero-reaction-popup"
     : `seat-reaction-popup seat-reaction-popup--${anchor}`;
   if (reaction?.speech) popup.classList.add("seat-reaction-popup--speech");
+  // Lean the bubble off its own avatar, AWAY from the table's center: the
+  // plate stays readable, the bubble lands in open room by the frame edge
+  // instead of over the felt, and neighbouring speakers' bubbles diverge
+  // rather than colliding. The dead-center seat leans right.
+  if (reaction?.speech && !hero && Number.isFinite(seatX)) {
+    popup.classList.add(seatX >= 50 ? "speech-lean-right" : "speech-lean-left");
+  }
   if (reaction?.speech && reaction?.thought) popup.classList.add("speech-thought");
   if (reaction?.speech && reaction?.fading) popup.classList.add("speech-fading");
   if (reaction?.speech && reaction?.typing) popup.classList.add("speech-typing");
@@ -7539,6 +7539,7 @@ function renderSeats() {
       if (reactionData && Date.now() < reactionData.until && (!hand?.id || !reactionData.handId || reactionData.handId === hand.id)) {
         const reactionBubble = buildReactionPopup(reactionData, {
           anchor: getReactionPopupAnchor(pos, { speech: Boolean(reactionData.speech) }),
+          seatX: Number.parseFloat(pos.x),
         });
         if (reactionBubble) {
           node.appendChild(reactionBubble);
@@ -7614,9 +7615,11 @@ function clampSpeechBubbles() {
     .map((n) => ({ node: n, r: n.getBoundingClientRect() }));
   document.querySelectorAll(".seat-reaction-popup--speech").forEach((b) => {
     const own = b.closest(".seat-node");
-    // Reset to the baseline "above" position before measuring.
-    b.style.transform = "translateX(-50%)";
-    b.style.bottom = "";
+    // The bubble's own CSS owns its base position (gap above the plate plus
+    // the sideways lean); this pass only writes the two correction vars, so
+    // reset them before measuring.
+    b.style.setProperty("--speech-nudge", "0px");
+    b.style.setProperty("--speech-lift", "0px");
     let r = b.getBoundingClientRect();
 
     // 1) Horizontal viewport clamp.
@@ -7624,18 +7627,30 @@ function clampSpeechBubbles() {
     if (r.left < margin) nudge = margin - r.left;
     else if (r.right > vw - margin) nudge = (vw - margin) - r.right;
     if (nudge) {
-      b.style.transform = `translateX(calc(-50% + ${Math.round(nudge)}px))`;
+      b.style.setProperty("--speech-nudge", `${Math.round(nudge)}px`);
       r = b.getBoundingClientRect();
     }
 
-    // 2) Lift above any OTHER seat plate it currently covers.
+    // 2) Lift above any OTHER seat plate it currently covers -- but only as
+    //    far as the headroom allows, so clearing a neighbor can never push
+    //    the bubble off the top of the frame.
     let lift = 0;
     for (const { node, r: sr } of seatRects) {
       if (node === own) continue;
       const overlaps = r.left < sr.right && sr.left < r.right && r.top < sr.bottom && sr.top < r.bottom;
       if (overlaps) lift = Math.max(lift, r.bottom - sr.top + 6);
     }
-    if (lift > 0) b.style.bottom = `calc(100% + 8px + ${Math.round(lift)}px)`;
+    lift = Math.min(lift, Math.max(0, r.top - margin));
+    if (lift > 0) {
+      b.style.setProperty("--speech-lift", `${Math.round(lift)}px`);
+      r = b.getBoundingClientRect();
+    }
+
+    // 3) Top-edge clamp: rim seats have little room overhead, so pull the
+    //    bubble back DOWN by whatever it overhangs. The sideways lean keeps
+    //    it off the speaker's own plate as it descends.
+    const over = margin - r.top;
+    if (over > 0) b.style.setProperty("--speech-lift", `${Math.round(lift - over)}px`);
   });
 }
 
