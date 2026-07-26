@@ -4952,26 +4952,18 @@
         .table-center { gap: 6px !important; top: 50% !important; }
         /* Pot reads as ONE quiet pill above the board -- pro-client style. */
         .pot-display {
+          /* Same look as portrait: bare chip stack + gold amount on the
+             felt, no dark disc. */
           margin-top: 0 !important;
-          display: inline-flex !important;
+          display: flex !important;
+          flex-direction: column;
           align-items: center;
-          gap: 6px;
-          padding: 4px 14px !important;
-          border-radius: 999px;
-          background: rgba(8,7,4,0.66);
-          border: 1px solid rgba(236,178,86,0.28);
-          box-shadow: 0 4px 12px rgba(0,0,0,0.35);
-        }
-        .pot-label {
-          font-size: 10px !important;
-          letter-spacing: 0.12em;
-          color: #b9c4bd !important;
-        }
-        .pot-stack-art { display: none !important; }
-        .pot-amount {
-          font-size: 13.5px !important;
-          font-weight: 900 !important;
-          color: #f5f7f6 !important;
+          gap: 3px;
+          padding: 0 !important;
+          border-radius: 0;
+          background: transparent !important;
+          border: none !important;
+          box-shadow: none !important;
         }
         .pot-breakdown {
           grid-area: meta;
@@ -5370,13 +5362,12 @@
         }
 
         .action-strip {
-          /* Bottom bar flanking the hero: Fold/Call sit left of the hero's
-             cards, Raise/All-in right of the nameplate (the flex spacer on
-             .astrip-raise bridges the hero zone). The old left-side column
-             buried whichever seat sat on the left rail. */
+          /* 2x2 action block pinned to the bottom-left corner: Raise and
+             All-in on the top row, Fold (extreme left) and Call below.
+             The time bank breaks out of the grid to sit beside the hero. */
           position: absolute;
-          left: max(12px, calc(env(safe-area-inset-left) + 12px));
-          right: max(12px, calc(env(safe-area-inset-right) + 12px));
+          left: max(8px, calc(env(safe-area-inset-left) + 8px));
+          right: max(8px, calc(env(safe-area-inset-right) + 8px));
           /* Lift the strip above the iPhone home-indicator gesture bar so Fold
              isn't tapped in the swipe-to-switch-apps zone. */
           bottom: max(0px, env(safe-area-inset-bottom));
@@ -5384,9 +5375,12 @@
           width: auto;
           padding: 8px !important;
           gap: 7px !important;
-          display: flex;
-          flex-direction: row;
-          align-items: center;
+          display: grid;
+          grid-template-areas:
+            "raise allin ."
+            "fold  call  .";
+          grid-template-columns: minmax(72px, auto) minmax(72px, auto) 1fr;
+          align-items: stretch;
           background: transparent !important;
           border: none !important;
           border-radius: 0 !important;
@@ -5395,8 +5389,7 @@
         }
 
         .astrip-btn {
-          width: auto;
-          flex: 0 0 auto;
+          width: 100%;
           pointer-events: auto;
           font-size: 11px;
           padding: 8px 14px;
@@ -5404,8 +5397,22 @@
           border-radius: 999px !important;
           letter-spacing: 0.04em;
         }
-        /* Spacer: push Raise + All-in to the right of the hero zone. */
-        .astrip-raise { margin-left: auto; }
+        .astrip-raise { grid-area: raise; }
+        .astrip-allin { grid-area: allin; }
+        .astrip-fold { grid-area: fold; }
+        .astrip-call { grid-area: call; }
+        /* Time bank sits beside the hero's nameplate, out of the grid flow.
+           Anchored off the strip's center (the strip spans the full width,
+           so its center tracks the hero) -- fixed positioning is unreliable
+           here because ancestor filters change its containing block. */
+        .astrip-time {
+          position: absolute;
+          left: 50%;
+          bottom: 10px;
+          transform: translateX(118px);
+          width: auto;
+          z-index: 24;
+        }
         .astrip-fold { background: linear-gradient(180deg, #9e2b2b, #6f1818) !important; color: #ffe8e8 !important; border: 1px solid rgba(255,130,130,0.28); box-shadow: inset 0 0 0 1px rgba(255,190,190,0.12), 0 6px 16px rgba(0,0,0,0.35); }
         .astrip-call { background: linear-gradient(180deg, #21744a, #0f5732) !important; color: #ebfff1 !important; padding: 8px 10px !important; font-size: 13px !important; font-weight: 800 !important; border: 1px solid rgba(120,255,175,0.22); box-shadow: inset 0 0 0 1px rgba(170,255,210,0.12), 0 6px 16px rgba(0,0,0,0.35); min-width: 0; max-width: none; text-align: center; }
         .astrip-raise { background: linear-gradient(180deg, #91671f, #6d4a15) !important; color: #fff5dd !important; border: 1px solid rgba(255,210,125,0.25); box-shadow: inset 0 0 0 1px rgba(255,240,198,0.1), 0 6px 16px rgba(0,0,0,0.35); }
@@ -5415,9 +5422,9 @@
 
         .preset-row {
           position: absolute;
-          left: auto;
-          right: max(12px, calc(env(safe-area-inset-right) + 12px));
-          bottom: calc(max(0px, env(safe-area-inset-bottom)) + 54px);
+          left: max(8px, calc(env(safe-area-inset-left) + 8px));
+          right: auto;
+          bottom: calc(max(0px, env(safe-area-inset-bottom)) + 98px);
           z-index: 24;
           width: 172px;
           display: grid;
@@ -5934,7 +5941,7 @@
     <div class="voice-audio-rack" id="voiceAudioRack" aria-hidden="true"></div>
 
     <script src="https://unpkg.com/@daily-co/daily-js@0.87.0/dist/daily.js"></script>
-    <script src="./online/table_fx_geometry.js?v=291"></script>
-    <script type="module" src="./online/table_app.js?v=291"></script>
+    <script src="./online/table_fx_geometry.js?v=292"></script>
+    <script type="module" src="./online/table_app.js?v=292"></script>
   </body>
 </html>
